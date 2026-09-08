@@ -1,35 +1,56 @@
-# Environment files
+# Environment and secrets
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
 
 # Dependencies
 node_modules/
 vendor/
-
-# Python environments and caches
-__pycache__/
-*.py[cod]
 .venv/
 venv/
 env/
+__pycache__/
+*.py[cod]
+
+# Python tooling caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
 
-# Build and test output
-dist/
+# Build outputs
 build/
+dist/
 coverage/
 htmlcov/
-.coverage
 *.tsbuildinfo
+*.coverage
+.coverage
 
-# Application runtime data
-storage/
-bootstrap/cache/
+# Laravel runtime and logs
+backend-laravel/storage/
+backend-laravel/bootstrap/cache/
+backend-laravel/public/hot
+backend-laravel/.phpunit.result.cache
 *.log
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local database dumps and inspection files
+*.sql
+*.dump
+*.bak
 
 # Package manager logs
 npm-debug.log*
@@ -37,11 +58,3 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-
-# Local IDE and operating-system files
-.idea/
-.vscode/
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
