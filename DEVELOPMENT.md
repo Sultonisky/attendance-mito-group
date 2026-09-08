@@ -150,6 +150,14 @@ php artisan test
 Format code:
 
 ./vendor/bin/pint
+
+Verify infrastructure (PostgreSQL, PostGIS, Redis, cache, queue, AI service):
+
+php artisan infra:check
+
+Dispatch and process a queue smoke-test job (requires QUEUE_CONNECTION=redis and a running worker-capable Redis connection):
+
+php artisan infra:queue-test
 ## 8. Frontend Setup
 cd frontend
 npm install

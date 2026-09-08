@@ -394,3 +394,63 @@ Laravel validates.
 Laravel decides.
 PostgreSQL persists.
 ```
+
+## 23. Infrastructure Health Endpoints
+
+Health endpoints are unauthenticated and must not return sensitive
+infrastructure details (no credentials, no stack traces, no internal network
+information, no environment secrets).
+
+### Application health
+
+```text
+GET /api/v1/health
+```
+
+Response:
+
+```json
+{
+    "status": "ok",
+    "service": "laravel-api"
+}
+```
+
+### Laravel -> FastAPI communication health
+
+```text
+GET /api/v1/ai-health
+```
+
+Response when the AI service is available:
+
+```json
+{
+    "laravel": "ok",
+    "ai": {
+        "status": "ok",
+        "service": "attendance-ai"
+    }
+}
+```
+
+When the AI service is not available, the endpoint returns 503 with an
+explicit failure state (`unavailable`, `timeout`, or `invalid_response`) and
+never leaks internal exceptions:
+
+```json
+{
+    "message": "AI service is not available.",
+    "laravel": "ok",
+    "ai_status": "unavailable"
+}
+```
+
+### Deep infrastructure verification
+
+Deep checks (PostgreSQL, PostGIS, Redis, cache round trip, queue connection,
+AI service) are performed by the console command:
+
+```text
+php artisan infra:check
+```
