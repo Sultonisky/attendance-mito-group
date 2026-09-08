@@ -1,25 +1,33 @@
+# Environment files
+.env.*
+!.env.example
+
+# Logs and local test output
 *.log
-.DS_Store
-.env
-.env.backup
-.env.production
-.phpactor.json
 .phpunit.result.cache
+/.phpunit.cache
+
+# Frontend dependencies and build output
+/node_modules
+/public/build
+/public/hot
+
+# Laravel runtime files
+/public/storage
+/storage/*.key
+/storage/pail
+
+# Local tools and IDE files
+.DS_Store
+.phpactor.json
 /.codex
 /.cursor/
 /.idea
 /.nova
-/.phpunit.cache
 /.vscode
 /.zed
 /auth.json
-/node_modules
-/public/build
 /public/fonts-manifest.dev.json
-/public/hot
-/public/storage
-/storage/*.key
-/storage/pail
 /vendor
 _ide_helper.php
 Homestead.json

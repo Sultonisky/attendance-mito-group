@@ -1,15 +1,47 @@
+# Environment files
 .env
 .env.*
 !.env.example
 
+# Dependencies
 node_modules/
 vendor/
+
+# Python environments and caches
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Build and test output
+dist/
+build/
+coverage/
+htmlcov/
+.coverage
+*.tsbuildinfo
+
+# Application runtime data
 storage/
 bootstrap/cache/
+*.log
 
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local IDE and operating-system files
 .idea/
 .vscode/
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
