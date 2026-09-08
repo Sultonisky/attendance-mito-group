@@ -35,4 +35,22 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Internal AI / CV Service (FastAPI)
+    |--------------------------------------------------------------------------
+    |
+    | FastAPI is an internal, specialized service responsible only for AI/CV
+    | facts (face verification, liveness, model inference). Laravel remains the
+    | business authority and decides what those facts mean for the process.
+    |
+    | These values are consumed by App\Services\Integration\FastApiService.
+    |
+    */
+
+    'fastapi' => [
+        'base_url' => env('FASTAPI_BASE_URL', 'http://127.0.0.1:8001'),
+        'timeout' => (int) env('FASTAPI_TIMEOUT', 5),
+    ],
+
 ];
