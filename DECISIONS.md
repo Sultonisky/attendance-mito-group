@@ -303,6 +303,24 @@ attendance = ACCEPTED
 
 Business policy belongs to the application domain, not the AI model.
 
-```
+## ADR-018 — Spatie Permissions Exposed Through Gate With Centralized Super Admin Bypass
 
-```
+### Decision
+
+Authorization is enforced through Laravel Gate:
+
+* Every Spatie permission (`module.action`) is registered as a Gate ability
+  from the database, keeping permissions dynamic.
+* SUPER_ADMIN wildcard access is implemented once via `Gate::before(...)` in
+  `AppServiceProvider`. No role/permission checks are scattered through
+  controllers.
+* Permission-protected routes prefer `->middleware('can:permission.name')`
+  so the Super Admin bypass applies consistently.
+* Roles ADMIN and USER always require explicitly assigned permissions; a
+  user with no permissions has no runtime permissions.
+
+### Reason
+
+A single centralized authorization entry point prevents duplicated role
+checks, keeps Super Admin semantics in one place, and preserves the
+documented flow: Middleware -> Gate/Policy -> Controller -> Action.

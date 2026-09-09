@@ -454,3 +454,100 @@ AI service) are performed by the console command:
 ```text
 php artisan infra:check
 ```
+
+## 24. Authentication API
+
+First-party SPA authentication uses Laravel Sanctum with session/cookie
+based authentication. No JWT, bearer tokens, or custom token tables exist.
+
+### CSRF initialization
+
+```text
+GET /sanctum/csrf-cookie
+```
+
+Handled by Sanctum. Must be called before the first mutating request of a
+session. Do not wrap it under `/api/v1`.
+
+### Login
+
+```text
+POST /api/v1/login
+```
+
+Request body:
+
+```json
+{
+    "email": "user@example.com",
+    "password": "..."
+}
+```
+
+Response (200):
+
+```json
+{
+    "success": true,
+    "message": "Authenticated successfully.",
+    "data": {
+        "user": {
+            "id": 1,
+            "name": "Example User",
+            "email": "user@example.com",
+            "roles": ["USER"],
+            "permissions": ["dashboard.view"]
+        }
+    }
+}
+```
+
+Errors:
+
+* 422 — validation errors (including invalid credentials; never 500).
+* 419 — CSRF token missing/invalid (session initialization skipped).
+
+Passwords, password hashes, remember tokens, and session identifiers are
+never returned.
+
+### Auth me
+
+```text
+GET /api/v1/auth/me
+```
+
+Requires authentication. Returns the same safe user payload as login.
+
+Errors:
+
+* 401 — unauthenticated.
+
+### Logout
+
+```text
+POST /api/v1/logout
+```
+
+Requires authentication. Invalidates the session and regenerates the CSRF
+token. Response (200):
+
+```json
+{
+    "success": true,
+    "message": "Logged out successfully."
+}
+```
+
+## 25. Authorization
+
+Backend authorization is authoritative. Permission-protected endpoints use
+Laravel Gate abilities derived from Spatie permissions:
+
+* SUPER_ADMIN bypasses permission checks centrally via `Gate::before`.
+* Roles ADMIN and USER require explicitly assigned permissions
+  (`module.action` naming convention).
+* Authorization failures return 403 with a clean JSON message; no stack
+  traces or permission names are leaked.
+
+Unauthenticated requests return 401; authenticated but unauthorized requests
+return 403; validation failures return 422.

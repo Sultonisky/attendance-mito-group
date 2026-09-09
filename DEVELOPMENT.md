@@ -158,6 +158,47 @@ php artisan infra:check
 Dispatch and process a queue smoke-test job (requires QUEUE_CONNECTION=redis and a running worker-capable Redis connection):
 
 php artisan infra:queue-test
+
+## 7.1 Authentication Development Notes
+
+Authentication uses Laravel Sanctum with first-party SPA session/cookie flow:
+
+* CSRF initialization: GET /sanctum/csrf-cookie
+* Login: POST /api/v1/login
+* Current user: GET /api/v1/auth/me
+* Logout: POST /api/v1/logout
+
+Required environment values (see backend .env.example):
+
+* SANCTUM_STATEFUL_DOMAINS must include the SPA origin
+  (localhost:5173,127.0.0.1:5173 for local development).
+* SESSION_DRIVER=redis, SESSION_DOMAIN=null, CORS allows the SPA origin with
+  credentials.
+
+RBAC uses spatie/laravel-permission with roles SUPER_ADMIN, ADMIN, and USER:
+
+* SUPER_ADMIN bypasses permission checks centrally via Gate::before.
+* ADMIN and USER require explicitly assigned permissions.
+* Permissions use the module.action naming convention and are seeded by
+  Database\Seeders\RolesAndPermissionsSeeder (idempotent).
+
+Development-only credentials (local environment only, password: "password"):
+
+* superadmin@example.com (SUPER_ADMIN)
+* admin@example.com (ADMIN)
+* user@example.com (USER)
+* permless@example.com (no role, no permissions — used to verify denials)
+
+These accounts exist only after running `php artisan db:seed` in a
+non-production environment. Never reuse them in staging/production.
+
+Route protection should prefer Gate abilities:
+
+```php
+Route::get('/example', ...)->middleware('can:employees.view');
+```
+
+so the centralized Super Admin bypass applies consistently.
 ## 8. Frontend Setup
 cd frontend
 npm install
