@@ -346,6 +346,16 @@ This checklist is project-wide and is not organized as implementation phases.
 
 ---
 
+## 23.1 Test Database Strategy
+
+- [ ] Default `php artisan test` uses SQLite memory
+- [ ] Automated tests never mutate development PostgreSQL
+- [ ] PostgreSQL integration tests use dedicated test DB
+- [ ] PostGIS integration tests remain available
+- [ ] Development runtime remains PostgreSQL/PostGIS
+
+---
+
 ## 24. Dependency Management
 
 - [ ] Every package has a clear purpose.

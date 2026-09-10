@@ -259,17 +259,66 @@ for required environment variable documentation.
 
 ## 12. Testing
 
-Run all tests:
+### Default Test Database — SQLite :memory:
 
+The default automated test suite uses SQLite in-memory:
+
+```bash
+php artisan test
+```
+
+Configuration:
+
+```env
+DB_CONNECTION=sqlite
+DB_DATABASE=:memory:
+```
+
+This provides fast execution without external database dependencies, CI-friendly isolation (no PostgreSQL required), and ensures no mutation of development data.
+
+### Development Runtime Database — PostgreSQL + PostGIS
+
+The Laravel application runtime uses PostgreSQL 17 + PostGIS:
+
+```env
+DB_CONNECTION=pgsql
+DB_DATABASE=attendance_mito
+```
+
+This is configured in `.env`, NOT in `.env.testing`.
+
+### PostgreSQL/PostGIS Integration Tests
+
+PostgreSQL-specific integration tests use a dedicated test database:
+
+```bash
+php artisan test --testsuite=PostgreSQL
+```
+
+Or explicitly:
+
+```bash
+./vendor/bin/phpunit -c phpunit.postgres.xml
+```
+
+This targets `attendance_mito_test`, NEVER `attendance_mito`.
+
+### Why Separate Databases?
+
+SQLite in-memory is chosen because it is fast, requires no PostgreSQL service, and is CI-friendly. PostgreSQL-specific behavior (PostGIS, geography, GIST indexes) is validated explicitly in a separate integration suite rather than silently skipped.
+
+### Running Tests
+
+```bash
+# Default suite (SQLite, fast, portable)
 php artisan test
 
-Run a specific test:
+# PostgreSQL integration suite (requires PostgreSQL + PostGIS)
+php artisan test --testsuite=PostgreSQL
 
+# Specific test filter
 php artisan test --filter=Attendance
-
-Frontend tests should be added according to the selected testing stack.
-
-Critical business rules must have automated tests.
+```
 
 ## 13. Dependency Compatibility
 

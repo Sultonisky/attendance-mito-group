@@ -303,24 +303,27 @@ attendance = ACCEPTED
 
 Business policy belongs to the application domain, not the AI model.
 
-## ADR-018 — Spatie Permissions Exposed Through Gate With Centralized Super Admin Bypass
+## ADR-019 — SQLite In-Memory for Default Automated Tests
 
 ### Decision
 
-Authorization is enforced through Laravel Gate:
+The default `php artisan test` suite uses SQLite in-memory.
 
-* Every Spatie permission (`module.action`) is registered as a Gate ability
-  from the database, keeping permissions dynamic.
-* SUPER_ADMIN wildcard access is implemented once via `Gate::before(...)` in
-  `AppServiceProvider`. No role/permission checks are scattered through
-  controllers.
-* Permission-protected routes prefer `->middleware('can:permission.name')`
-  so the Super Admin bypass applies consistently.
-* Roles ADMIN and USER always require explicitly assigned permissions; a
-  user with no permissions has no runtime permissions.
+Production and local development continue to use PostgreSQL 17 + PostGIS.
+
+PostgreSQL/PostGIS-specific integration tests are isolated and run explicitly
+against a dedicated PostgreSQL test database, not the development database.
 
 ### Reason
 
-A single centralized authorization entry point prevents duplicated role
-checks, keeps Super Admin semantics in one place, and preserves the
-documented flow: Middleware -> Gate/Policy -> Controller -> Action.
+- SQLite in-memory is fast and requires no external PostgreSQL service.
+- The default suite is CI-friendly and cannot accidentally mutate development data.
+- PostgreSQL-specific behavior (PostGIS, geography, GIST indexes, spatial
+  functions) is validated explicitly in an integration suite rather than being
+  silently skipped or weakened.
+
+### Consequences
+
+- Default tests remain portable and do not depend on PostgreSQL.
+- Production schema is not degraded to accommodate SQLite.
+- PostGIS integration tests must be run explicitly when PostgreSQL is available.

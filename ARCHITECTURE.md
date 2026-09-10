@@ -85,6 +85,15 @@ Constraints
 Transactions
 Aggregations
 Geospatial calculations
+
+Automated tests:
+SQLite in-memory for fast, portable application tests.
+
+Production/runtime:
+PostgreSQL + PostGIS for authoritative persistence.
+
+Database-specific integration:
+PostgreSQL + PostGIS for geography, GIST, and PostGIS function validation.
 Redis
 
 Responsible for:
