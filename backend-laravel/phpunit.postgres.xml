@@ -5,11 +5,8 @@
          colors="true"
 >
     <testsuites>
-        <testsuite name="Unit">
-            <directory>tests/Unit</directory>
-        </testsuite>
-        <testsuite name="Feature">
-            <directory>tests/Feature</directory>
+        <testsuite name="PostgreSQL">
+            <directory>tests/Integration/PostgreSQL</directory>
         </testsuite>
     </testsuites>
     <source>
@@ -20,16 +17,34 @@
     <php>
         <env name="APP_ENV" value="testing"/>
         <!--
-            Fixed test-only key: makes session/cookie encryption deterministic
-            on machines without a .env. NEVER use this value outside tests.
+            Fixed test-only key (same value as phpunit.xml). Safe to commit:
+            used only for session/cookie encryption inside integration tests.
+            NEVER copy this value into a real .env file.
         -->
         <env name="APP_KEY" value="base64:L798DnI+AaGiIccxWqMOHoi6U2Jqh90QyKVxYRFyNmc="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_CONNECTION" value="pgsql"/>
+        <env name="DB_HOST" value="127.0.0.1"/>
+        <env name="DB_PORT" value="5432"/>
+        <env name="DB_DATABASE" value="attendance_mito_test"/>
+        <!--
+            PostgreSQL integration credentials are intentionally NOT committed
+            here. Resolution order (Laravel Dotenv immutable):
+
+                OS environment (e.g. $env:DB_USERNAME) wins over
+                backend-laravel/.env (gitignored, local fallback).
+
+            Example (PowerShell):
+
+                $env:DB_USERNAME = 'postgres'
+                $env:DB_PASSWORD = 'secret'
+                vendor/bin/phpunit -c phpunit.postgres.xml
+
+            Never commit real passwords, tokens, or service credentials.
+        -->
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
