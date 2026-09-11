@@ -358,3 +358,37 @@ implementing complete domain engines:
 - Controllers remain thin.
 - Transaction boundaries are predictable.
 - The default test suite continues to use SQLite :memory:.
+
+## ADR-021 — Phase 6 Policy + Schedule Engine
+
+### Decision
+
+Phase 6 establishes the Policy and Schedule domain engines with the following
+characteristics:
+
+- **PolicyEngine** resolves the active policy for an employee on a given date
+  using `policy_assignments` effective date ranges.
+- **ScheduleEngine** resolves the active work schedule (and its shifts) for an
+  employee on a given date using `schedule_assignments` effective date ranges.
+- Both engines support historical and future date resolution.
+- Overlapping assignments throw domain exceptions (`AmbiguousPolicyAssignmentException`,
+  `AmbiguousScheduleAssignmentException`) rather than silently choosing one.
+- Inactive policies/schedules throw `InactivePolicyException` /
+  `InactiveScheduleException`.
+- No new database tables were created. Holiday and weekly off-day resolution
+  were not implemented because the current schema does not support them.
+
+### Reason
+
+- Deterministic policy/schedule resolution is a prerequisite for the Attendance
+  Engine.
+- Effective-date-aware assignments already exist in the schema; the engines
+  make the resolution logic explicit and testable.
+- Ambiguous resolution must fail safely to prevent silent attendance errors.
+
+### Consequences
+
+- Phase 7 Attendance Engine can consume `PolicyResolutionData` and
+  `ScheduleResolutionData`.
+- The default test suite continues to use SQLite :memory:.
+- Holiday/off-day resolution requires schema additions in a future phase.

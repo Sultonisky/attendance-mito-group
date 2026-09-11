@@ -361,7 +361,42 @@ with an `AuditRecordData` DTO. The action wraps persistence in a transaction.
 Use Laravel's date/time tooling consistently. Freeze time in tests via
 `Carbon::setTestNow()`.
 
-## 14. Dependency Compatibility
+## 14. Phase 6 — Policy + Schedule Engine
+
+### Policy Engine
+
+The Policy Engine resolves the applicable attendance policy for an employee
+on a specific date using `App\Domain\Policy\Engines\PolicyEngine`.
+
+Resolution is date-aware and respects `effective_from` / `effective_to`
+on `policy_assignments`. Only policies with status `active` are considered
+applicable.
+
+### Schedule Engine
+
+The Schedule Engine resolves the applicable work schedule (and its shifts)
+for an employee on a specific date using `App\Domain\Schedule\Engines\ScheduleEngine`.
+
+Resolution is date-aware and respects `effective_from` / `effective_to`
+on `schedule_assignments`. Only schedules with status `active` are considered
+applicable. Shift data (including `cross_midnight`) is preserved as stored.
+
+### Conflict Handling
+
+Overlapping assignments for the same employee are treated as ambiguous and
+throw domain exceptions:
+- `AmbiguousPolicyAssignmentException`
+- `AmbiguousScheduleAssignmentException`
+
+The engines do not silently choose one assignment based on `id`,
+`created_at`, or arbitrary precedence.
+
+### Holiday / Off-Day Note
+
+The current database schema does not contain a holidays table or day-of-week
+pattern. Holiday and weekly off-day resolution are not implemented in Phase 6.
+
+## 15. Dependency Compatibility
 
 Current baseline:
 
@@ -382,7 +417,7 @@ Never use:
 
 to bypass dependency compatibility.
 
-## 14. Debugging
+## 16. Debugging
 
 When an issue occurs:
 
@@ -406,7 +441,7 @@ php artisan migrate:status
 Clear development caches:
 
 php artisan optimize:clear
-## 15. Database Debugging
+## 17. Database Debugging
 
 Verify PostgreSQL:
 
@@ -423,7 +458,7 @@ SELECT current_database();
 Check extension:
 
 SELECT extname FROM pg_extension;
-## 16. Git Hygiene
+## 18. Git Hygiene
 
 Before committing:
 
@@ -456,7 +491,7 @@ Define acceptance criteria.
 Implement minimally.
 Run tests.
 Review diff.
-## 18. Local Smoke Test
+## 19. Local Smoke Test
 
 Verify:
 
@@ -485,7 +520,7 @@ Cache / Queue / Lock
 Finally verify:
 
 SELECT PostGIS_Version();
-## 19. Production Preparation
+## 20. Production Preparation
 
 Before deployment:
 
@@ -501,7 +536,7 @@ php artisan view:cache
 
 Do not blindly clear individual caches if optimize:clear is already used appropriately.
 
-## 20. Important Development Principle
+## 21. Important Development Principle
 
 Development speed must never override architecture.
 

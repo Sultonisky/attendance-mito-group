@@ -370,6 +370,26 @@ This checklist is project-wide and is not organized as implementation phases.
 
 ---
 
+## 23.3 Phase 6 — Policy + Schedule Engine
+
+- [x] PolicyEngine resolves active policy by employee and date
+- [x] ScheduleEngine resolves active schedule by employee and date
+- [x] Effective dates are respected (effective_from / effective_to)
+- [x] Open-ended assignments resolve correctly
+- [x] Future assignments do not override current assignments
+- [x] Historical resolution works
+- [x] Overlapping assignments throw ambiguous exceptions
+- [x] Inactive policy/schedule throws exception
+- [x] No-policy / no-schedule results are explicit
+- [x] Cross-midnight shift data is preserved
+- [x] Factories created for deterministic tests
+- [x] Domain tests cover PolicyEngine and ScheduleEngine
+- [x] No Phase 7+ business logic implemented
+- [x] No schema changes required
+- [x] Documentation updated
+
+---
+
 ## 24. Dependency Management
 
 - [ ] Every package has a clear purpose.

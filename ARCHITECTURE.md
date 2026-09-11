@@ -520,3 +520,69 @@ inside Actions, not in controllers, routes, or models.
 Use Laravel's supported date/time tooling consistently. Future tests must
 be able to freeze/control time via `Carbon::setTestNow()`.
 
+## 20. Phase 6 — Policy + Schedule Engine
+
+### Policy Domain
+
+```text
+Employee
+   │
+   ▼
+PolicyAssignment
+   │
+   ▼
+PolicyEngine
+   │
+   ▼
+Policy (active/inactive/draft/expired)
+```
+
+The Policy Engine answers: "What policy applies to employee X on date Y?"
+
+Resolution rules:
+- Find assignments where `effective_from <= date` and (`effective_to` is null or `effective_to >= date`).
+- Zero matches → explicit no-policy result (`PolicyResolutionData` with `hasPolicy() === false`).
+- Multiple overlapping matches → `AmbiguousPolicyAssignmentException`.
+- Single match with inactive policy → `InactivePolicyException`.
+- Single match with active policy → `PolicyResolutionData` with the policy.
+
+### Schedule Domain
+
+```text
+Employee
+   │
+   ▼
+ScheduleAssignment
+   │
+   ▼
+ScheduleEngine
+   │
+   ▼
+WorkSchedule (with Shifts)
+```
+
+The Schedule Engine answers: "What schedule/shift applies to employee X on date Y?"
+
+Resolution rules:
+- Find assignments where `effective_from <= date` and (`effective_to` is null or `effective_to >= date`).
+- Zero matches → explicit no-schedule result (`ScheduleResolutionData` with `hasSchedule() === false`).
+- Multiple overlapping matches → `AmbiguousScheduleAssignmentException`.
+- Single match with inactive schedule → `InactiveScheduleException`.
+- Single match with active schedule → `ScheduleResolutionData` with the schedule and its shifts.
+
+### Effective Date Handling
+
+Both engines support historical and future resolution using explicit `CarbonImmutable` date inputs. The engines query `effective_from` / `effective_to` directly; they do not use `created_at` or `latest()` for resolution.
+
+### Conflict Handling
+
+Overlapping assignments are treated as ambiguous. The engines throw domain exceptions rather than silently choosing one assignment based on `id`, `created_at`, or arbitrary precedence.
+
+### Shift Resolution
+
+The current schema supports `cross_midnight` shifts. The Schedule Engine preserves shift data as stored; it does not normalize or recalculate shift times. Attendance Engine (Phase 7) will consume shift data.
+
+### Holiday / Off-Day Note
+
+The current database schema does not contain a holidays table or day-of-week pattern. Holiday and weekly off-day resolution are not implemented in Phase 6. The Schedule Engine returns what the existing schema supports: schedule presence or absence.
+
