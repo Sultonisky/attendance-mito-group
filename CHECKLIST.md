@@ -390,6 +390,34 @@ This checklist is project-wide and is not organized as implementation phases.
 
 ---
 
+## 23.4 Phase 7 — Attendance Engine
+
+- [x] AttendanceEngine coordinates check-in/check-out
+- [x] CheckInEmployee and CheckOutEmployee Actions own transaction boundaries
+- [x] Employee validation (active, not ended)
+- [x] Policy resolution integrated via PolicyEngine
+- [x] Schedule resolution integrated via ScheduleEngine
+- [x] GPS validation rule implemented
+- [x] PostGIS geofence validation implemented
+- [x] Attendance state rule implemented
+- [x] Late detection rule implemented
+- [x] Early checkout detection rule implemented
+- [x] Cross-midnight shift handling implemented
+- [x] Duplicate check-in prevented (DB constraint + domain exception)
+- [x] Open session handling implemented
+- [x] Multiple sessions supported
+- [x] Transaction atomicity enforced
+- [x] Audit integration via RecordAuditAction
+- [x] API endpoints implemented (check-in, check-out)
+- [x] Domain tests cover rules and engine
+- [x] Feature tests cover API, authorization, and error cases
+- [x] PostgreSQL/PostGIS integration tests pass
+- [x] No Face AI implemented
+- [x] No Leave/Overtime/Penalty/Monthly Recap implemented
+- [x] Documentation updated
+
+---
+
 ## 24. Dependency Management
 
 - [ ] Every package has a clear purpose.

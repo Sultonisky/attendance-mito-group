@@ -396,7 +396,52 @@ The engines do not silently choose one assignment based on `id`,
 The current database schema does not contain a holidays table or day-of-week
 pattern. Holiday and weekly off-day resolution are not implemented in Phase 6.
 
-## 15. Dependency Compatibility
+## 15. Phase 7 — Attendance Engine
+
+### Check-in / Check-out
+
+Attendance operations are performed through Actions:
+- `App\Actions\Attendance\CheckInEmployee`
+- `App\Actions\Attendance\CheckOutEmployee`
+
+Both wrap the engine in `DB::transaction()` for atomicity.
+
+### Attendance Engine
+
+`App\Domain\Attendance\Engines\AttendanceEngine` coordinates:
+- Employee validation (active, not ended)
+- Policy resolution via `PolicyEngine`
+- Schedule resolution via `ScheduleEngine`
+- GPS validation via `GpsValidationRule`
+- Geofence validation via `GeofenceRule`
+- Attendance state via `AttendanceStateRule`
+- Late detection via `LateDetectionRule`
+- Early checkout detection via `EarlyCheckoutRule`
+
+### Cross-Midnight Handling
+
+The engine determines the work date based on the resolved shift:
+- If shift is `cross_midnight` and current time < shift end time, the work date is the previous calendar day.
+- Otherwise, the work date is the current calendar day.
+
+### Concurrency / Idempotency
+
+- Database unique constraint on `attendance_records(employee_id, attendance_date)` prevents duplicate records.
+- Open session check prevents duplicate check-ins.
+- `UniqueConstraintViolationException` is caught and converted to `AttendanceAlreadyCheckedInException`.
+
+### PostGIS Geofence
+
+Geofence validation uses PostGIS `ST_DWithin` for PostgreSQL and falls back to Haversine distance for SQLite. Integration tests run against `attendance_mito_test` with real PostGIS.
+
+### API Endpoints
+
+- `POST /api/v1/attendance/check-in`
+- `POST /api/v1/attendance/check-out`
+
+Both require `auth:sanctum` and return JSON per `API-CONTRACT.md`.
+
+## 16. Dependency Compatibility
 
 Current baseline:
 

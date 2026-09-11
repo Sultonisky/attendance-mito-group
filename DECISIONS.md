@@ -392,3 +392,42 @@ characteristics:
   `ScheduleResolutionData`.
 - The default test suite continues to use SQLite :memory:.
 - Holiday/off-day resolution requires schema additions in a future phase.
+
+## ADR-022 — Phase 7 Attendance Engine
+
+### Decision
+
+Phase 7 establishes the Attendance domain engine with the following
+characteristics:
+
+- **AttendanceEngine** coordinates check-in/check-out using Phase 6
+  `PolicyEngine` and `ScheduleEngine`.
+- **Actions** (`CheckInEmployee`, `CheckOutEmployee`) own the transaction
+  boundary.
+- **Domain rules** handle GPS validation, geofence, late detection, early
+  checkout, and attendance state.
+- **Cross-midnight shifts** are resolved by comparing current time against
+  shift end time to determine the correct work date.
+- **Concurrency** is protected by database unique constraints plus
+  application-level open-session checks.
+- **PostGIS** is used for geofence validation in PostgreSQL; SQLite tests
+  fall back to Haversine distance.
+- **Audit** uses the Phase 5 `RecordAuditAction` foundation.
+- A `user_id` foreign key was added to `employees` to link authenticated
+  users to employee records.
+
+### Reason
+
+- Attendance is the core business operation and must be atomic, auditable,
+  and deterministic.
+- Policy and schedule context must be resolved per-attendance-date, not
+  blindly using latest configuration.
+- PostGIS belongs in PostgreSQL, not Python.
+- Default tests must remain portable via SQLite :memory:.
+
+### Consequences
+
+- Check-in/check-out are fully implemented with transaction safety.
+- PostGIS-specific behavior is tested in `tests/Integration/PostgreSQL/`.
+- The default test suite does not require PostgreSQL, PostGIS, or Redis.
+- Face AI integration is deferred to Phase 8.
