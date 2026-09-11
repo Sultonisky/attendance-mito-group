@@ -327,3 +327,34 @@ against a dedicated PostgreSQL test database, not the development database.
 - Default tests remain portable and do not depend on PostgreSQL.
 - Production schema is not degraded to accommodate SQLite.
 - PostGIS integration tests must be run explicitly when PostgreSQL is available.
+
+## ADR-020 — Phase 5 Core Domain Foundation
+
+### Decision
+
+Phase 5 establishes the reusable foundation for future domain modules without
+implementing complete domain engines:
+
+- **Enums** — backed enums for stable domain values already present in the schema.
+- **DTOs** — immutable data carriers at application boundaries.
+- **Domain Exceptions** — base `DomainException` with specific subclasses for
+  business rule violations.
+- **Actions** — application use-case classes that own transaction boundaries.
+- **Audit Foundation** — `RecordAuditAction` with `AuditRecordData` DTO around
+  the existing `audit_logs` schema.
+
+### Reason
+
+- Clear boundaries between controllers, application services, domain logic,
+  and persistence.
+- Actions provide a consistent place for transaction management.
+- DTOs prevent ad-hoc array passing across layers.
+- Domain exceptions make business failures explicit and testable.
+- Audit is centralized rather than scattered across controllers.
+
+### Consequences
+
+- Future domain engines have a clear place in the architecture.
+- Controllers remain thin.
+- Transaction boundaries are predictable.
+- The default test suite continues to use SQLite :memory:.

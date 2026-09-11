@@ -457,3 +457,66 @@ PostgreSQL stores decisions.
 FastAPI provides AI facts.
 Redis accelerates infrastructure.
 
+## 19. Phase 5 — Core Domain Foundation
+
+### Action / Application Service Convention
+
+```text
+Controller
+    ↓
+Action
+    ↓
+Domain Engine / Rule
+    ↓
+Repository / Model
+```
+
+Controllers must remain thin. Actions represent meaningful use cases and own
+transaction boundaries when an operation modifies multiple pieces of domain
+state.
+
+### DTO Convention
+
+DTOs are immutable data carriers at domain/application boundaries:
+
+```php
+final readonly class AttendanceCheckInData
+{
+    public function __construct(
+        public int $employeeId,
+        public int $workLocationId,
+        public float $latitude,
+        public float $longitude,
+        public ?float $accuracy,
+        public ?string $deviceIdentifier,
+    ) {}
+}
+```
+
+DTOs must not contain persistence logic, HTTP request objects, or Vue concerns.
+
+### Domain Exception Convention
+
+Domain exceptions represent business operations that cannot legally proceed.
+They are distinct from programming errors, framework errors, and infrastructure
+failures.
+
+Base: `App\Exceptions\Domain\DomainException`
+Examples: `InvalidStateException`, `InactiveEmployeeException`
+
+### Audit Foundation
+
+Audit entries are recorded through `App\Actions\Audit\RecordAuditAction`
+using the existing `audit_logs` schema. The action owns the transaction
+boundary and accepts an `AuditRecordData` DTO.
+
+### Transaction Boundary
+
+Application Actions own transaction boundaries. Use `DB::transaction()`
+inside Actions, not in controllers, routes, or models.
+
+### Time / Date Handling
+
+Use Laravel's supported date/time tooling consistently. Future tests must
+be able to freeze/control time via `Carbon::setTestNow()`.
+

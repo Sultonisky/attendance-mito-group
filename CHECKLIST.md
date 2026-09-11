@@ -348,11 +348,25 @@ This checklist is project-wide and is not organized as implementation phases.
 
 ## 23.1 Test Database Strategy
 
-- [ ] Default `php artisan test` uses SQLite memory
-- [ ] Automated tests never mutate development PostgreSQL
-- [ ] PostgreSQL integration tests use dedicated test DB
-- [ ] PostGIS integration tests remain available
-- [ ] Development runtime remains PostgreSQL/PostGIS
+- [x] Default `php artisan test` uses SQLite memory
+- [x] Automated tests never mutate development PostgreSQL
+- [x] PostgreSQL integration tests use dedicated test DB
+- [x] PostGIS integration tests remain available
+- [x] Development runtime remains PostgreSQL/PostGIS
+
+---
+
+## 23.2 Phase 5 — Core Domain Foundation
+
+- [x] Action/Application Service convention established
+- [x] DTO convention established (immutable, explicit boundaries)
+- [x] Domain exception base class exists
+- [x] Specific domain exceptions created (InvalidStateException, InactiveEmployeeException)
+- [x] Audit foundation implemented (RecordAuditAction + AuditRecordData)
+- [x] Transaction boundary convention documented and implemented in Actions
+- [x] Phase 5 tests cover enums, DTOs, exceptions, Actions, and audit
+- [x] No Phase 6+ business logic implemented
+- [x] Documentation updated
 
 ---
 

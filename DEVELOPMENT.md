@@ -15,7 +15,7 @@ FastAPI
   http://localhost:8001
 
 PostgreSQL
-  localhost:5432
+  localhost:5433
 
 Redis
   localhost:6379
@@ -66,8 +66,8 @@ APP_DEBUG=true
 
 DB_CONNECTION=pgsql
 DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_DATABASE=attendance_mito
+DB_PORT=5433
+DB_DATABASE=attendance_db
 DB_USERNAME=postgres
 DB_PASSWORD=your_password
 
@@ -77,11 +77,11 @@ REDIS_PORT=6379
 
 Create database:
 
-CREATE DATABASE attendance_mito;
+CREATE DATABASE attendance_db;
 
 Connect:
 
-psql -U postgres -d attendance_mito
+psql -U postgres -d attendance_db
 ## 5. PostGIS
 
 PostGIS must be installed at the PostgreSQL server/system level before enabling it.
@@ -112,7 +112,7 @@ Do not attempt to solve this only from Laravel migrations.
 
 ## 6. Redis
 
-Redis must be running before testing:
+Redis must be running for local development runtime:
 
 Cache
 Queue
@@ -120,6 +120,8 @@ Locks
 Rate limiting
 
 Verify connectivity from Laravel after environment configuration.
+
+Note: The default `php artisan test` suite uses SQLite :memory: with array/sync drivers and does NOT require a running Redis server.
 
 ## 7. Laravel Commands
 
@@ -282,26 +284,28 @@ The Laravel application runtime uses PostgreSQL 17 + PostGIS:
 
 ```env
 DB_CONNECTION=pgsql
-DB_DATABASE=attendance_mito
+DB_DATABASE=attendance_db
 ```
 
 This is configured in `.env`, NOT in `.env.testing`.
 
 ### PostgreSQL/PostGIS Integration Tests
 
-PostgreSQL-specific integration tests use a dedicated test database:
+PostgreSQL-specific integration tests use a dedicated test database and configuration:
 
 ```bash
-php artisan test --testsuite=PostgreSQL
+vendor/bin/phpunit -c phpunit.postgres.xml
 ```
 
-Or explicitly:
+This targets `attendance_mito_test`, NEVER `attendance_db`.
 
-```bash
-./vendor/bin/phpunit -c phpunit.postgres.xml
+Required environment variables (not committed to source):
+
+```powershell
+$env:DB_USERNAME = 'postgres'
+$env:DB_PASSWORD = 'your_password'
+vendor/bin/phpunit -c phpunit.postgres.xml
 ```
-
-This targets `attendance_mito_test`, NEVER `attendance_mito`.
 
 ### Why Separate Databases?
 
@@ -314,13 +318,50 @@ SQLite in-memory is chosen because it is fast, requires no PostgreSQL service, a
 php artisan test
 
 # PostgreSQL integration suite (requires PostgreSQL + PostGIS)
-php artisan test --testsuite=PostgreSQL
+vendor/bin/phpunit -c phpunit.postgres.xml
 
 # Specific test filter
 php artisan test --filter=Attendance
 ```
 
-## 13. Dependency Compatibility
+## 13. Phase 5 — Core Domain Foundation
+
+### Action Convention
+
+Controllers delegate to Actions. Actions own the transaction boundary when
+an operation modifies multiple pieces of domain state.
+
+```text
+Controller -> Action -> Domain Engine/Rule -> Repository/Model
+```
+
+### DTO Convention
+
+DTOs are immutable data carriers at domain boundaries. Use `final readonly class`
+with typed constructor properties. DTOs must not contain persistence logic,
+HTTP request objects, or Vue concerns.
+
+### Domain Exception Convention
+
+Domain exceptions extend `App\Exceptions\Domain\DomainException` and represent
+business operations that cannot legally proceed. They are distinct from
+programming errors and infrastructure failures.
+
+Examples:
+- `InvalidStateException` — invalid state transition
+- `InactiveEmployeeException` — operation requires active employee
+
+### Audit Convention
+
+Audit entries are recorded through `App\Actions\Audit\RecordAuditAction`
+with an `AuditRecordData` DTO. The action wraps persistence in a transaction.
+
+### Time / Date
+
+Use Laravel's date/time tooling consistently. Freeze time in tests via
+`Carbon::setTestNow()`.
+
+## 14. Dependency Compatibility
 
 Current baseline:
 
