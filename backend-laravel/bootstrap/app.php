@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\Domain\DomainException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -39,6 +40,18 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json([
                     'message' => 'This action is unauthorized.',
                 ], 403);
+            }
+
+            return null;
+        });
+
+        // Domain/business rule violations must render as clean 422 JSON responses
+        // without debug stack traces.
+        $exceptions->render(function (DomainException $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'message' => $e->getMessage() ?: 'A business rule violation occurred.',
+                ], 422);
             }
 
             return null;

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\HealthController;
 use Illuminate\Http\Request;
@@ -32,5 +33,9 @@ Route::prefix('v1')->group(function () {
                 ],
             ]);
         })->middleware('can:dashboard.view');
+
+        // Attendance (Phase 7)
+        Route::post('/attendance/check-in', [AttendanceController::class, 'checkIn']);
+        Route::post('/attendance/check-out', [AttendanceController::class, 'checkOut']);
     });
 });
