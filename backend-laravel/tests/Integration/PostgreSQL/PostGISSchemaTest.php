@@ -10,6 +10,12 @@ class PostGISSchemaTest extends TestCase
 {
     use RefreshDatabasePostgres;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->refreshDatabase();
+    }
+
     /**
      * PostGIS extension is available and enabled.
      */
