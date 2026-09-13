@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.api.face import router as face_router
 from app.api.health import router as health_router
 from app.core.config import get_settings
 
@@ -18,6 +19,7 @@ app = FastAPI(
 )
 
 app.include_router(health_router)
+app.include_router(face_router)
 
 
 @app.exception_handler(Exception)
