@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -17,6 +18,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class Shift extends Model
 {
+    use HasFactory;
+
     /**
      * The schedule this shift belongs to.
      */
@@ -33,10 +36,10 @@ class Shift extends Model
     protected function casts(): array
     {
         return [
-            'start_time' => 'time',
-            'end_time' => 'time',
-            'break_start' => 'time',
-            'break_end' => 'time',
+            'start_time' => 'datetime:H:i:s',
+            'end_time' => 'datetime:H:i:s',
+            'break_start' => 'datetime:H:i:s',
+            'break_end' => 'datetime:H:i:s',
             'cross_midnight' => 'boolean',
         ];
     }

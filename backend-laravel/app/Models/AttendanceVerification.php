@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'verification_type',
     'status',
     'details',
+    'model_version',
     'verified_at',
 ])]
 class AttendanceVerification extends Model
@@ -50,6 +51,7 @@ class AttendanceVerification extends Model
     {
         return [
             'details' => 'array',
+            'model_version' => 'string',
             'verified_at' => 'datetime',
         ];
     }
