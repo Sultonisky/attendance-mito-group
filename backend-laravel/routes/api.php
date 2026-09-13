@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\FaceVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -32,5 +34,27 @@ Route::prefix('v1')->group(function () {
                 ],
             ]);
         })->middleware('can:dashboard.view');
+
+        // Attendance (Phase 7)
+        Route::prefix('attendance')->group(function () {
+            Route::post('/check-in', [AttendanceController::class, 'checkIn'])
+                ->name('attendance.check-in');
+            Route::post('/check-out', [AttendanceController::class, 'checkOut'])
+                ->name('attendance.check-out');
+            Route::get('/', [AttendanceController::class, 'index'])
+                ->name('attendance.index');
+            Route::get('/{attendance}', [AttendanceController::class, 'show'])
+                ->name('attendance.show');
+        });
+
+        // Face AI/CV verification (Phase 8)
+        // FastAPI returns AI facts; Laravel makes the final business decision.
+        Route::prefix('face')->group(function () {
+            Route::post('/enroll', [FaceVerificationController::class, 'enroll'])
+                ->name('face.enroll')
+                ->middleware('permission:employees.manage-faces');
+            Route::post('/verify', [FaceVerificationController::class, 'verify'])
+                ->name('face.verify');
+        });
     });
 });
