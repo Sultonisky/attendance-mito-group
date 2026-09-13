@@ -2,3 +2,10 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
 pydantic-settings>=2.4
+# Image validation/decoding for face verification endpoints.
+# No heavy ML runtime (OpenCV, NumPy, face-detection models) is required yet;
+# the FaceProcessor uses a deterministic development adapter behind a stable
+# boundary so the integration contract is testable without GPU/CUDA.
+# See DECISIONS.md / DEVELOPMENT.md for model-upgrade guidance.
+pillow>=10.4
+python-multipart>=0.0.9
