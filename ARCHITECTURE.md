@@ -668,3 +668,68 @@ Geofence validation uses PostGIS `ST_DWithin` for PostgreSQL and falls back to H
 
 Both require `auth:sanctum` and return JSON per `API-CONTRACT.md`.
 
+## 22. Phase 9 — Leave Engine
+
+### Domain Structure
+
+```text
+app/Domain/Leave/
+├── DTOs/ (LeaveEligibilityData, LeaveDurationData, LeaveBalanceData, LeaveResolutionData)
+├── Engines/LeaveEngine.php
+├── Rules/ (LeaveDateRule, LeaveStateRule)
+└── Exceptions/ (LeaveNotEligible, InsufficientBalance, InvalidState, Overlap, NotAuthorized)
+```
+
+Actions own transactions: `CreateLeaveRequest`, `ApproveLeaveRequest`,
+`RejectLeaveRequest`, `CancelLeaveRequest`, `AccrueLeaveBalance`,
+`ExpireLeaveBalance`. Controllers stay thin; models only define relations,
+casts, and factories; no business rules in Vue/requests/routes.
+
+### Core Rules
+
+- Eligibility: `join_date + 6 months` (inclusive). Inactive (soft-deleted or
+  `end_date < asOf`) employees are ineligible and never accrue.
+- Accrual: +1 day per month on the join-date day. Month-end is clamped to the
+  last day of shorter months (Jan 31 -> Feb 28/29). Idempotent per
+  `(employee, type, period)` with unique constraint + accrual-transaction
+  existence check.
+- Balance: transaction-backed; cached `leave_balances.balance` is updated only
+  alongside a ledger row. Never negative.
+- Expiry: accrual + 12 months; a batch is usable ON its `expires_at` and
+  expires when `expires_at < asOf`. Expiry appends an `expiration` transaction;
+  history is never deleted. Idempotent because zero balances are skipped.
+- FIFO: consumption orders by `expires_at ASC NULLS LAST, id ASC` and consumes
+  oldest batches first; multi-batch requests split across rows.
+- Special leave: governed by `LeaveType.category` / `deducts_annual_balance`,
+  never hardcoded type names.
+- Lifecycle: `pending -> approved|rejected|cancelled`, `approved -> cancelled`
+  only. Approval is state-safe (re-approve returns current); cancellation is
+  state-safe. Approved cancellation appends `reversal` rows.
+- Overlap: pending/approved requests for the same employee must not overlap
+  inclusive dates; checked in transaction at create and rechecked at approve.
+
+### Concurrency / Transactions
+
+- All mutations run in `DB::transaction()` with `lockForUpdate()` on the
+  request row and affected balance rows; audit rows are written in the same
+  transaction so audit failure rolls back business writes.
+- Scheduled commands (`leave:accrue`, `leave:expire`) chunk employees and are
+  safe to rerun.
+
+### Attendance Integration
+
+- `LeaveEngine::resolveForDate()` returns approved-leave presence for a date.
+  Only `approved` counts; `pending`/`rejected`/`cancelled` never resolve. No
+  Monthly Recap or AttendanceEngine rewrite in Phase 9.
+
+### API
+
+- `GET /api/v1/leave/types`, `GET /api/v1/leave/balance`,
+  `GET /api/v1/leave/requests`, `POST /api/v1/leave/requests`,
+  `GET /api/v1/leave/requests/{leave}`,
+  `POST /api/v1/leave/requests/{leave}/approve|reject|cancel`.
+- Sanctum auth; `leave.view/create/approve/reject/cancel` permissions;
+  `Gate::before` SUPER_ADMIN bypass intact; `LeaveRequestPolicy` blocks
+  self-approval and scopes owner visibility.
+
+

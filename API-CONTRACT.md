@@ -242,7 +242,7 @@ Example endpoints:
 
 ```text
 GET  /api/v1/leave/types
-GET  /api/v1/leave/balances
+GET  /api/v1/leave/balance
 GET  /api/v1/leave/requests
 POST /api/v1/leave/requests
 GET  /api/v1/leave/requests/{leave}
@@ -254,6 +254,14 @@ POST /api/v1/leave/requests/{leave}/cancel
 Laravel calculates eligibility and balance.
 
 The frontend must not calculate authoritative quota.
+
+Auth: Sanctum session. Permissions: `leave.view` (types/balance/list/show),
+`leave.create` (store), `leave.approve` (approve), `leave.reject` (reject),
+`leave.cancel` (cancel; owners may cancel their own requests). Statuses:
+201 on create, 200 on read/mutate, 401 unauthenticated, 403 unauthorized
+(including USER approve), 404 for foreign requests (ownership-masked),
+422 for validation/business-rule failures (overlap, ineligibility, insufficient
+balance, self-approval).
 
 ## 15. Overtime API
 
