@@ -265,17 +265,48 @@ balance, self-approval).
 
 ## 15. Overtime API
 
-Example:
+Overtime is derived from attendance facts and schedule resolution. Detected
+(potential) overtime and approved overtime remain distinct.
+
+### Endpoints
 
 ```text
-GET  /api/v1/overtime
-POST /api/v1/overtime/requests
-GET  /api/v1/overtime/{overtime}
-POST /api/v1/overtime/{overtime}/approve
-POST /api/v1/overtime/{overtime}/reject
+GET    /api/v1/overtime                  List overtime records
+GET    /api/v1/overtime/{overtime}       Show overtime record
+POST   /api/v1/overtime/requests         Create overtime request
+GET    /api/v1/overtime/requests         List overtime requests
+GET    /api/v1/overtime/requests/{id}    Show overtime request
+POST   /api/v1/overtime/requests/{id}/approve   Approve request
+POST   /api/v1/overtime/requests/{id}/reject    Reject request
+POST   /api/v1/overtime/requests/{id}/cancel    Cancel request
 ```
 
-Detected overtime and approved overtime must remain distinct.
+### Permissions
+
+| Endpoint | Permission |
+|---|---|
+| GET /overtime | `overtime.view` |
+| GET /overtime/{id} | `overtime.view` |
+| POST /overtime/requests | `overtime.create` |
+| GET /overtime/requests | `overtime.view` |
+| POST /overtime/requests/{id}/approve | `overtime.approve` |
+| POST /overtime/requests/{id}/reject | `overtime.reject` |
+| POST /overtime/requests/{id}/cancel | `overtime.cancel` |
+
+### Calculation model
+
+- Employee must be active.
+- Schedule must be assigned for the date.
+- Attendance must exist with at least one closed session.
+- Days with status OffDay, Holiday, Leave, or Absent are not eligible.
+- Approved leave for the date disqualifies overtime.
+- Overtime = max(0, latest closed checkout - scheduled end) in minutes.
+- Multiple sessions: only the latest closed checkout is used.
+
+### Status values
+
+OvertimeRecord: `potential`, `requested`, `approved`, `actual`  
+OvertimeRequest: `pending`, `approved`, `rejected`, `cancelled`
 
 ## 16. Penalty API
 

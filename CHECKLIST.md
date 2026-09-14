@@ -172,14 +172,14 @@ This checklist is project-wide and is not organized as implementation phases.
 
 ## 13. Overtime
 
-- [ ] Overtime detection works.
-- [ ] Overtime qualification works.
+- [x] Overtime detection works.
+- [x] Overtime qualification works.
+- [x] Overtime request works.
+- [x] Overtime approval works.
+- [x] Approved overtime is separate from detected overtime.
+- [x] Overtime history is auditable.
 - [ ] Rounding rules work.
 - [ ] Overtime limits work.
-- [ ] Overtime request works.
-- [ ] Overtime approval works.
-- [ ] Approved overtime is separate from detected overtime.
-- [ ] Overtime history is auditable.
 
 ---
 
