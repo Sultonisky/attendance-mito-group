@@ -35,6 +35,11 @@ class RolesAndPermissionsSeeder extends Seeder
         'leave.approve',
         'leave.reject',
         'leave.cancel',
+        'overtime.view',
+        'overtime.create',
+        'overtime.approve',
+        'overtime.reject',
+        'overtime.cancel',
     ];
 
     /**
@@ -53,12 +58,19 @@ class RolesAndPermissionsSeeder extends Seeder
             'leave.approve',
             'leave.reject',
             'leave.cancel',
+            'overtime.view',
+            'overtime.approve',
+            'overtime.reject',
+            'overtime.cancel',
         ],
         'USER' => [
             'dashboard.view',
             'leave.view',
             'leave.create',
             'leave.cancel',
+            'overtime.view',
+            'overtime.create',
+            'overtime.cancel',
         ],
     ];
 

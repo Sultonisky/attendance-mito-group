@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\FaceVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\LeaveController;
+use App\Http\Controllers\Api\V1\OvertimeController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -69,6 +70,18 @@ Route::prefix('v1')->group(function () {
             Route::post('/requests/{leave}/approve', [LeaveController::class, 'approve'])->name('leave.requests.approve')->middleware('can:leave.approve');
             Route::post('/requests/{leave}/reject', [LeaveController::class, 'reject'])->name('leave.requests.reject')->middleware('can:leave.reject');
             Route::post('/requests/{leave}/cancel', [LeaveController::class, 'cancel'])->name('leave.requests.cancel')->middleware('can:leave.cancel,leave');
+        });
+
+        // Overtime (Phase 10): detected potential overtime, requests, and approval.
+        Route::prefix('overtime')->group(function () {
+            Route::get('/', [OvertimeController::class, 'index'])->name('overtime.index')->middleware('can:overtime.view');
+            Route::get('/{overtime}', [OvertimeController::class, 'show'])->name('overtime.show')->middleware('can:overtime.view');
+            Route::post('/requests', [OvertimeController::class, 'store'])->name('overtime.requests.store')->middleware('can:overtime.create');
+            Route::get('/requests', [OvertimeController::class, 'requests'])->name('overtime.requests.index')->middleware('can:overtime.view');
+            Route::get('/requests/{overtimeRequest}', [OvertimeController::class, 'showRequest'])->name('overtime.requests.show')->middleware('can:overtime.view');
+            Route::post('/requests/{overtimeRequest}/approve', [OvertimeController::class, 'approve'])->name('overtime.requests.approve')->middleware('can:overtime.approve');
+            Route::post('/requests/{overtimeRequest}/reject', [OvertimeController::class, 'reject'])->name('overtime.requests.reject')->middleware('can:overtime.reject');
+            Route::post('/requests/{overtimeRequest}/cancel', [OvertimeController::class, 'cancel'])->name('overtime.requests.cancel')->middleware('can:overtime.cancel,overtime');
         });
     });
 });
