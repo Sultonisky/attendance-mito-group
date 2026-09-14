@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Database\Factories\LeaveTypeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -16,6 +18,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class LeaveType extends Model
 {
+    /** @use HasFactory<LeaveTypeFactory> */
+    use HasFactory;
+
     /**
      * Leave requests of this type.
      */

@@ -30,6 +30,11 @@ class RolesAndPermissionsSeeder extends Seeder
         'dashboard.view',
         'employees.view',
         'employees.manage-faces',
+        'leave.view',
+        'leave.create',
+        'leave.approve',
+        'leave.reject',
+        'leave.cancel',
     ];
 
     /**
@@ -44,9 +49,16 @@ class RolesAndPermissionsSeeder extends Seeder
         'ADMIN' => [
             'dashboard.view',
             'employees.view',
+            'leave.view',
+            'leave.approve',
+            'leave.reject',
+            'leave.cancel',
         ],
         'USER' => [
             'dashboard.view',
+            'leave.view',
+            'leave.create',
+            'leave.cancel',
         ],
     ];
 

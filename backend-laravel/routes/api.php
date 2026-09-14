@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\FaceVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\LeaveController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -55,6 +56,19 @@ Route::prefix('v1')->group(function () {
                 ->middleware('permission:employees.manage-faces');
             Route::post('/verify', [FaceVerificationController::class, 'verify'])
                 ->name('face.verify');
+        });
+
+        // Leave (Phase 9): Laravel owns eligibility, accrual, expiry, FIFO,
+        // lifecycle, and balance. Vue consumes these endpoints only.
+        Route::prefix('leave')->group(function () {
+            Route::get('/types', [LeaveController::class, 'types'])->name('leave.types')->middleware('can:leave.view');
+            Route::get('/balance', [LeaveController::class, 'balance'])->name('leave.balance')->middleware('can:leave.view');
+            Route::get('/requests', [LeaveController::class, 'index'])->name('leave.requests.index')->middleware('can:leave.view');
+            Route::post('/requests', [LeaveController::class, 'store'])->name('leave.requests.store')->middleware('can:leave.create');
+            Route::get('/requests/{leave}', [LeaveController::class, 'show'])->name('leave.requests.show')->middleware('can:leave.view');
+            Route::post('/requests/{leave}/approve', [LeaveController::class, 'approve'])->name('leave.requests.approve')->middleware('can:leave.approve');
+            Route::post('/requests/{leave}/reject', [LeaveController::class, 'reject'])->name('leave.requests.reject')->middleware('can:leave.reject');
+            Route::post('/requests/{leave}/cancel', [LeaveController::class, 'cancel'])->name('leave.requests.cancel')->middleware('can:leave.cancel,leave');
         });
     });
 });

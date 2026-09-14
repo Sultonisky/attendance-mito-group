@@ -441,6 +441,18 @@ Geofence validation uses PostGIS `ST_DWithin` for PostgreSQL and falls back to H
 
 Both require `auth:sanctum` and return JSON per `API-CONTRACT.md`.
 
+### Leave Engine (Phase 9)
+
+- `App\Domain\Leave\Engines\LeaveEngine` owns eligibility, accrual, expiry,
+  FIFO, overlap, balance, and the approved-only resolver. Actions own
+  `DB::transaction()` boundaries; audit rows are written in the same
+  transaction.
+- Month-end policy: accruals clamp to the last day of shorter months
+  (Jan 31 -> Feb 28/29). Expiry is accrual + 12 months; usable ON expiry date.
+- Run `php vendor/bin/phpunit --filter Leave` for leave tests;
+  `leave:accrue` / `leave:expire` accept `--date=Y-m-d` for backfill and are
+  idempotent.
+
 ## 16. Dependency Compatibility
 
 Current baseline:
