@@ -37,10 +37,10 @@ class Shift extends Model
     protected function casts(): array
     {
         return [
-            'start_time'     => 'string',
-            'end_time'       => 'string',
-            'break_start'    => 'string',
-            'break_end'      => 'string',
+            'start_time' => 'string',
+            'end_time' => 'string',
+            'break_start' => 'string',
+            'break_end' => 'string',
             'cross_midnight' => 'boolean',
         ];
     }

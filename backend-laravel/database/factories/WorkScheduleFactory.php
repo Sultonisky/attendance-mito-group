@@ -16,12 +16,12 @@ class WorkScheduleFactory extends Factory
     public function definition(): array
     {
         return [
-            'code'           => fake()->unique()->bothify('SCH-#####'),
-            'name'           => fake()->word(),
-            'description'    => fake()->sentence(),
-            'status'         => RecordStatus::Active->value,
+            'code' => fake()->unique()->bothify('SCH-#####'),
+            'name' => fake()->word(),
+            'description' => fake()->sentence(),
+            'status' => RecordStatus::Active->value,
             'effective_from' => now()->subYear()->toDateString(),
-            'effective_to'   => fake()->optional(20)->dateTimeBetween('+1 month', '+1 year')?->format('Y-m-d'),
+            'effective_to' => fake()->optional(20)->dateTimeBetween('+1 month', '+1 year')?->format('Y-m-d'),
         ];
     }
 

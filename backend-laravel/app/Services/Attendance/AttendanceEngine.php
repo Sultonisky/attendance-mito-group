@@ -244,6 +244,18 @@ class AttendanceEngine
                     (float) $context['latitude'],
                     (float) $context['longitude']
                 );
+
+                if (! $geofenceResult['passed']) {
+                    return [
+                        'status' => AttendanceStatus::Incomplete,
+                        'record' => $record,
+                        'session' => $session,
+                        'geofence' => $geofenceResult,
+                        'policy' => $policyResult,
+                        'events' => [],
+                        'error' => 'Employee is outside the approved work location geofence.',
+                    ];
+                }
             }
         }
 

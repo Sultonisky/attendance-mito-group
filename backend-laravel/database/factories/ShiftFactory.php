@@ -17,12 +17,12 @@ class ShiftFactory extends Factory
     {
         return [
             'work_schedule_id' => WorkSchedule::factory(),
-            'name'             => fake()->word(),
-            'start_time'       => '09:00:00',
-            'end_time'         => '18:00:00',
-            'break_start'      => '12:00:00',
-            'break_end'        => '13:00:00',
-            'cross_midnight'   => false,
+            'name' => fake()->word(),
+            'start_time' => '09:00:00',
+            'end_time' => '18:00:00',
+            'break_start' => '12:00:00',
+            'break_end' => '13:00:00',
+            'cross_midnight' => false,
         ];
     }
 
@@ -36,8 +36,8 @@ class ShiftFactory extends Factory
     public function crossMidnight(): static
     {
         return $this->state(fn (array $attributes) => [
-            'start_time'     => '22:00:00',
-            'end_time'       => '06:00:00',
+            'start_time' => '22:00:00',
+            'end_time' => '06:00:00',
             'cross_midnight' => true,
         ]);
     }

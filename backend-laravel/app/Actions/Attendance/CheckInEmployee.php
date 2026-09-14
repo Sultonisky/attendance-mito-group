@@ -48,6 +48,26 @@ class CheckInEmployee
             return $this->mapResult($evaluation);
         }
 
+        // Phase 7 rule: cannot check in while an open session already exists.
+        $hasOpenSession = AttendanceSession::query()
+            ->whereHas('attendanceRecord', function ($q) use ($employee) {
+                $q->where('employee_id', $employee->id);
+            })
+            ->where('status', AttendanceSessionStatus::Open->value)
+            ->exists();
+
+        if ($hasOpenSession) {
+            return [
+                'status' => AttendanceStatus::Incomplete,
+                'record' => null,
+                'session' => null,
+                'geofence' => $evaluation['geofence'],
+                'policy' => $evaluation['policy'],
+                'error' => 'Employee already has an open attendance session.',
+                'conflict' => true,
+            ];
+        }
+
         $verificationResult = $this->verifyFaceForAttendance(
             $employee,
             $faceImagePath,
@@ -194,8 +214,8 @@ class CheckInEmployee
 
         $activeEmbeddingReference = $embeddingReference
             ?? EmployeeFaceEmbedding::where('employee_face_profile_id', $activeProfile->id)
-            ->where('status', 'active')
-            ->value('embedding_reference');
+                ->where('status', 'active')
+                ->value('embedding_reference');
 
         return $this->verifyFace->execute(
             $employee,
@@ -219,6 +239,7 @@ class CheckInEmployee
             'geofence' => $evaluation['geofence'],
             'policy' => $evaluation['policy'],
             'error' => $evaluation['error'] ?? null,
+            'conflict' => $evaluation['conflict'] ?? false,
         ];
     }
 }

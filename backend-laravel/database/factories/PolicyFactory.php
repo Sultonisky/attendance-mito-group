@@ -16,13 +16,13 @@ class PolicyFactory extends Factory
     public function definition(): array
     {
         return [
-            'code'           => fake()->unique()->bothify('POL-#####'),
-            'name'           => fake()->word(),
-            'description'    => fake()->sentence(),
-            'status'         => PolicyStatus::Active->value,
+            'code' => fake()->unique()->bothify('POL-#####'),
+            'name' => fake()->word(),
+            'description' => fake()->sentence(),
+            'status' => PolicyStatus::Active->value,
             'effective_from' => now()->subYear()->toDateString(),
-            'effective_to'   => fake()->optional(20)->dateTimeBetween('+1 month', '+1 year')?->format('Y-m-d'),
-            'configuration'  => [],
+            'effective_to' => fake()->optional(20)->dateTimeBetween('+1 month', '+1 year')?->format('Y-m-d'),
+            'configuration' => [],
         ];
     }
 
@@ -36,7 +36,7 @@ class PolicyFactory extends Factory
     public function expired(): static
     {
         return $this->state(fn (array $attributes) => [
-            'status'       => PolicyStatus::Expired->value,
+            'status' => PolicyStatus::Expired->value,
             'effective_to' => fake()->dateTimeBetween('-1 year', '-1 day')->format('Y-m-d'),
         ]);
     }

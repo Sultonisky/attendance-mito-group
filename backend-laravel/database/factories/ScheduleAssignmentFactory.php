@@ -17,10 +17,10 @@ class ScheduleAssignmentFactory extends Factory
     public function definition(): array
     {
         return [
-            'employee_id'      => Employee::factory(),
+            'employee_id' => Employee::factory(),
             'work_schedule_id' => WorkSchedule::factory(),
-            'effective_from'   => now()->subYear()->toDateString(),
-            'effective_to'     => fake()->optional(20)->dateTimeBetween('+1 month', '+1 year')?->format('Y-m-d'),
+            'effective_from' => now()->subYear()->toDateString(),
+            'effective_to' => fake()->optional(20)->dateTimeBetween('+1 month', '+1 year')?->format('Y-m-d'),
         ];
     }
 
