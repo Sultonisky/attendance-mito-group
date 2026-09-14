@@ -64,7 +64,7 @@ class AttendanceRecord extends Model
     protected function casts(): array
     {
         return [
-            'attendance_date' => 'datetime',
+            'attendance_date' => 'date',
         ];
     }
 }

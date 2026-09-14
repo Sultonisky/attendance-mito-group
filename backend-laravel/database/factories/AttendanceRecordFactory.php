@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\AttendanceStatus;
+use App\Models\AttendanceRecord;
 use App\Models\Employee;
 use Illuminate\Database\Eloquent\Factories\Factory;
 

@@ -210,38 +210,39 @@ Vue
 
 ```text
 Employee
- ↓
-Vue
- ↓
-POST /api/v1/attendance/check-in
- ↓
-Sanctum
- ↓
-Authentication
- ↓
-Active Employee Check
- ↓
-Schedule Engine
- ↓
-Current Attendance State
- ↓
-GPS Validation
- ↓
-PostGIS Geofence
- ↓
-FastAPI Face Verification
- ↓
-Laravel Attendance Engine
- ↓
-Transaction
- ├── Attendance Record
- ├── Attendance Session
- ├── Attendance Event
- ├── Verification
- └── Audit
- ↓
-JSON Response
+ └─► Vue SPA (camera + GPS)
+      │
+      │ POST /api/v1/attendance/check-in (JSON)
+      │   latitude / longitude / accuracy
+      │   face verification context
+      ▼
+ Laravel 13
+ ├─ Sanctum        (authentication)
+ ├─ Authorization   (Gate / Policy)
+ ├─ Form Request    (validation)
+ ├─ Attendance Engine / CheckInEmployee
+ │    ├─ employee active
+ │    ├─ schedule resolve
+ │    ├─ current attendance state
+ │    ├─ GPS + accuracy validation
+ │    ├─ PostGIS geofence
+ │    ├─ FastApiService → FastAPI /face/verify
+ │    │    └─ AI facts (verified, confidence, liveness, ...)
+ │    ├─ Laravel final decision
+ │    └─ Transaction
+ │         ├─ Attendance Record
+ │         ├─ Attendance Session
+ │         ├─ Attendance Event
+ │         ├─ AttendanceVerification
+ │         └─ Audit
+      ▼
+ JSON Response
 ```
+
+Note: Phase 7 attendance actions (CheckInEmployee, CheckOutEmployee, AttendanceEngine)
+are planned but not yet implemented in this repository. Face verification endpoints
+are currently standalone (`/api/v1/face/enroll`, `/api/v1/face/verify`) and will be
+integrated into the check-in/out flow when the attendance actions are implemented.
 
 ## 7. AI Integration
 

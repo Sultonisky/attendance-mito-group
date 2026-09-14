@@ -29,6 +29,7 @@ class RolesAndPermissionsSeeder extends Seeder
     protected const PERMISSIONS = [
         'dashboard.view',
         'employees.view',
+        'employees.manage-faces',
     ];
 
     /**
