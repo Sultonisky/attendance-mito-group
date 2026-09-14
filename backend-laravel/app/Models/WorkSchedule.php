@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 ])]
 class WorkSchedule extends Model
 {
+    /** @use HasFactory<WorkScheduleFactory> */
     use HasFactory, SoftDeletes;
 
     /**

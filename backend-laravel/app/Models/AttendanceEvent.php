@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class AttendanceEvent extends Model
 {
+    /** @use HasFactory<AttendanceEventFactory> */
     use HasFactory;
 
     /**

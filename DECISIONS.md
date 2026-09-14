@@ -327,3 +327,107 @@ against a dedicated PostgreSQL test database, not the development database.
 - Default tests remain portable and do not depend on PostgreSQL.
 - Production schema is not degraded to accommodate SQLite.
 - PostGIS integration tests must be run explicitly when PostgreSQL is available.
+
+## ADR-020 — Phase 5 Core Domain Foundation
+
+### Decision
+
+Phase 5 establishes the reusable foundation for future domain modules without
+implementing complete domain engines:
+
+- **Enums** — backed enums for stable domain values already present in the schema.
+- **DTOs** — immutable data carriers at application boundaries.
+- **Domain Exceptions** — base `DomainException` with specific subclasses for
+  business rule violations.
+- **Actions** — application use-case classes that own transaction boundaries.
+- **Audit Foundation** — `RecordAuditAction` with `AuditRecordData` DTO around
+  the existing `audit_logs` schema.
+
+### Reason
+
+- Clear boundaries between controllers, application services, domain logic,
+  and persistence.
+- Actions provide a consistent place for transaction management.
+- DTOs prevent ad-hoc array passing across layers.
+- Domain exceptions make business failures explicit and testable.
+- Audit is centralized rather than scattered across controllers.
+
+### Consequences
+
+- Future domain engines have a clear place in the architecture.
+- Controllers remain thin.
+- Transaction boundaries are predictable.
+- The default test suite continues to use SQLite :memory:.
+
+## ADR-021 — Phase 6 Policy + Schedule Engine
+
+### Decision
+
+Phase 6 establishes the Policy and Schedule domain engines with the following
+characteristics:
+
+- **PolicyEngine** resolves the active policy for an employee on a given date
+  using `policy_assignments` effective date ranges.
+- **ScheduleEngine** resolves the active work schedule (and its shifts) for an
+  employee on a given date using `schedule_assignments` effective date ranges.
+- Both engines support historical and future date resolution.
+- Overlapping assignments throw domain exceptions (`AmbiguousPolicyAssignmentException`,
+  `AmbiguousScheduleAssignmentException`) rather than silently choosing one.
+- Inactive policies/schedules throw `InactivePolicyException` /
+  `InactiveScheduleException`.
+- No new database tables were created. Holiday and weekly off-day resolution
+  were not implemented because the current schema does not support them.
+
+### Reason
+
+- Deterministic policy/schedule resolution is a prerequisite for the Attendance
+  Engine.
+- Effective-date-aware assignments already exist in the schema; the engines
+  make the resolution logic explicit and testable.
+- Ambiguous resolution must fail safely to prevent silent attendance errors.
+
+### Consequences
+
+- Phase 7 Attendance Engine can consume `PolicyResolutionData` and
+  `ScheduleResolutionData`.
+- The default test suite continues to use SQLite :memory:.
+- Holiday/off-day resolution requires schema additions in a future phase.
+
+## ADR-022 — Phase 7 Attendance Engine
+
+### Decision
+
+Phase 7 establishes the Attendance domain engine with the following
+characteristics:
+
+- **AttendanceEngine** coordinates check-in/check-out using Phase 6
+  `PolicyEngine` and `ScheduleEngine`.
+- **Actions** (`CheckInEmployee`, `CheckOutEmployee`) own the transaction
+  boundary.
+- **Domain rules** handle GPS validation, geofence, late detection, early
+  checkout, and attendance state.
+- **Cross-midnight shifts** are resolved by comparing current time against
+  shift end time to determine the correct work date.
+- **Concurrency** is protected by database unique constraints plus
+  application-level open-session checks.
+- **PostGIS** is used for geofence validation in PostgreSQL; SQLite tests
+  fall back to Haversine distance.
+- **Audit** uses the Phase 5 `RecordAuditAction` foundation.
+- A `user_id` foreign key was added to `employees` to link authenticated
+  users to employee records.
+
+### Reason
+
+- Attendance is the core business operation and must be atomic, auditable,
+  and deterministic.
+- Policy and schedule context must be resolved per-attendance-date, not
+  blindly using latest configuration.
+- PostGIS belongs in PostgreSQL, not Python.
+- Default tests must remain portable via SQLite :memory:.
+
+### Consequences
+
+- Check-in/check-out are fully implemented with transaction safety.
+- PostGIS-specific behavior is tested in `tests/Integration/PostgreSQL/`.
+- The default test suite does not require PostgreSQL, PostGIS, or Redis.
+- Face AI integration is deferred to Phase 8.

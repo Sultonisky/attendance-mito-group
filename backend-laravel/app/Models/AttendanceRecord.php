@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class AttendanceRecord extends Model
 {
+    /** @use HasFactory<AttendanceRecordFactory> */
     use HasFactory;
 
     /**

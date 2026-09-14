@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'grade',
     'direct_superior_id',
     'indirect_superior_id',
+    'user_id',
 ])]
 class Employee extends Model
 {

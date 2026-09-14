@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class PolicyAssignment extends Model
 {
+    /** @use HasFactory<PolicyAssignmentFactory> */
     use HasFactory;
 
     /**

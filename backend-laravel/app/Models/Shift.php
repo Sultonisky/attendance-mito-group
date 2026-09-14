@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class Shift extends Model
 {
+    /** @use HasFactory<ShiftFactory> */
     use HasFactory;
 
     /**
@@ -36,10 +37,10 @@ class Shift extends Model
     protected function casts(): array
     {
         return [
-            'start_time' => 'datetime:H:i:s',
-            'end_time' => 'datetime:H:i:s',
-            'break_start' => 'datetime:H:i:s',
-            'break_end' => 'datetime:H:i:s',
+            'start_time'     => 'string',
+            'end_time'       => 'string',
+            'break_start'    => 'string',
+            'break_end'      => 'string',
             'cross_midnight' => 'boolean',
         ];
     }

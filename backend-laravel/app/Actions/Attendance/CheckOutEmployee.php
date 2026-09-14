@@ -69,20 +69,20 @@ class CheckOutEmployee
         $durationMinutes = (int) $occurredAt->diffInMinutes($checkInAt);
 
         DB::transaction(function () use (
-            $evaluation, $employee, $occurredAt, $durationMinutes, $actorId, $request, $verificationResult
+            $evaluation, $employee, $occurredAt, $durationMinutes, $actorId, $request, $verificationResult, $context
         ) {
             $session = $evaluation['session'];
             $oldSessionValues = [
-                'check_in_at' => $session->check_in_at?->toIso8601String(),
-                'check_out_at' => $session->check_out_at?->toIso8601String(),
+                'check_in_at'      => $session->check_in_at?->toIso8601String(),
+                'check_out_at'     => $session->check_out_at?->toIso8601String(),
                 'duration_minutes' => $session->duration_minutes,
-                'status' => $session->status,
+                'status'           => $session->status,
             ];
 
             $session->update([
-                'check_out_at' => $occurredAt,
+                'check_out_at'     => $occurredAt,
                 'duration_minutes' => $durationMinutes,
-                'status' => AttendanceSessionStatus::Closed->value,
+                'status'           => AttendanceSessionStatus::Closed->value,
             ]);
 
             $record = $evaluation['record'];
@@ -93,16 +93,16 @@ class CheckOutEmployee
 
             foreach ($evaluation['events'] as $eventData) {
                 AttendanceEvent::create([
-                    'employee_id' => $employee->id,
-                    'attendance_id' => $record->id,
+                    'employee_id'         => $employee->id,
+                    'attendance_id'       => $record->id,
                     'attendance_session_id' => $session->id,
-                    'event_type' => $eventData['event_type'],
-                    'occurred_at' => $eventData['occurred_at'],
-                    'latitude' => $eventData['latitude'] ?? null,
-                    'longitude' => $eventData['longitude'] ?? null,
-                    'accuracy_meters' => $eventData['accuracy_meters'] ?? null,
-                    'source' => $eventData['source'] ?? 'app',
-                    'device_metadata' => $eventData['device_metadata'] ?? null,
+                    'event_type'          => $eventData['event_type'],
+                    'occurred_at'         => $eventData['occurred_at'],
+                    'latitude'            => $eventData['latitude'] ?? null,
+                    'longitude'           => $eventData['longitude'] ?? null,
+                    'accuracy_meters'     => $eventData['accuracy_meters'] ?? null,
+                    'source'              => $eventData['source'] ?? 'app',
+                    'device_metadata'     => $eventData['device_metadata'] ?? null,
                 ]);
             }
 
@@ -110,21 +110,21 @@ class CheckOutEmployee
                 $aiResult = $verificationResult['result'];
 
                 AttendanceVerification::create([
-                    'employee_id' => $employee->id,
-                    'attendance_id' => $record->id,
+                    'employee_id'           => $employee->id,
+                    'attendance_id'         => $record->id,
                     'attendance_session_id' => $session->id,
-                    'verification_type' => VerificationType::Face->value,
-                    'status' => VerificationStatus::Passed->value,
-                    'details' => [
-                        'action' => 'attendance_check_out',
-                        'model_version' => $aiResult->modelVersion,
-                        'embedding_reference' => $context['embedding_reference'] ?? null,
-                        'confidence' => $aiResult->confidence,
-                        'face_detected' => $aiResult->faceDetected,
-                        'liveness' => $aiResult->liveness,
-                        'liveness_reason' => $aiResult->livenessReason,
-                        'processing_time_ms' => $aiResult->processingTimeMs,
-                        'quality_score' => $aiResult->qualityScore,
+                    'verification_type'     => VerificationType::Face->value,
+                    'status'                => VerificationStatus::Passed->value,
+                    'details'               => [
+                        'action'               => 'attendance_check_out',
+                        'model_version'        => $aiResult->modelVersion,
+                        'embedding_reference'  => $context['embedding_reference'] ?? null,
+                        'confidence'           => $aiResult->confidence,
+                        'face_detected'        => $aiResult->faceDetected,
+                        'liveness'             => $aiResult->liveness,
+                        'liveness_reason'      => $aiResult->livenessReason,
+                        'processing_time_ms'   => $aiResult->processingTimeMs,
+                        'quality_score'        => $aiResult->qualityScore,
                     ],
                     'verified_at' => now(),
                 ]);
@@ -136,11 +136,11 @@ class CheckOutEmployee
                 $session,
                 $oldSessionValues,
                 [
-                    'check_in_at' => $session->check_in_at?->toIso8601String(),
-                    'check_out_at' => $session->check_out_at?->toIso8601String(),
-                    'duration_minutes' => $session->duration_minutes,
-                    'status' => $session->status,
-                    'attendance_record_status' => $record->status,
+                    'check_in_at'                 => $session->check_in_at?->toIso8601String(),
+                    'check_out_at'                => $session->check_out_at?->toIso8601String(),
+                    'duration_minutes'            => $session->duration_minutes,
+                    'status'                      => $session->status,
+                    'attendance_record_status'    => $record->status,
                     'old_attendance_record_status' => $oldRecordStatus,
                 ],
                 $request,
@@ -170,7 +170,7 @@ class CheckOutEmployee
                 'status' => FastApiStatus::Available,
                 'passed' => true,
                 'result' => null,
-                'error' => null,
+                'error'  => null,
             ];
         }
 
@@ -179,7 +179,7 @@ class CheckOutEmployee
                 'status' => FastApiStatus::Available,
                 'passed' => false,
                 'result' => null,
-                'error' => 'Face image is required for attendance verification.',
+                'error'  => 'Face image is required for attendance verification.',
             ];
         }
 
@@ -217,12 +217,12 @@ class CheckOutEmployee
     private function mapResult(array $evaluation): array
     {
         return [
-            'status' => $evaluation['status'],
-            'record' => $evaluation['record'],
-            'session' => $evaluation['session'],
+            'status'   => $evaluation['status'],
+            'record'   => $evaluation['record'],
+            'session'  => $evaluation['session'],
             'geofence' => $evaluation['geofence'],
-            'policy' => $evaluation['policy'],
-            'error' => $evaluation['error'] ?? null,
+            'policy'   => $evaluation['policy'],
+            'error'    => $evaluation['error'] ?? null,
         ];
     }
 }

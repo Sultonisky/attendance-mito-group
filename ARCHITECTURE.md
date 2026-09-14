@@ -458,3 +458,213 @@ PostgreSQL stores decisions.
 FastAPI provides AI facts.
 Redis accelerates infrastructure.
 
+## 19. Phase 5 — Core Domain Foundation
+
+### Action / Application Service Convention
+
+```text
+Controller
+    ↓
+Action
+    ↓
+Domain Engine / Rule
+    ↓
+Repository / Model
+```
+
+Controllers must remain thin. Actions represent meaningful use cases and own
+transaction boundaries when an operation modifies multiple pieces of domain
+state.
+
+### DTO Convention
+
+DTOs are immutable data carriers at domain/application boundaries:
+
+```php
+final readonly class AttendanceCheckInData
+{
+    public function __construct(
+        public int $employeeId,
+        public int $workLocationId,
+        public float $latitude,
+        public float $longitude,
+        public ?float $accuracy,
+        public ?string $deviceIdentifier,
+    ) {}
+}
+```
+
+DTOs must not contain persistence logic, HTTP request objects, or Vue concerns.
+
+### Domain Exception Convention
+
+Domain exceptions represent business operations that cannot legally proceed.
+They are distinct from programming errors, framework errors, and infrastructure
+failures.
+
+Base: `App\Exceptions\Domain\DomainException`
+Examples: `InvalidStateException`, `InactiveEmployeeException`
+
+### Audit Foundation
+
+Audit entries are recorded through `App\Actions\Audit\RecordAuditAction`
+using the existing `audit_logs` schema. The action owns the transaction
+boundary and accepts an `AuditRecordData` DTO.
+
+### Transaction Boundary
+
+Application Actions own transaction boundaries. Use `DB::transaction()`
+inside Actions, not in controllers, routes, or models.
+
+### Time / Date Handling
+
+Use Laravel's supported date/time tooling consistently. Future tests must
+be able to freeze/control time via `Carbon::setTestNow()`.
+
+## 20. Phase 6 — Policy + Schedule Engine
+
+### Policy Domain
+
+```text
+Employee
+   │
+   ▼
+PolicyAssignment
+   │
+   ▼
+PolicyEngine
+   │
+   ▼
+Policy (active/inactive/draft/expired)
+```
+
+The Policy Engine answers: "What policy applies to employee X on date Y?"
+
+Resolution rules:
+- Find assignments where `effective_from <= date` and (`effective_to` is null or `effective_to >= date`).
+- Zero matches → explicit no-policy result (`PolicyResolutionData` with `hasPolicy() === false`).
+- Multiple overlapping matches → `AmbiguousPolicyAssignmentException`.
+- Single match with inactive policy → `InactivePolicyException`.
+- Single match with active policy → `PolicyResolutionData` with the policy.
+
+### Schedule Domain
+
+```text
+Employee
+   │
+   ▼
+ScheduleAssignment
+   │
+   ▼
+ScheduleEngine
+   │
+   ▼
+WorkSchedule (with Shifts)
+```
+
+The Schedule Engine answers: "What schedule/shift applies to employee X on date Y?"
+
+Resolution rules:
+- Find assignments where `effective_from <= date` and (`effective_to` is null or `effective_to >= date`).
+- Zero matches → explicit no-schedule result (`ScheduleResolutionData` with `hasSchedule() === false`).
+- Multiple overlapping matches → `AmbiguousScheduleAssignmentException`.
+- Single match with inactive schedule → `InactiveScheduleException`.
+- Single match with active schedule → `ScheduleResolutionData` with the schedule and its shifts.
+
+### Effective Date Handling
+
+Both engines support historical and future resolution using explicit `CarbonImmutable` date inputs. The engines query `effective_from` / `effective_to` directly; they do not use `created_at` or `latest()` for resolution.
+
+### Conflict Handling
+
+Overlapping assignments are treated as ambiguous. The engines throw domain exceptions rather than silently choosing one assignment based on `id`, `created_at`, or arbitrary precedence.
+
+### Shift Resolution
+
+The current schema supports `cross_midnight` shifts. The Schedule Engine preserves shift data as stored; it does not normalize or recalculate shift times. Attendance Engine (Phase 7) will consume shift data.
+
+### Holiday / Off-Day Note
+
+The current database schema does not contain a holidays table or day-of-week pattern. Holiday and weekly off-day resolution are not implemented in Phase 6. The Schedule Engine returns what the existing schema supports: schedule presence or absence.
+
+## 21. Phase 7 — Attendance Engine
+
+### Attendance Domain Structure
+
+```text
+app/Domain/Attendance/
+├── DTOs/
+├── Engines/
+├── Exceptions/
+└── Rules/
+```
+
+### Attendance Engine
+
+The `AttendanceEngine` is the domain coordinator. It orchestrates:
+- Employee validation
+- Policy resolution via `PolicyEngine`
+- Schedule resolution via `ScheduleEngine`
+- GPS validation via `GpsValidationRule`
+- Geofence validation via `GeofenceRule`
+- Attendance state determination via `AttendanceStateRule`
+- Late detection via `LateDetectionRule`
+- Early checkout detection via `EarlyCheckoutRule`
+
+The engine does not contain business logic itself; it delegates to rules and engines.
+
+### Check-in Flow
+
+1. Validate employee is active (not ended)
+2. Resolve policy for attendance date
+3. Resolve schedule for attendance date
+4. Determine work date (cross-midnight aware)
+5. Validate GPS coordinates
+6. Validate geofence
+7. Check for existing open session
+8. Create/update attendance record
+9. Create attendance session
+10. Create attendance event (IN)
+11. Create verification record
+12. Determine attendance status
+13. Return result
+
+### Check-out Flow
+
+1. Validate employee is active
+2. Find open attendance session
+3. Validate GPS coordinates
+4. Validate geofence
+5. Close session with duration
+6. Create attendance event (OUT)
+7. Create verification record
+8. Determine attendance status
+9. Return result
+
+### Cross-Midnight Handling
+
+The engine determines the "work date" based on the resolved shift:
+- If shift is `cross_midnight` and current time < shift end time, the work date is the previous calendar day.
+- Otherwise, the work date is the current calendar day.
+
+### Transaction Boundary
+
+Check-in and check-out operations are wrapped in `DB::transaction()` by their respective Actions. All state changes (record, session, event, verification) are atomic.
+
+### Concurrency / Idempotency
+
+- Database unique constraint on `attendance_records(employee_id, attendance_date)` prevents duplicate records.
+- Open session check prevents duplicate check-ins.
+- `UniqueConstraintViolationException` is caught and converted to `AttendanceAlreadyCheckedInException`.
+
+### PostGIS Geofence
+
+Geofence validation uses PostGIS `ST_DWithin` for PostgreSQL and falls back to Haversine distance for SQLite. Integration tests run against `attendance_mito_test` with real PostGIS.
+
+### API Endpoints
+
+- `POST /api/v1/attendance/check-in`
+- `POST /api/v1/attendance/check-out`
+
+Both require `auth:sanctum` and return JSON per `API-CONTRACT.md`.
+

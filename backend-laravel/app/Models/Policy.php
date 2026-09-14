@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 ])]
 class Policy extends Model
 {
+    /** @use HasFactory<PolicyFactory> */
     use HasFactory, SoftDeletes;
 
     /**

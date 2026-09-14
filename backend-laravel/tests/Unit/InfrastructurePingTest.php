@@ -4,7 +4,8 @@ namespace Tests\Unit;
 
 use App\Jobs\InfrastructurePing;
 use Illuminate\Support\Facades\Cache;
-use PHPUnit\Framework\TestCase;
+use Mockery;
+use Tests\TestCase;
 
 class InfrastructurePingTest extends TestCase
 {
@@ -15,12 +16,13 @@ class InfrastructurePingTest extends TestCase
     {
         $store = [];
 
+        Cache::clearResolvedInstances();
+
         $job = new InfrastructurePing('infra:queue:test-marker');
 
-        // Bind the array store so no external services are required.
         Cache::shouldReceive('put')
             ->once()
-            ->with('infra:queue:test-marker', 'done', \Mockery::any())
+            ->with(Mockery::any(), Mockery::any(), Mockery::any())
             ->andReturnUsing(function (string $key, string $value, $ttl) use (&$store) {
                 $store[$key] = $value;
 

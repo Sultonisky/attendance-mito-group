@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class ScheduleAssignment extends Model
 {
+    /** @use HasFactory<ScheduleAssignmentFactory> */
     use HasFactory;
 
     /**

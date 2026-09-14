@@ -31,7 +31,7 @@ class AttendanceController
         if ($employee === null) {
             return response()->json([
                 'success' => false,
-                'error' => 'Employee record not found for the authenticated user.',
+                'error'   => 'Employee record not found for the authenticated user.',
             ], 404);
         }
 
@@ -62,26 +62,26 @@ class AttendanceController
         if ($result['error'] !== null) {
             return response()->json([
                 'success' => false,
-                'data' => [
-                    'status' => $result['status']->value,
-                    'error' => $result['error'],
+                'data'    => [
+                    'status'   => $result['status']->value,
+                    'error'    => $result['error'],
                     'geofence' => $result['geofence'],
-                    'policy' => $result['policy'],
+                    'policy'   => $result['policy'],
                 ],
             ], 422);
         }
 
         return (new AttendanceResource([
-            'id' => $result['record']->id,
-            'employee_id' => $result['record']->employee_id,
+            'id'              => $result['record']->id,
+            'employee_id'     => $result['record']->employee_id,
             'attendance_date' => $result['record']->attendance_date,
-            'status' => $result['record']->status,
-            'sessions' => [$result['session']],
-            'geofence' => $result['geofence'],
-            'policy' => $result['policy'],
-            'error' => null,
-            'created_at' => $result['record']->created_at,
-            'updated_at' => $result['record']->updated_at,
+            'status'          => $result['record']->status,
+            'sessions'        => [$result['session']],
+            'geofence'        => $result['geofence'],
+            'policy'          => $result['policy'],
+            'error'           => null,
+            'created_at'      => $result['record']->created_at,
+            'updated_at'      => $result['record']->updated_at,
         ]))->response()->setStatusCode(201);
     }
 
@@ -95,7 +95,7 @@ class AttendanceController
         if ($employee === null) {
             return response()->json([
                 'success' => false,
-                'error' => 'Employee record not found for the authenticated user.',
+                'error'   => 'Employee record not found for the authenticated user.',
             ], 404);
         }
 
@@ -126,26 +126,26 @@ class AttendanceController
         if ($result['error'] !== null) {
             return response()->json([
                 'success' => false,
-                'data' => [
-                    'status' => $result['status']->value,
-                    'error' => $result['error'],
+                'data'    => [
+                    'status'   => $result['status']->value,
+                    'error'    => $result['error'],
                     'geofence' => $result['geofence'],
-                    'policy' => $result['policy'],
+                    'policy'   => $result['policy'],
                 ],
             ], 422);
         }
 
         return (new AttendanceResource([
-            'id' => $result['record']->id,
-            'employee_id' => $result['record']->employee_id,
+            'id'              => $result['record']->id,
+            'employee_id'     => $result['record']->employee_id,
             'attendance_date' => $result['record']->attendance_date,
-            'status' => $result['record']->status,
-            'sessions' => [$result['session']],
-            'geofence' => $result['geofence'],
-            'policy' => $result['policy'],
-            'error' => null,
-            'created_at' => $result['record']->created_at,
-            'updated_at' => $result['record']->updated_at,
+            'status'          => $result['record']->status,
+            'sessions'        => [$result['session']],
+            'geofence'        => $result['geofence'],
+            'policy'          => $result['policy'],
+            'error'           => null,
+            'created_at'      => $result['record']->created_at,
+            'updated_at'      => $result['record']->updated_at,
         ]))->response();
     }
 
@@ -159,7 +159,7 @@ class AttendanceController
         if ($employee === null) {
             return response()->json([
                 'success' => false,
-                'error' => 'Employee record not found for the authenticated user.',
+                'error'   => 'Employee record not found for the authenticated user.',
             ], 404);
         }
 
@@ -182,30 +182,30 @@ class AttendanceController
         if ($employee === null) {
             return response()->json([
                 'success' => false,
-                'error' => 'Employee record not found for the authenticated user.',
+                'error'   => 'Employee record not found for the authenticated user.',
             ], 404);
         }
 
         if ($attendance->employee_id !== $employee->id) {
             return response()->json([
                 'success' => false,
-                'error' => 'Attendance record not found.',
+                'error'   => 'Attendance record not found.',
             ], 404);
         }
 
         $attendance->load('sessions');
 
         return (new AttendanceResource([
-            'id' => $attendance->id,
-            'employee_id' => $attendance->employee_id,
+            'id'              => $attendance->id,
+            'employee_id'     => $attendance->employee_id,
             'attendance_date' => $attendance->attendance_date,
-            'status' => $attendance->status,
-            'sessions' => $attendance->sessions,
-            'geofence' => null,
-            'policy' => null,
-            'error' => null,
-            'created_at' => $attendance->created_at,
-            'updated_at' => $attendance->updated_at,
+            'status'          => $attendance->status,
+            'sessions'        => $attendance->sessions,
+            'geofence'        => null,
+            'policy'          => null,
+            'error'           => null,
+            'created_at'      => $attendance->created_at,
+            'updated_at'      => $attendance->updated_at,
         ]))->response();
     }
 

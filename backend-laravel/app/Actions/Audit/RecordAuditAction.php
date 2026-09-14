@@ -31,15 +31,15 @@ class RecordAuditAction
         }
 
         AuditLog::create([
-            'actor_id' => $actorId,
-            'action' => $action,
+            'actor_id'       => $actorId,
+            'action'         => $action,
             'auditable_type' => $auditable !== null ? $auditable::class : null,
-            'auditable_id' => $auditable !== null ? $auditable->getKey() : null,
-            'old_values' => $oldValues,
-            'new_values' => $newValues,
-            'ip_address' => $ipAddress,
-            'user_agent' => $userAgent,
-            'metadata' => $metadata,
+            'auditable_id'   => $auditable !== null ? $auditable->getKey() : null,
+            'old_values'     => $oldValues,
+            'new_values'     => $newValues,
+            'ip_address'     => $ipAddress,
+            'user_agent'     => $userAgent,
+            'metadata'       => $metadata,
         ]);
     }
 }

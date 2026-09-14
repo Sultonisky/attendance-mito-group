@@ -348,11 +348,73 @@ This checklist is project-wide and is not organized as implementation phases.
 
 ## 23.1 Test Database Strategy
 
-- [ ] Default `php artisan test` uses SQLite memory
-- [ ] Automated tests never mutate development PostgreSQL
-- [ ] PostgreSQL integration tests use dedicated test DB
-- [ ] PostGIS integration tests remain available
-- [ ] Development runtime remains PostgreSQL/PostGIS
+- [x] Default `php artisan test` uses SQLite memory
+- [x] Automated tests never mutate development PostgreSQL
+- [x] PostgreSQL integration tests use dedicated test DB
+- [x] PostGIS integration tests remain available
+- [x] Development runtime remains PostgreSQL/PostGIS
+
+---
+
+## 23.2 Phase 5 — Core Domain Foundation
+
+- [x] Action/Application Service convention established
+- [x] DTO convention established (immutable, explicit boundaries)
+- [x] Domain exception base class exists
+- [x] Specific domain exceptions created (InvalidStateException, InactiveEmployeeException)
+- [x] Audit foundation implemented (RecordAuditAction + AuditRecordData)
+- [x] Transaction boundary convention documented and implemented in Actions
+- [x] Phase 5 tests cover enums, DTOs, exceptions, Actions, and audit
+- [x] No Phase 6+ business logic implemented
+- [x] Documentation updated
+
+---
+
+## 23.3 Phase 6 — Policy + Schedule Engine
+
+- [x] PolicyEngine resolves active policy by employee and date
+- [x] ScheduleEngine resolves active schedule by employee and date
+- [x] Effective dates are respected (effective_from / effective_to)
+- [x] Open-ended assignments resolve correctly
+- [x] Future assignments do not override current assignments
+- [x] Historical resolution works
+- [x] Overlapping assignments throw ambiguous exceptions
+- [x] Inactive policy/schedule throws exception
+- [x] No-policy / no-schedule results are explicit
+- [x] Cross-midnight shift data is preserved
+- [x] Factories created for deterministic tests
+- [x] Domain tests cover PolicyEngine and ScheduleEngine
+- [x] No Phase 7+ business logic implemented
+- [x] No schema changes required
+- [x] Documentation updated
+
+---
+
+## 23.4 Phase 7 — Attendance Engine
+
+- [x] AttendanceEngine coordinates check-in/check-out
+- [x] CheckInEmployee and CheckOutEmployee Actions own transaction boundaries
+- [x] Employee validation (active, not ended)
+- [x] Policy resolution integrated via PolicyEngine
+- [x] Schedule resolution integrated via ScheduleEngine
+- [x] GPS validation rule implemented
+- [x] PostGIS geofence validation implemented
+- [x] Attendance state rule implemented
+- [x] Late detection rule implemented
+- [x] Early checkout detection rule implemented
+- [x] Cross-midnight shift handling implemented
+- [x] Duplicate check-in prevented (DB constraint + domain exception)
+- [x] Open session handling implemented
+- [x] Multiple sessions supported
+- [x] Transaction atomicity enforced
+- [x] Audit integration via RecordAuditAction
+- [x] API endpoints implemented (check-in, check-out)
+- [x] Domain tests cover rules and engine
+- [x] Feature tests cover API, authorization, and error cases
+- [x] PostgreSQL/PostGIS integration tests pass
+- [x] No Face AI implemented
+- [x] No Leave/Overtime/Penalty/Monthly Recap implemented
+- [x] Documentation updated
 
 ---
 

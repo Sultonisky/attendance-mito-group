@@ -66,7 +66,12 @@ class CheckInEmployee
         }
 
         $result = DB::transaction(function () use (
-            $evaluation, $employee, $occurredAt, $actorId, $request, $verificationResult
+            $evaluation,
+            $employee,
+            $occurredAt,
+            $actorId,
+            $request,
+            $verificationResult
         ) {
             $record = AttendanceRecord::query()
                 ->where('employee_id', $employee->id)
@@ -189,8 +194,8 @@ class CheckInEmployee
 
         $activeEmbeddingReference = $embeddingReference
             ?? EmployeeFaceEmbedding::where('employee_face_profile_id', $activeProfile->id)
-                ->where('status', 'active')
-                ->value('embedding_reference');
+            ->where('status', 'active')
+            ->value('embedding_reference');
 
         return $this->verifyFace->execute(
             $employee,
