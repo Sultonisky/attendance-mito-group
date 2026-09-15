@@ -29,6 +29,10 @@ class RolesAndPermissionsSeeder extends Seeder
     protected const PERMISSIONS = [
         'dashboard.view',
         'employees.view',
+        'penalty.view',
+        'penalty.create',
+        'penalty.adjust',
+        'penalty.void',
     ];
 
     /**
@@ -43,9 +47,14 @@ class RolesAndPermissionsSeeder extends Seeder
         'ADMIN' => [
             'dashboard.view',
             'employees.view',
+            'penalty.view',
+            'penalty.create',
+            'penalty.adjust',
+            'penalty.void',
         ],
         'USER' => [
             'dashboard.view',
+            'penalty.view',
         ],
     ];
 
