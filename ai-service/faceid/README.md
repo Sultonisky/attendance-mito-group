@@ -106,9 +106,9 @@ static/pro.js          logic UI MITO engine
 models_pro/            model ONNX server-side (det_500m, w600k_mbf, minifasnet_v2)
 ```
 
-## Nanti kalau mau naik ke `faceid.guepunya.my.id`
+## Kalau nanti mau expose ke jaringan / domain
 
-Tinggal reverse proxy (nginx/Caddy) ke `127.0.0.1:8090` + cert HTTPS. HTTPS wajib, kalau nggak kamera browser gak jalan. Kalau dibuka publik, tambahin basic auth dulu — endpoint ini nerima upload tanpa batas.
+Tinggal reverse proxy (nginx/Caddy) ke `127.0.0.1:8090` + cert HTTPS. HTTPS wajib, kalau nggak kamera browser gak jalan. Kalau dibuka di luar localhost, tambahin basic auth dulu — endpoint ini nerima upload tanpa batas. (Sekarang masih lokal dulu: `http://localhost:8090` / `https://localhost:8443`.)
 
 > Face ID tinggal di `ai-service/faceid/` — subfolder terpisah di dalam service ai, nggak nyentuh struktur `app/` bawaan intern.
 ---
@@ -229,5 +229,5 @@ Detektor + recognizer, pakai 3 foto publik di `samples/`:
 - **Cuma jalur ⭐** yang diimplementasi. Belum ada: RetinaFace/YuNet, AdaFace/MagFace/MobileFaceNet alternatif,
   CDCN/DeepPixBiS, dan quality berbasis model (SER-FIQ, FaceQNet, MagFace).
 - **Statis (single image)**, belum ada multi-frame voting / challenge-response (kedip, toleh) buat liveness.
-- **Belum di-deploy** ke `faceid.guepunya.my.id` — masih lokal port 8090.
+- **Masih lokal dulu** — server jalan di `localhost` port 8090 (http) / 8443 (https), belum ada deploy publik.
 - Skala: `pro_faces.json` load seluruh DB tiap request; buat ratusan/ribuan wajah perlu index vektor (FAISS).
