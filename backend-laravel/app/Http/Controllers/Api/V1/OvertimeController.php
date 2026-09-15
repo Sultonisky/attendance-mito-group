@@ -6,7 +6,6 @@ use App\Actions\Overtime\ApproveOvertimeRequest;
 use App\Actions\Overtime\CancelOvertimeRequest;
 use App\Actions\Overtime\CreateOvertimeRequest;
 use App\Actions\Overtime\RejectOvertimeRequest;
-use App\Domain\Overtime\Engines\OvertimeEngine;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Overtime\RejectOvertimeRequestRequest;
 use App\Http\Requests\Overtime\StoreOvertimeRequest;
@@ -25,7 +24,6 @@ use Illuminate\Http\Request;
 class OvertimeController extends Controller
 {
     public function __construct(
-        protected OvertimeEngine $engine,
         protected CreateOvertimeRequest $createAction,
         protected ApproveOvertimeRequest $approveAction,
         protected RejectOvertimeRequest $rejectAction,
