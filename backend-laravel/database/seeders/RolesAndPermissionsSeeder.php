@@ -44,6 +44,11 @@ class RolesAndPermissionsSeeder extends Seeder
         'overtime.approve',
         'overtime.reject',
         'overtime.cancel',
+        'monthly_recap.view',
+        'monthly_recap.generate',
+        'monthly_recap.review',
+        'monthly_recap.finalize',
+        'monthly_recap.export',
     ];
 
     /**
@@ -70,6 +75,11 @@ class RolesAndPermissionsSeeder extends Seeder
             'overtime.approve',
             'overtime.reject',
             'overtime.cancel',
+            'monthly_recap.view',
+            'monthly_recap.generate',
+            'monthly_recap.review',
+            'monthly_recap.finalize',
+            'monthly_recap.export',
         ],
         'USER' => [
             'dashboard.view',
@@ -80,6 +90,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'overtime.view',
             'overtime.create',
             'overtime.cancel',
+            'monthly_recap.view',
         ],
     ];
 
