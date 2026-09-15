@@ -83,7 +83,7 @@ class AttendanceEngine
         }
 
         $existingRecord = AttendanceRecord::where('employee_id', $employee->id)
-            ->where('attendance_date', $date->toDateTimeString())
+            ->whereDate('attendance_date', $date->toDateString())
             ->first();
 
         if ($existingRecord && $existingRecord->sessions()->where('status', AttendanceSessionStatus::Open->value)->exists()) {
@@ -105,7 +105,7 @@ class AttendanceEngine
         $status = $this->attendanceStateRule->determine(
             hasPolicy: true,
             hasSchedule: $scheduleResult['hasSchedule'],
-            hasOpenSession: true,
+            hasOpenSession: false,
             isLate: $isLate,
             isEarlyCheckout: false,
         );
@@ -162,7 +162,7 @@ class AttendanceEngine
         $durationMinutes = (int) $checkInAt->diffInMinutes($checkOutAt);
 
         $scheduleResult = $this->resolveAttendanceSchedule($employee, CarbonImmutable::parse($record->attendance_date));
-        $scheduledEnd = $this->resolveScheduledEnd($scheduleResult['schedule'], $checkOutAt);
+        $scheduledEnd = $this->resolveScheduledEnd($scheduleResult['shift'], $checkOutAt);
         $isEarlyCheckout = $this->earlyCheckoutRule->isEarlyCheckout($checkOutAt, $scheduledEnd);
 
         $policyResult = $this->resolveAttendancePolicy($employee, CarbonImmutable::parse($record->attendance_date), 'check_out_blocked');
@@ -317,13 +317,13 @@ class AttendanceEngine
         return $occurredAt;
     }
 
-    private function resolveWorkLocation(?int $workLocationId): WorkLocation
+    private function resolveWorkLocation(?int $workLocationId): ?WorkLocation
     {
         if ($workLocationId) {
             return WorkLocation::findOrFail($workLocationId);
         }
 
-        return WorkLocation::where('status', 'active')->firstOrFail();
+        return null;
     }
 
     private function resolveScheduledStart(?Shift $shift, CarbonImmutable $at): ?CarbonImmutable
@@ -360,7 +360,7 @@ class AttendanceEngine
     {
         return AttendanceRecord::create([
             'employee_id' => $employee->id,
-            'attendance_date' => $date->toDateTimeString(),
+            'attendance_date' => $date->toDateString(),
             'status' => 'incomplete',
         ]);
     }
