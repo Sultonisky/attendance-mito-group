@@ -2,15 +2,9 @@
 
 namespace Tests\Feature\Penalty;
 
-use App\Enums\EmploymentStatus;
 use App\Enums\PenaltyStatus;
 use App\Enums\PenaltyViolationType;
-use App\Enums\RecordStatus;
-use App\Models\Employee;
-use App\Models\PenaltyRecord;
-use App\Models\PenaltyRule;
 use App\Models\User;
-use Carbon\CarbonImmutable;
 use Database\Factories\EmployeeFactory;
 use Database\Factories\PenaltyRuleFactory;
 use Database\Factories\UserFactory;

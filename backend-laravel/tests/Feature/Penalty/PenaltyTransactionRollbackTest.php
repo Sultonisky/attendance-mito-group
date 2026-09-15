@@ -8,15 +8,7 @@ use App\Domain\Policy\Engines\PolicyEngine;
 use App\Domain\Schedule\Engines\ScheduleEngine;
 use App\Enums\EmploymentStatus;
 use App\Enums\RecordStatus;
-use App\Models\Employee;
 use App\Models\PenaltyRecord;
-use App\Models\PenaltyRule;
-use App\Models\Policy;
-use App\Models\PolicyAssignment;
-use App\Models\ScheduleAssignment;
-use App\Models\Shift;
-use App\Models\User;
-use App\Models\WorkSchedule;
 use Carbon\CarbonImmutable;
 use Database\Factories\EmployeeFactory;
 use Database\Factories\PenaltyRuleFactory;
@@ -27,6 +19,7 @@ use Database\Factories\ShiftFactory;
 use Database\Factories\UserFactory;
 use Database\Factories\WorkScheduleFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PenaltyTransactionRollbackTest extends TestCase
@@ -62,15 +55,15 @@ class PenaltyTransactionRollbackTest extends TestCase
 
         PenaltyRuleFactory::new()->forViolation('ABSENCE', null, 5)->create();
 
-        \Illuminate\Support\Facades\DB::listen(function ($query) {
+        DB::listen(function ($query) {
             if (str_contains($query->sql, 'insert into "audit_logs"')) {
                 throw new \Exception('Intentional audit failure for rollback test');
             }
         });
 
         $action = new CalculateSystemPenalty(new PenaltyEngine(
-            new PolicyEngine(),
-            new ScheduleEngine(),
+            new PolicyEngine,
+            new ScheduleEngine,
         ));
 
         $this->expectException(\Exception::class);

@@ -2,7 +2,6 @@
 
 namespace Tests\Unit\Domain\Penalty;
 
-use App\Domain\Penalty\DTOs\PenaltyViolationData;
 use App\Domain\Penalty\Engines\PenaltyEngine;
 use App\Domain\Policy\Engines\PolicyEngine;
 use App\Domain\Schedule\Engines\ScheduleEngine;
@@ -10,14 +9,7 @@ use App\Enums\EmploymentStatus;
 use App\Enums\PenaltyViolationType;
 use App\Enums\RecordStatus;
 use App\Models\Employee;
-use App\Models\LeaveRequest;
-use App\Models\PenaltyRule;
-use App\Models\PermissionRequest;
 use App\Models\Policy;
-use App\Models\PolicyAssignment;
-use App\Models\ScheduleAssignment;
-use App\Models\Shift;
-use App\Models\User;
 use App\Models\WorkSchedule;
 use Carbon\CarbonImmutable;
 use Database\Factories\EmployeeFactory;
@@ -80,8 +72,8 @@ class PenaltyEngineTest extends TestCase
     private function makeEngine(): PenaltyEngine
     {
         return new PenaltyEngine(
-            new PolicyEngine(),
-            new ScheduleEngine(),
+            new PolicyEngine,
+            new ScheduleEngine,
         );
     }
 

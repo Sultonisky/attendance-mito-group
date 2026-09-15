@@ -8,15 +8,7 @@ use App\Domain\Policy\Engines\PolicyEngine;
 use App\Domain\Schedule\Engines\ScheduleEngine;
 use App\Enums\EmploymentStatus;
 use App\Enums\RecordStatus;
-use App\Models\Employee;
 use App\Models\PenaltyRecord;
-use App\Models\PenaltyRule;
-use App\Models\Policy;
-use App\Models\PolicyAssignment;
-use App\Models\ScheduleAssignment;
-use App\Models\Shift;
-use App\Models\User;
-use App\Models\WorkSchedule;
 use Carbon\CarbonImmutable;
 use Database\Factories\EmployeeFactory;
 use Database\Factories\PenaltyRuleFactory;
@@ -63,8 +55,8 @@ class PenaltyIdempotencyTest extends TestCase
         PenaltyRuleFactory::new()->forViolation('ABSENCE', null, 5)->create();
 
         $action = new CalculateSystemPenalty(new PenaltyEngine(
-            new PolicyEngine(),
-            new ScheduleEngine(),
+            new PolicyEngine,
+            new ScheduleEngine,
         ));
 
         $records1 = $action->execute($employee, CarbonImmutable::parse($date));
