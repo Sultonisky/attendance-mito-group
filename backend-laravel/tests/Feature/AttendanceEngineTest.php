@@ -87,7 +87,10 @@ class AttendanceEngineTest extends TestCase
      */
     public function test_inactive_employee_cannot_check_in(): void
     {
-        $employee = $this->makeEmployee(['employment_status' => 'resigned']);
+        $employee = $this->makeEmployee([
+            'employment_status' => 'resigned',
+            'end_date' => now()->subDay()->toDateString(),
+        ]);
 
         $response = $this->actingAs($this->userForEmployee($employee), 'sanctum')
             ->postJson('/api/v1/attendance/check-in', [
@@ -133,6 +136,8 @@ class AttendanceEngineTest extends TestCase
             ->postJson('/api/v1/attendance/check-in', [
                 'latitude' => -6.2,
                 'longitude' => 106.8,
+            ], [
+                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 7, 59, 0)->toIso8601String(),
             ])
             ->assertStatus(201)
             ->assertJsonPath('data.status', AttendanceStatus::Present->value);
@@ -172,6 +177,8 @@ class AttendanceEngineTest extends TestCase
             ->postJson('/api/v1/attendance/check-in', [
                 'latitude' => -6.2,
                 'longitude' => 106.8,
+            ], [
+                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 7, 59, 0)->toIso8601String(),
             ]);
 
         $checkInResponse->assertStatus(201);
@@ -180,6 +187,8 @@ class AttendanceEngineTest extends TestCase
             ->postJson('/api/v1/attendance/check-out', [
                 'latitude' => -6.2,
                 'longitude' => 106.8,
+            ], [
+                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 17, 1, 0)->toIso8601String(),
             ]);
 
         $response->assertStatus(200);

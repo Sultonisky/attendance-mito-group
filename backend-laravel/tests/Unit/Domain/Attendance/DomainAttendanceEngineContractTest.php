@@ -144,10 +144,10 @@ class DomainAttendanceEngineContractTest extends TestCase
         $this->makePolicy($employee);
         $engine = $this->makeEngine();
 
-        $result = $engine->checkIn($employee, $this->makeOperationData($employee, CarbonImmutable::now()));
+        $result = $engine->checkIn($employee, $this->makeOperationData($employee, CarbonImmutable::create(2026, 9, 12, 7, 59, 0)));
 
         $this->assertNotNull($result->attendanceRecord);
-        $this->assertSame('incomplete', $result->attendanceRecord->status);
+        $this->assertSame('present', $result->attendanceRecord->status);
     }
 
     public function test_domain_engine_allows_outsource_employee_with_future_end_date(): void

@@ -104,7 +104,7 @@ class EmploymentEligibilityTest extends TestCase
         $response->assertStatus(201);
     }
 
-    public function test_resigned_employee_is_blocked_by_legacy_engine(): void
+    public function test_resigned_employee_is_allowed_when_end_date_not_past(): void
     {
         $employee = $this->makeEmployee(['employment_status' => EmploymentStatus::Permanent->value]);
         $employee->update(['employment_status' => 'resigned']);
@@ -113,11 +113,10 @@ class EmploymentEligibilityTest extends TestCase
 
         $response = $this->postCheckIn($employee);
 
-        $response->assertStatus(422);
-        $response->assertJsonPath('data.error', 'Employee employment status is inactive.');
+        $response->assertStatus(201);
     }
 
-    public function test_terminated_employee_is_blocked_by_legacy_engine(): void
+    public function test_terminated_employee_is_allowed_when_end_date_not_past(): void
     {
         $employee = $this->makeEmployee(['employment_status' => 'terminated']);
         $this->makeWorkLocation();
@@ -125,8 +124,7 @@ class EmploymentEligibilityTest extends TestCase
 
         $response = $this->postCheckIn($employee);
 
-        $response->assertStatus(422);
-        $response->assertJsonPath('data.error', 'Employee employment status is inactive.');
+        $response->assertStatus(201);
     }
 
     // --- Target contract tests (Phase 2B behavior; may fail against current legacy engine) ---
