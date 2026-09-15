@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MITO AI Engine — Face ID Lab</title>
+<style>
+  :root { --bg:#0b0f14; --card:#131a22; --line:#243040; --txt:#e8eef5; --dim:#8fa3b8; --acc:#4ade80; --warn:#f87171; --mid:#fbbf24; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; padding-bottom:env(safe-area-inset-bottom); }
+  .wrap { max-width:760px; margin:0 auto; padding:16px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 0 6px; }
+  h1 { font-size:18px; letter-spacing:1.5px; }
+  h1 small { display:block; font-size:10px; letter-spacing:1px; color:var(--dim); font-weight:400; }
+  a { color:var(--acc); }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--warn); flex:none; }
+  .dot.on { background:var(--acc); box-shadow:0 0 8px var(--acc); }
+  .chain { color:var(--dim); font-size:11px; text-align:center; margin:6px 0 12px; line-height:1.5; }
+  .cam { position:relative; border-radius:14px; overflow:hidden; background:#000; }
+  .cam video, .cam img { width:100%; height:auto; display:block; }
+  .cam canvas { position:absolute; left:0; top:0; width:100%; height:100%; }
+  .row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center; }
+  button { padding:11px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--txt); font-weight:600; cursor:pointer; font-size:14px; }
+  button.big { flex:1 1 40%; min-height:48px; font-size:14.5px; }
+  button.primary { background:var(--acc); color:#06220f; border:none; }
+  button.bad { background:var(--warn); color:#2a0707; border:none; }
+  input[type=text] { padding:11px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--txt); font-size:16px; flex:1; min-width:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:13px; margin-top:12px; }
+  .card h3 { font-size:12px; color:var(--dim); letter-spacing:1px; margin-bottom:8px; text-transform:uppercase; }
+  .verdict { display:flex; align-items:center; gap:10px; font-size:18px; font-weight:700; }
+  .badge { padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; }
+  .badge.accept { background:#12351f; color:var(--acc); border:1px solid #1f6b3a; }
+  .badge.reject { background:#3a1414; color:var(--warn); border:1px solid #7f2b2b; }
+  .badge.warn { background:#3a2f10; color:var(--mid); border:1px solid #7a5f1c; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px; }
+  td { padding:5px 4px; border-bottom:1px solid var(--line); vertical-align:top; }
+  td:first-child { color:var(--dim); width:38%; }
+  td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+  .bar { height:6px; background:#1d2836; border-radius:4px; overflow:hidden; margin-top:4px; }
+  .bar > i { display:block; height:100%; background:var(--acc); }
+  .face { display:flex; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); }
+  .face:last-child { border:none; }
+  .face img { width:44px; height:44px; border-radius:10px; object-fit:cover; background:#000; }
+  .face .grow { flex:1; min-width:0; }
+  .face .nm { font-weight:600; }
+  .face .meta { color:var(--dim); font-size:11.5px; }
+  .del { color:var(--warn); background:none; border:none; padding:6px; font-size:17px; }
+  .align { display:flex; gap:10px; align-items:center; margin-top:8px; }
+  .align img { width:76px; height:76px; border-radius:10px; border:1px solid var(--line); }
+  .msg { color:var(--dim); font-size:12.5px; text-align:center; margin-top:10px; min-height:16px; }
+  .sub { color:var(--dim); font-size:11.5px; text-align:center; margin-top:14px; }
+  .hidden { display:none !important; }
+  /* mode terang: layar jadi sumber cahaya pas ruangan gelap */
+  body.lightmode { background:#eceff1; }
+  body.lightmode .cam { outline:14px solid #eceff1; box-shadow:0 0 90px 40px #fff; }
+  body.lightmode .cam video { filter:brightness(1.5); }
+  body.lightmode .wrap { text-shadow:0 0 1px transparent; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MITO AI ENGINE<small>server-side onnx · scrfd · arcface · minifasnetv2</small></h1>
+    <div class="dot" id="dot"></div>
+  </header>
+  <div class="chain" id="chain">SCRFD → 5pt landmarks → ArcFace 512-D → cosine similarity → MiniFASNetV2 → decision</div>
+
+  <div class="cam" id="camBox">
+    <video id="vid" autoplay muted playsinline></video>
+    <img id="img" class="hidden" alt="foto">
+    <canvas id="ov"></canvas>
+  </div>
+  <div class="row">
+    <button id="camBtn" class="primary big">📷 Nyalakan Kamera</button>
+    <button id="snapBtn" class="bad big">✅ Verifikasi</button>
+  </div>
+  <div class="row">
+    <input type="file" id="file" accept="image/*" class="hidden">
+    <button id="upBtn" class="big">📤 Upload Foto</button>
+    <button id="flipBtn" class="big">🔄 Kamera Depan</button>
+    <button id="clearImg" class="hidden">✕</button>
+  </div>
+  <div class="row">
+    <button id="liveBtn" class="big" style="border-color:#1f6b3a">🔴 Live Scan: ON</button>
+    <button id="lightBtn" class="big">💡 Mode Terang</button>
+  </div>
+  <div class="msg" id="gps">📍 GPS: minta izin…</div>
+  <div class="msg" id="devinfo" style="min-height:0">📱 …</div>
+  <div class="msg" id="poseGuide" style="display:none;color:#fbbf24;font-weight:700;min-height:0"></div>
+  <div class="row">
+    <input type="text" id="name" placeholder="nama → daftarkan wajah" autocomplete="off">
+    <button id="enrollBtn">➕ Daftar</button>
+    <button id="poseSkip" style="display:none">⏭ Skip</button>
+  </div>
+  <div class="msg" id="msg">siap. kamera atau upload foto.</div>
+
+  <div id="out"></div>
+
+  <div class="card">
+    <h3>📋 Riwayat Absensi (auto per 60 dtk/org)</h3>
+    <div id="att"></div>
+    <div class="row"><button id="clearAtt" style="font-size:12px;padding:8px 10px">🗑 bersihkan riwayat</button></div>
+  </div>
+
+  <div class="card">
+    <h3>Wajah terdaftar (<span id="count">0</span>)</h3>
+    <div id="list"></div>
+  </div>
+
+  <div class="sub">playground face-api.js (client-side): <a href="/">/</a> · dikembangkan terpisah dari project finance</div>
+</div>
+<script src="/static/pro.js?v=5"></script>
+</body>
+</html>

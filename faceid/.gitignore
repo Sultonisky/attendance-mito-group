@@ -1,0 +1,17 @@
+# data wajah pribadi — JANGAN pernah di-commit
+attendance.json
+pro_faces.json
+faces.json
+
+# runtime: cert & log
+certs/
+logs/
+__pycache__/
+*.pyc
+
+# file kerja temp
+_*.py
+_*.txt
+_*.log
+_*.tar.gz
+_*.png
