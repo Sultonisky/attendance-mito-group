@@ -6,7 +6,28 @@ Eksperimen AI face recognition dari browser (HP / laptop). **Folder sendiri, por
 - Backend: FastAPI mini (`app.py`) — simpan/daftar/hapus wajah ke `faces.json`.
 - Enroll di laptop → otomatis kebaca di HP (satu database, sync via API).
 
-## Jalanin
+## Setup dari nol (reproduce di lokal)
+
+Prasyarat: **Python 3.13** (teruji di 3.13.15, Windows). Model ONNX udah ikut repo (`models_pro/`) — gak perlu download apa pun.
+
+```powershell
+cd faceid
+python -m venv .venv
+.venv\Scripts\activate        # Windows; linux/mac: source .venv/bin/activate
+pip install -r requirements.txt
+
+python restart.py             # nyalain server: 8090 (http) + 8443 (https)
+python smoke_pro.py           # smoke test end-to-end (harus semua 200)
+python cli.py list            # CLI: enroll / verify / list / delete
+```
+
+Akses:
+- Laptop: `http://localhost:8090/pro`
+- HP (wifi sama): `https://<ip-laptop>:8443/pro` — muncul warning sertifikat → **Advanced → tetap buka** (cert self-signed, dibikin otomatis sama `mkcert.py` pas `restart.py` jalan; https wajib biar browser izinin kamera)
+
+Kalau `smoke_pro.py` bilang semua 200, engine siap: buka `/pro` → daftar wajah (isi nama → ➕ Daftar, ulangi 2-3x dengan pose/kacamata beda biar makin akurat) → absen otomatis pas muka dikenali.
+
+## Jalanin (playground browser lama)
 
 ```powershell
 cd C:\Users\Mbul\Desktop\attendance-mito-group\faceid
