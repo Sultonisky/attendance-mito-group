@@ -197,18 +197,18 @@ This checklist is project-wide and is not organized as implementation phases.
 
 ## 15. Monthly Recap
 
-- [ ] Monthly attendance aggregation works.
-- [ ] Leave aggregation works.
-- [ ] Permission aggregation works.
-- [ ] Overtime aggregation works.
-- [ ] Penalty aggregation works.
-- [ ] Monthly snapshot exists.
-- [ ] DRAFT status works.
-- [ ] REVIEW status works.
-- [ ] FINALIZED status works.
-- [ ] EXPORTED status works.
-- [ ] Finalized recap cannot be silently edited.
-- [ ] Corrections are auditable.
+- [x] Monthly attendance aggregation works.
+- [x] Leave aggregation works.
+- [x] Permission aggregation works.
+- [x] Overtime aggregation works.
+- [x] Penalty aggregation works.
+- [x] Monthly snapshot exists.
+- [x] DRAFT status works.
+- [x] REVIEW status works.
+- [x] FINALIZED status works.
+- [x] EXPORTED status works.
+- [x] Finalized recap cannot be silently edited.
+- [x] Corrections are auditable.
 
 ---
 
