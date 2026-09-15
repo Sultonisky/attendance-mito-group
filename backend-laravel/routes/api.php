@@ -39,10 +39,6 @@ Route::prefix('v1')->group(function () {
             ]);
         })->middleware('can:dashboard.view');
 
-        // Attendance (Phase 7)
-        Route::post('/attendance/check-in', [AttendanceController::class, 'checkIn']);
-        Route::post('/attendance/check-out', [AttendanceController::class, 'checkOut']);
-
         // Penalty (Phase 11)
         Route::prefix('penalties')->middleware('auth:sanctum')->group(function () {
             Route::get('/', [PenaltyController::class, 'index'])->middleware('can:penalty.view');
