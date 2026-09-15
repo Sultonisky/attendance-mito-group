@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\PenaltyController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -37,5 +38,14 @@ Route::prefix('v1')->group(function () {
         // Attendance (Phase 7)
         Route::post('/attendance/check-in', [AttendanceController::class, 'checkIn']);
         Route::post('/attendance/check-out', [AttendanceController::class, 'checkOut']);
+
+        // Penalty (Phase 11)
+        Route::prefix('penalties')->middleware('auth:sanctum')->group(function () {
+            Route::get('/', [PenaltyController::class, 'index'])->middleware('can:penalty.view');
+            Route::get('/{penalty}', [PenaltyController::class, 'show'])->middleware('can:penalty.view');
+            Route::post('/', [PenaltyController::class, 'store'])->middleware('can:penalty.create');
+            Route::post('/{penalty}/adjust', [PenaltyController::class, 'adjust'])->middleware('can:penalty.adjust');
+            Route::post('/{penalty}/void', [PenaltyController::class, 'void'])->middleware('can:penalty.void');
+        });
     });
 });
