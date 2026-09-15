@@ -10,12 +10,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'employee_id',
     'penalty_rule_id',
     'attendance_id',
+    'source',
+    'violation_type',
+    'violation_custom',
     'original_points',
     'adjusted_points',
     'final_points',
     'reason',
     'status',
     'occurred_at',
+    'idempotency_key',
 ])]
 class PenaltyRecord extends Model
 {

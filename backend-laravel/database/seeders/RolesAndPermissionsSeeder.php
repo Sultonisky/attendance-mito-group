@@ -29,6 +29,10 @@ class RolesAndPermissionsSeeder extends Seeder
     protected const PERMISSIONS = [
         'dashboard.view',
         'employees.view',
+        'penalty.view',
+        'penalty.create',
+        'penalty.adjust',
+        'penalty.void',
         'employees.manage-faces',
         'leave.view',
         'leave.create',
@@ -54,6 +58,10 @@ class RolesAndPermissionsSeeder extends Seeder
         'ADMIN' => [
             'dashboard.view',
             'employees.view',
+            'penalty.view',
+            'penalty.create',
+            'penalty.adjust',
+            'penalty.void',
             'leave.view',
             'leave.approve',
             'leave.reject',
@@ -65,6 +73,7 @@ class RolesAndPermissionsSeeder extends Seeder
         ],
         'USER' => [
             'dashboard.view',
+            'penalty.view',
             'leave.view',
             'leave.create',
             'leave.cancel',

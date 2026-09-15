@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\RecordStatus;
 use App\Models\LeaveType;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -12,18 +13,15 @@ class LeaveTypeFactory extends Factory
 {
     protected $model = LeaveType::class;
 
-    /**
-     * @return array<string, mixed>
-     */
     public function definition(): array
     {
         return [
-            'code' => fake()->unique()->lexify('leave_????'),
-            'name' => fake()->words(2, true),
-            'category' => 'special',
-            'deducts_annual_balance' => false,
+            'code' => fake()->unique()->bothify('LT-#####'),
+            'name' => fake()->word(),
+            'category' => fake()->word(),
+            'deducts_annual_balance' => fake()->boolean(),
             'description' => fake()->sentence(),
-            'status' => 'active',
+            'status' => RecordStatus::Active->value,
         ];
     }
 
@@ -34,7 +32,7 @@ class LeaveTypeFactory extends Factory
             'name' => 'Annual Leave',
             'category' => 'annual',
             'deducts_annual_balance' => true,
-            'status' => 'active',
+            'status' => RecordStatus::Active->value,
         ]);
     }
 
@@ -43,7 +41,7 @@ class LeaveTypeFactory extends Factory
         return $this->state(fn (array $attributes): array => [
             'category' => 'special',
             'deducts_annual_balance' => false,
-            'status' => 'active',
+            'status' => RecordStatus::Active->value,
         ]);
     }
 }

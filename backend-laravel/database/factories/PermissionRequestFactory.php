@@ -3,26 +3,23 @@
 namespace Database\Factories;
 
 use App\Enums\ApprovalStatus;
+use App\Enums\PermissionRequestType;
 use App\Models\Employee;
-use App\Models\LeaveRequest;
-use App\Models\LeaveType;
+use App\Models\PermissionRequest;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-/**
- * @extends Factory<LeaveRequest>
- */
-class LeaveRequestFactory extends Factory
+class PermissionRequestFactory extends Factory
 {
-    protected $model = LeaveRequest::class;
+    protected $model = PermissionRequest::class;
 
     public function definition(): array
     {
         return [
             'employee_id' => Employee::factory(),
-            'leave_type_id' => LeaveType::factory(),
+            'permission_type' => PermissionRequestType::Personal->value,
             'status' => ApprovalStatus::Pending->value,
-            'start_date' => now()->toDateString(),
-            'end_date' => now()->toDateString(),
+            'start_at' => now(),
+            'end_at' => now()->addHours(2),
             'reason' => fake()->sentence(),
         ];
     }
@@ -41,10 +38,10 @@ class LeaveRequestFactory extends Factory
         ]);
     }
 
-    public function cancelled(): static
+    public function business(): static
     {
         return $this->state(fn (array $attributes) => [
-            'status' => ApprovalStatus::Cancelled->value,
+            'permission_type' => PermissionRequestType::Business->value,
         ]);
     }
 
@@ -52,14 +49,6 @@ class LeaveRequestFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'employee_id' => $employee->id,
-        ]);
-    }
-
-    public function onDate(string $date): static
-    {
-        return $this->state(fn (array $attributes) => [
-            'start_date' => $date,
-            'end_date' => $date,
         ]);
     }
 }
