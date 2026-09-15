@@ -267,16 +267,34 @@ Example:
 ```text
 GET /api/v1/penalties
 GET /api/v1/penalties/{penalty}
-```
-
-Administrative endpoints may include:
-
-```text
 POST /api/v1/penalties
 POST /api/v1/penalties/{penalty}/adjust
+POST /api/v1/penalties/{penalty}/void
 ```
 
-All adjustments must be auditable.
+Administrative endpoints require the appropriate permission:
+
+```text
+penalty.create
+penalty.adjust
+penalty.void
+```
+
+All adjustments and voids must be auditable.
+
+Penalty records expose:
+
+```text
+source            SYSTEM | MANUAL
+violation_type    LATE | EARLY_CHECKOUT | ABSENCE | INCOMPLETE_ATTENDANCE | OTHER
+violation_custom  required when violation_type = OTHER
+original_points
+adjusted_points
+final_points
+status            APPLIED | ADJUSTED | VOIDED
+```
+
+`PenaltyRecord` is the single canonical model for both system-generated and manual penalties.
 
 ## 17. Monthly Recap API
 
