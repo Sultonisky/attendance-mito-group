@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'employee_id',
@@ -50,6 +51,14 @@ class OvertimeRequest extends Model
     public function overtimeRecords(): HasMany
     {
         return $this->hasMany(OvertimeRecord::class);
+    }
+
+    /**
+     * Primary overtime record linked to this request.
+     */
+    public function overtimeRecord(): HasOne
+    {
+        return $this->hasOne(OvertimeRecord::class);
     }
 
     /**

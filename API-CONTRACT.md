@@ -211,6 +211,15 @@ approved=true
 
 Laravel calculates those values.
 
+Face check-in/check-out is not yet implemented. Face verification endpoints are standalone:
+
+```text
+POST /api/v1/face/enroll
+POST /api/v1/face/verify
+```
+
+See Section 18 (Internal FastAPI Contract) for details.
+
 ## 13. Attendance Validation
 
 Laravel must validate:
@@ -233,7 +242,7 @@ Example endpoints:
 
 ```text
 GET  /api/v1/leave/types
-GET  /api/v1/leave/balances
+GET  /api/v1/leave/balance
 GET  /api/v1/leave/requests
 POST /api/v1/leave/requests
 GET  /api/v1/leave/requests/{leave}
@@ -246,19 +255,58 @@ Laravel calculates eligibility and balance.
 
 The frontend must not calculate authoritative quota.
 
+Auth: Sanctum session. Permissions: `leave.view` (types/balance/list/show),
+`leave.create` (store), `leave.approve` (approve), `leave.reject` (reject),
+`leave.cancel` (cancel; owners may cancel their own requests). Statuses:
+201 on create, 200 on read/mutate, 401 unauthenticated, 403 unauthorized
+(including USER approve), 404 for foreign requests (ownership-masked),
+422 for validation/business-rule failures (overlap, ineligibility, insufficient
+balance, self-approval).
+
 ## 15. Overtime API
 
-Example:
+Overtime is derived from attendance facts and schedule resolution. Detected
+(potential) overtime and approved overtime remain distinct.
+
+### Endpoints
 
 ```text
-GET  /api/v1/overtime
-POST /api/v1/overtime/requests
-GET  /api/v1/overtime/{overtime}
-POST /api/v1/overtime/{overtime}/approve
-POST /api/v1/overtime/{overtime}/reject
+GET    /api/v1/overtime                  List overtime records
+GET    /api/v1/overtime/{overtime}       Show overtime record
+POST   /api/v1/overtime/requests         Create overtime request
+GET    /api/v1/overtime/requests         List overtime requests
+GET    /api/v1/overtime/requests/{id}    Show overtime request
+POST   /api/v1/overtime/requests/{id}/approve   Approve request
+POST   /api/v1/overtime/requests/{id}/reject    Reject request
+POST   /api/v1/overtime/requests/{id}/cancel    Cancel request
 ```
 
-Detected overtime and approved overtime must remain distinct.
+### Permissions
+
+| Endpoint | Permission |
+|---|---|
+| GET /overtime | `overtime.view` |
+| GET /overtime/{id} | `overtime.view` |
+| POST /overtime/requests | `overtime.create` |
+| GET /overtime/requests | `overtime.view` |
+| POST /overtime/requests/{id}/approve | `overtime.approve` |
+| POST /overtime/requests/{id}/reject | `overtime.reject` |
+| POST /overtime/requests/{id}/cancel | `overtime.cancel` |
+
+### Calculation model
+
+- Employee must be active.
+- Schedule must be assigned for the date.
+- Attendance must exist with at least one closed session.
+- Days with status OffDay, Holiday, Leave, or Absent are not eligible.
+- Approved leave for the date disqualifies overtime.
+- Overtime = max(0, latest closed checkout - scheduled end) in minutes.
+- Multiple sessions: only the latest closed checkout is used.
+
+### Status values
+
+OvertimeRecord: `potential`, `requested`, `approved`, `actual`  
+OvertimeRequest: `pending`, `approved`, `rejected`, `cancelled`
 
 ## 16. Penalty API
 
@@ -312,34 +360,153 @@ Finalized recaps cannot be silently edited.
 
 ## 18. Internal FastAPI Contract
 
-FastAPI is an internal service.
+FastAPI is an internal AI/CV service consumed only by Laravel.
+The browser never calls FastAPI directly.
 
-Example:
+### Authentication
+
+FastAPI uses a shared API key for all protected endpoints, sent as the
+`X-API-Key` header. The key is configured via the `AI_API_KEY` environment
+variable (default: `dev-only-change-me` for local development only; never use
+in production).
+
+The `/health` endpoint is intentionally unauthenticated so Laravel's
+`/api/v1/ai-health` probe works without credentials.
+
+### Endpoints
+
+#### Health (unauthenticated)
 
 ```text
-POST /internal/v1/face/verify
-```
-
-Request:
-
-```json
-{
-    "employee_id": "EMP001",
-    "image": "...",
-    "request_id": "..."
-}
+GET /health
 ```
 
 Response:
 
 ```json
 {
-    "verified": true,
-    "confidence": 0.94,
-    "liveness": true,
-    "model_version": "face-v3"
+    "status": "ok",
+    "service": "attendance-ai"
 }
 ```
+
+#### Face Enrollment
+
+```text
+POST /face/enroll
+```
+
+Request: `multipart/form-data`
+
+| Field         | Type | Required | Description                          |
+|---------------|------|----------|--------------------------------------|
+| `image`       | file | yes      | Face image (JPEG/PNG/WebP)           |
+| `employee_id` | str  | yes      | Employee identifier (employee_code)  |
+
+Response (200):
+
+```json
+{
+    "enrolled": true,
+    "model_version": "face-dev-v1",
+    "embedding_reference": "abc123",
+    "face_detected": true,
+    "quality_score": 0.95
+}
+```
+
+The actual embedding vector is retained internally by FastAPI and is never
+returned to Laravel or the browser.
+
+Errors:
+
+- 401 — invalid or missing API key
+- 400 — image validation failure (bad MIME, oversized, corrupt, bad dimensions)
+- 422 — missing `image` or `employee_id` fields
+- 500 — internal processing failure
+
+#### Face Verification
+
+```text
+POST /face/verify
+```
+
+Request: `multipart/form-data`
+
+| Field                | Type   | Required | Description                                    |
+|----------------------|--------|----------|------------------------------------------------|
+| `image`              | file   | yes      | Probe face image (JPEG/PNG/WebP)               |
+| `employee_id`        | str    | yes      | Employee identifier to verify against          |
+| `embedding_reference`| str    | no       | Opaque reference from enrollment               |
+
+Response (200):
+
+```json
+{
+    "verified": true,
+    "confidence": 0.94,
+    "liveness": false,
+    "liveness_reason": "Liveness check is disabled (no production liveness model configured).",
+    "face_detected": true,
+    "model_version": "face-dev-v1",
+    "processing_time_ms": 45,
+    "quality_score": 0.88
+}
+```
+
+`verified` is an AI fact: the probe face matched the enrolled embedding to
+within the configured similarity threshold. It does NOT mean attendance is
+accepted. Laravel combines this with liveness, face detection, geofence,
+schedule, and policy to make the final business decision.
+
+Errors:
+
+- 401 — invalid or missing API key
+- 400 — image validation failure
+- 422 — missing `image` or `employee_id` fields
+- 500 — internal processing failure
+
+### Configuration
+
+FastAPI settings are loaded from environment variables with the `AI_` prefix:
+
+| Variable                | Default               | Description                          |
+|-------------------------|-----------------------|--------------------------------------|
+| `AI_API_KEY`            | `dev-only-change-me`  | Shared secret for Laravel requests   |
+| `AI_MODEL_VERSION`      | `face-dev-v1`         | Returned with every AI result        |
+| `AI_MAX_IMAGE_SIZE_BYTES`| `5000000`            | Max image upload size                |
+| `AI_MAX_IMAGE_DIMENSION`| `4096`               | Max image width/height               |
+| `AI_SIMILARITY_THRESHOLD`| `0.6`              | Dev adapter match threshold          |
+| `AI_LIVENESS_MODE`      | `disabled`            | `disabled` or `dev`                  |
+
+### Laravel → FastAPI Communication
+
+Laravel calls FastAPI via `App\Services\Integration\FastApiService`.
+The service sends the image as `multipart/form-data`, includes the `X-API-Key`
+header, and applies the configured timeout (`FASTAPI_TIMEOUT`, default 5s).
+
+FastAPI response failures are mapped to `FastApiStatus`:
+
+- `Available` — successful response with valid JSON
+- `Unavailable` — connection refused or unexpected error
+- `Timeout` — connection timed out
+- `InvalidResponse` — non-2xx or non-array JSON
+
+Laravel never treats a FastAPI failure as a successful verification.
+
+### Development Adapter Status
+
+The current face recognition implementation is a **DEVELOPMENT ADAPTER**, NOT
+production biometric recognition:
+
+- Face detection: pixel variance heuristic (NOT a Haar/CNN detector)
+- Embeddings: 64-dimensional perceptual hash via Pillow (NOT a face embedding model)
+- Liveness: `disabled` mode returns `False` always; `dev` mode uses image variance
+- No OpenCV, NumPy, or deep-learning frameworks installed
+- Two genuinely different faces will never match
+
+A production model (e.g., InsightFace, MediaPipe) should replace this boundary
+in a dedicated biometric-hardening phase.
 
 FastAPI must not decide:
 

@@ -33,6 +33,17 @@ class RolesAndPermissionsSeeder extends Seeder
         'penalty.create',
         'penalty.adjust',
         'penalty.void',
+        'employees.manage-faces',
+        'leave.view',
+        'leave.create',
+        'leave.approve',
+        'leave.reject',
+        'leave.cancel',
+        'overtime.view',
+        'overtime.create',
+        'overtime.approve',
+        'overtime.reject',
+        'overtime.cancel',
     ];
 
     /**
@@ -51,10 +62,24 @@ class RolesAndPermissionsSeeder extends Seeder
             'penalty.create',
             'penalty.adjust',
             'penalty.void',
+            'leave.view',
+            'leave.approve',
+            'leave.reject',
+            'leave.cancel',
+            'overtime.view',
+            'overtime.approve',
+            'overtime.reject',
+            'overtime.cancel',
         ],
         'USER' => [
             'dashboard.view',
             'penalty.view',
+            'leave.view',
+            'leave.create',
+            'leave.cancel',
+            'overtime.view',
+            'overtime.create',
+            'overtime.cancel',
         ],
     ];
 

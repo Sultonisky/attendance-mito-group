@@ -5,24 +5,39 @@ namespace App\Actions\Audit;
 use App\DTOs\Audit\AuditRecordData;
 use App\Models\AuditLog;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Request;
 
 /**
- * Records an audit log entry using the existing audit_logs schema.
+ * Record an application audit entry.
  *
- * This action owns the transaction boundary when combined with other
- * domain operations. It does not swallow exceptions; callers are
- * responsible for deciding whether an audit failure should abort the
- * parent transaction.
+ * Supports two calling conventions:
+ *
+ *   1. DTO-based (preferred):
+ *      $action->execute(AuditRecordData $data): AuditLog
+ *
+ *   2. Positional (legacy, used by CheckInEmployee / CheckOutEmployee):
+ *      $action->execute(?int $actorId, string $action, ?object $auditable,
+ *                        ?array $oldValues, ?array $newValues,
+ *                        ?Request $request = null, ?array $metadata = null): AuditLog
+ *
+ * Both conventions persist via AuditLog::create() and return the created model.
+ * The action is transport-agnostic; callers supply any request metadata they
+ * already hold — no HTTP coupling is introduced into the domain layer.
  */
 class RecordAuditAction
 {
-    /**
-     * Persist an audit record.
-     */
-    public function execute(AuditRecordData $data): AuditLog
-    {
-        return DB::transaction(function () use ($data): AuditLog {
+    public function execute(
+        AuditRecordData|int|null $actorIdOrData,
+        ?string $action = null,
+        ?object $auditable = null,
+        ?array $oldValues = null,
+        ?array $newValues = null,
+        ?Request $request = null,
+        ?array $metadata = null
+    ): AuditLog {
+        if ($actorIdOrData instanceof AuditRecordData) {
+            $data = $actorIdOrData;
+
             return AuditLog::create([
                 'actor_id' => $data->actorId,
                 'action' => $data->action,
@@ -34,19 +49,39 @@ class RecordAuditAction
                 'user_agent' => $data->userAgent,
                 'metadata' => $data->metadata,
             ]);
-        });
+        }
+
+        // Positional-args convention (legacy callers).
+        $ipAddress = $request?->ip();
+        $userAgent = $request?->userAgent();
+
+        return AuditLog::create([
+            'actor_id' => $actorIdOrData,
+            'action' => $action,
+            'auditable_type' => $auditable !== null ? $auditable::class : null,
+            'auditable_id' => $auditable !== null ? $auditable->getKey() : null,
+            'old_values' => $oldValues,
+            'new_values' => $newValues,
+            'ip_address' => $ipAddress,
+            'user_agent' => $userAgent,
+            'metadata' => $metadata,
+        ]);
     }
 
     /**
-     * Convenience factory for the common case where the actor is the
-     * currently authenticated user and no metadata is needed.
+     * Convenience factory that builds an AuditRecordData from a User context.
      */
-    public static function forUser(User $user, string $action, ?object $subject = null, array $oldValues = [], array $newValues = []): AuditRecordData
-    {
+    public static function forUser(
+        User $user,
+        string $action,
+        ?object $subject = null,
+        array $oldValues = [],
+        array $newValues = []
+    ): AuditRecordData {
         return new AuditRecordData(
             actorId: $user->getKey(),
             action: $action,
-            auditableType: $subject ? $subject::class : null,
+            auditableType: $subject !== null ? $subject::class : null,
             auditableId: $subject?->getKey(),
             oldValues: $oldValues,
             newValues: $newValues,

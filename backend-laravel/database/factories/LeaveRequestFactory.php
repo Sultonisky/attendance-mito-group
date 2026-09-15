@@ -8,6 +8,9 @@ use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
+/**
+ * @extends Factory<LeaveRequest>
+ */
 class LeaveRequestFactory extends Factory
 {
     protected $model = LeaveRequest::class;

@@ -4,8 +4,13 @@ namespace Tests\Feature\Attendance;
 
 use App\Enums\EmploymentStatus;
 use App\Models\Employee;
+use App\Models\Policy;
+use App\Models\PolicyAssignment;
+use App\Models\ScheduleAssignment;
+use App\Models\Shift;
 use App\Models\User;
 use App\Models\WorkLocation;
+use App\Models\WorkSchedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -41,10 +46,34 @@ class CheckInTest extends TestCase
         ]);
     }
 
+    /**
+     * Create a schedule+shift+policy and assign them to the employee
+     * so check-in can proceed past the schedule/policy engine.
+     */
+    private function makeScheduleAndPolicy(Employee $employee): void
+    {
+        $schedule = WorkSchedule::factory()->create();
+        Shift::factory()->forSchedule($schedule)->create([
+            'start_time' => '08:00:00',
+            'end_time' => '17:00:00',
+        ]);
+        ScheduleAssignment::factory()->forEmployee($employee)->forSchedule($schedule)->create([
+            'effective_from' => now()->subYear()->toDateString(),
+            'effective_to' => null,
+        ]);
+
+        $policy = Policy::factory()->create();
+        PolicyAssignment::factory()->forEmployee($employee)->forPolicy($policy)->create([
+            'effective_from' => now()->subYear()->toDateString(),
+            'effective_to' => null,
+        ]);
+    }
+
     public function test_authenticated_user_can_check_in(): void
     {
-        [$user] = $this->makeActiveUserAndEmployee();
+        [$user, $employee] = $this->makeActiveUserAndEmployee();
         $this->makeWorkLocation();
+        $this->makeScheduleAndPolicy($employee);
 
         $response = $this->actingAs($user, 'sanctum')->postJson('/api/v1/attendance/check-in', [
             'latitude' => -6.2001,
@@ -52,11 +81,9 @@ class CheckInTest extends TestCase
             'accuracy' => 12.5,
         ]);
 
-        $response->assertStatus(200);
-        $response->assertJson([
-            'success' => true,
-            'message' => 'Check-in recorded successfully.',
-        ]);
+        // Phase 8.1 controller returns 201 for check-in success.
+        $response->assertStatus(201);
+        $response->assertJson(['success' => true]);
         $response->assertJsonStructure([
             'data' => [
                 'id',
@@ -80,13 +107,15 @@ class CheckInTest extends TestCase
 
     public function test_check_in_outside_geofence_throws_exception(): void
     {
-        [$user] = $this->makeActiveUserAndEmployee();
-        $this->makeWorkLocation();
+        [$user, $employee] = $this->makeActiveUserAndEmployee();
+        $workLocation = $this->makeWorkLocation();
+        $this->makeScheduleAndPolicy($employee);
 
         $response = $this->actingAs($user, 'sanctum')->postJson('/api/v1/attendance/check-in', [
             'latitude' => -6.3,
             'longitude' => 106.9,
             'accuracy' => 12.5,
+            'work_location_id' => $workLocation->id,
         ]);
 
         $response->assertStatus(422);
@@ -109,13 +138,15 @@ class CheckInTest extends TestCase
     {
         [$user, $employee] = $this->makeActiveUserAndEmployee();
         $this->makeWorkLocation();
+        $this->makeScheduleAndPolicy($employee);
 
         $first = $this->actingAs($user, 'sanctum')->postJson('/api/v1/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy' => 12.5,
         ]);
-        $first->assertStatus(200);
+        // Phase 8.1 controller returns 201 for check-in success.
+        $first->assertStatus(201);
 
         $response = $this->actingAs($user, 'sanctum')->postJson('/api/v1/attendance/check-in', [
             'latitude' => -6.2001,

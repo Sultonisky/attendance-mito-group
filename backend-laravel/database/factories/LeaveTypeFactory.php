@@ -6,6 +6,9 @@ use App\Enums\RecordStatus;
 use App\Models\LeaveType;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
+/**
+ * @extends Factory<LeaveType>
+ */
 class LeaveTypeFactory extends Factory
 {
     protected $model = LeaveType::class;
@@ -20,5 +23,25 @@ class LeaveTypeFactory extends Factory
             'description' => fake()->sentence(),
             'status' => RecordStatus::Active->value,
         ];
+    }
+
+    public function annual(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'code' => 'annual_leave',
+            'name' => 'Annual Leave',
+            'category' => 'annual',
+            'deducts_annual_balance' => true,
+            'status' => RecordStatus::Active->value,
+        ]);
+    }
+
+    public function special(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'category' => 'special',
+            'deducts_annual_balance' => false,
+            'status' => RecordStatus::Active->value,
+        ]);
     }
 }

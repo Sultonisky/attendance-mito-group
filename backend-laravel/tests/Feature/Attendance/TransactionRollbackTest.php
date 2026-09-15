@@ -3,6 +3,10 @@
 namespace Tests\Feature\Attendance;
 
 use App\Enums\EmploymentStatus;
+use App\Models\AttendanceEvent;
+use App\Models\AttendanceRecord;
+use App\Models\AttendanceSession;
+use App\Models\AttendanceVerification;
 use App\Models\Employee;
 use App\Models\User;
 use App\Models\WorkLocation;
@@ -46,7 +50,7 @@ class TransactionRollbackTest extends TestCase
         [$user, $employee] = $this->makeActiveUserAndEmployee();
         $this->makeWorkLocation();
 
-        $initialCount = \App\Models\AttendanceRecord::where('employee_id', $employee->id)->count();
+        $initialCount = AttendanceRecord::where('employee_id', $employee->id)->count();
 
         $response = $this->actingAs($user, 'sanctum')->postJson('/api/v1/attendance/check-in', [
             'latitude' => -6.3,
@@ -56,11 +60,11 @@ class TransactionRollbackTest extends TestCase
 
         $response->assertStatus(422);
 
-        $this->assertSame($initialCount, \App\Models\AttendanceRecord::where('employee_id', $employee->id)->count());
-        $this->assertSame(0, \App\Models\AttendanceSession::whereHas('attendanceRecord', function ($query) use ($employee) {
+        $this->assertSame($initialCount, AttendanceRecord::where('employee_id', $employee->id)->count());
+        $this->assertSame(0, AttendanceSession::whereHas('attendanceRecord', function ($query) use ($employee) {
             $query->where('employee_id', $employee->id);
         })->count());
-        $this->assertSame(0, \App\Models\AttendanceEvent::where('employee_id', $employee->id)->count());
-        $this->assertSame(0, \App\Models\AttendanceVerification::where('employee_id', $employee->id)->count());
+        $this->assertSame(0, AttendanceEvent::where('employee_id', $employee->id)->count());
+        $this->assertSame(0, AttendanceVerification::where('employee_id', $employee->id)->count());
     }
 }

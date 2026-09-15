@@ -431,3 +431,40 @@ characteristics:
 - PostGIS-specific behavior is tested in `tests/Integration/PostgreSQL/`.
 - The default test suite does not require PostgreSQL, PostGIS, or Redis.
 - Face AI integration is deferred to Phase 8.
+
+## ADR-023 — Phase 9 Leave Engine
+
+### Decision
+
+Phase 9 establishes the Leave domain engine with the following
+characteristics:
+
+- **LeaveEngine** owns eligibility (`join_date + 6 months`), monthly +1
+  accrual on the join-date day (month-end clamped), 12-month expiry, FIFO
+  consumption, overlap detection, balance derivation, and the
+  approved-only attendance resolver.
+- **Actions** own transaction boundaries and audit (`Create`, `Approve`,
+  `Reject`, `Cancel`, `Accrue`, `Expire`). Domain exceptions render as 422
+  via the existing `bootstrap/app.php` handler.
+- **No schema changes**: the Phase 4 leave tables (types/requests/balances
+  append-only transactions) already support the engine. Only factories and
+  `HasFactory` were added to models.
+- **Permissions** `leave.view/create/approve/reject/cancel` seeded for
+  ADMIN/USER roles; SUPER_ADMIN bypass unchanged; `LeaveRequestPolicy`
+  blocks self-approval.
+
+### Reason
+
+- Leave must be deterministic, transaction-safe, auditable, and idempotent
+  without duplicating logic in Vue/controllers/requests.
+- Reuse of the existing ledger schema preserves auditability and keeps the
+  default SQLite test suite portable.
+
+### Consequences
+
+- `leave:accrue` / `leave:expire` commands provide idempotent scheduled
+  maintenance via chunked employee processing.
+- Approved leave is consumable by attendance daily-status resolution through
+  a clean resolver; Monthly Recap remains out of scope.
+- Default tests use SQLite :memory:; no PostgreSQL-only SQL in the engine
+  (SQLite/PG ordering branches for null expiry).

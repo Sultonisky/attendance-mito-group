@@ -143,19 +143,19 @@ This checklist is project-wide and is not organized as implementation phases.
 
 ## 11. Leave
 
-- [ ] Leave types exist.
-- [ ] Annual leave exists.
-- [ ] Special leave exists.
-- [ ] Leave eligibility is calculated server-side.
-- [ ] 6-month eligibility rule works.
-- [ ] Annual quota accrual works.
-- [ ] 12-month expiry works.
-- [ ] Leave balances exist.
-- [ ] Leave transactions exist.
-- [ ] FIFO quota consumption works where applicable.
-- [ ] Special leave does not deduct annual leave unless configured.
-- [ ] Leave approval is audited.
-- [ ] Leave cancellation is handled correctly.
+- [x] Leave types exist.
+- [x] Annual leave exists.
+- [x] Special leave exists.
+- [x] Leave eligibility is calculated server-side.
+- [x] 6-month eligibility rule works.
+- [x] Annual quota accrual works.
+- [x] 12-month expiry works.
+- [x] Leave balances exist.
+- [x] Leave transactions exist.
+- [x] FIFO quota consumption works where applicable.
+- [x] Special leave does not deduct annual leave unless configured.
+- [x] Leave approval is audited.
+- [x] Leave cancellation is handled correctly.
 
 ---
 
@@ -172,14 +172,14 @@ This checklist is project-wide and is not organized as implementation phases.
 
 ## 13. Overtime
 
-- [ ] Overtime detection works.
-- [ ] Overtime qualification works.
+- [x] Overtime detection works.
+- [x] Overtime qualification works.
+- [x] Overtime request works.
+- [x] Overtime approval works.
+- [x] Approved overtime is separate from detected overtime.
+- [x] Overtime history is auditable.
 - [ ] Rounding rules work.
 - [ ] Overtime limits work.
-- [ ] Overtime request works.
-- [ ] Overtime approval works.
-- [ ] Approved overtime is separate from detected overtime.
-- [ ] Overtime history is auditable.
 
 ---
 
