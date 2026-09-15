@@ -1,7 +1,0 @@
-# runtime: cert & log
-certs/
-logs/
-__pycache__/
-*.pyc
-.venv/
-_venv_test/

@@ -11,7 +11,7 @@ Eksperimen AI face recognition dari browser (HP / laptop). **Folder sendiri, por
 Prasyarat: **Python 3.13** (teruji di 3.13.15, Windows). Model ONNX udah ikut repo (`models_pro/`) — gak perlu download apa pun.
 
 ```powershell
-cd faceid
+cd ai-service/faceid
 python -m venv .venv
 .venv\Scripts\activate        # Windows; linux/mac: source .venv/bin/activate
 pip install -r requirements.txt
@@ -30,7 +30,7 @@ Kalau `smoke_pro.py` bilang semua 200, engine siap: buka `/pro` → daftar wajah
 ## Jalanin (playground browser lama)
 
 ```powershell
-cd C:\Users\Mbul\Desktop\attendance-mito-group\faceid
+cd ai-service/faceid
 python -m uvicorn app:app --host 0.0.0.0 --port 8090
 ```
 
@@ -110,7 +110,7 @@ models_pro/            model ONNX server-side (det_500m, w600k_mbf, minifasnet_v
 
 Tinggal reverse proxy (nginx/Caddy) ke `127.0.0.1:8090` + cert HTTPS. HTTPS wajib, kalau nggak kamera browser gak jalan. Kalau dibuka publik, tambahin basic auth dulu — endpoint ini nerima upload tanpa batas.
 
-> Repo intern (`..\attendance-mito-group`) ada di sebelah — jangan pernah naro folder `faceid/` ke dalam working tree repo itu, nanti keikut commit.
+> Face ID tinggal di `ai-service/faceid/` — subfolder terpisah di dalam service ai, nggak nyentuh struktur `app/` bawaan intern.
 ---
 
 # MITO AI ENGINE (server-side ONNX) — halaman `/pro`

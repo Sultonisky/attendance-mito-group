@@ -1,0 +1,13 @@
+# runtime: cert & log
+certs/
+logs/
+__pycache__/
+*.pyc
+.venv/
+_venv_test/
+_*.log
+
+# runtime data — JANGAN pernah commit (berisi data wajah & riwayat absensi orang)
+pro_faces.json
+attendance.json
+faces.json
