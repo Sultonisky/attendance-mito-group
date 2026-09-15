@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\FaceVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\LeaveController;
+use App\Http\Controllers\Api\V1\MonthlyRecapController;
 use App\Http\Controllers\Api\V1\OvertimeController;
 use App\Http\Controllers\Api\V1\PenaltyController;
 use Illuminate\Http\Request;
@@ -96,6 +97,17 @@ Route::prefix('v1')->group(function () {
             Route::post('/requests/{overtimeRequest}/approve', [OvertimeController::class, 'approve'])->name('overtime.requests.approve')->middleware('can:overtime.approve');
             Route::post('/requests/{overtimeRequest}/reject', [OvertimeController::class, 'reject'])->name('overtime.requests.reject')->middleware('can:overtime.reject');
             Route::post('/requests/{overtimeRequest}/cancel', [OvertimeController::class, 'cancel'])->name('overtime.requests.cancel')->middleware('can:overtime.cancel,overtime');
+        });
+
+        // Monthly Recap (Phase 12)
+        Route::prefix('monthly-recaps')->name('monthly-recap.')->group(function () {
+            Route::get('/', [MonthlyRecapController::class, 'index'])->middleware('can:monthly_recap.view')->name('index');
+            Route::post('/generate', [MonthlyRecapController::class, 'generate'])->middleware('can:monthly_recap.generate')->name('generate');
+            Route::get('/{monthlyRecap}', [MonthlyRecapController::class, 'show'])->middleware('can:monthly_recap.view')->name('show');
+            Route::post('/{monthlyRecap}/review', [MonthlyRecapController::class, 'review'])->middleware('can:monthly_recap.review')->name('review');
+            Route::post('/{monthlyRecap}/finalize', [MonthlyRecapController::class, 'finalize'])->middleware('can:monthly_recap.finalize')->name('finalize');
+            Route::post('/{monthlyRecap}/export', [MonthlyRecapController::class, 'export'])->middleware('can:monthly_recap.export')->name('export');
+            Route::post('/{monthlyRecap}/reopen', [MonthlyRecapController::class, 'reopen'])->middleware('can:monthly_recap.finalize')->name('reopen');
         });
     });
 });
