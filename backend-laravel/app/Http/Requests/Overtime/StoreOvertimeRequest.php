@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Overtime;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rules\Rule;
 
 /**
  * Validate overtime request creation.
@@ -15,7 +16,7 @@ class StoreOvertimeRequest extends FormRequest
     }
 
     /**
-     * @return array<string, \Illuminate\Validation\Rules\Rule|array<mixed>|string>
+     * @return array<string, Rule|array<mixed>|string>
      */
     public function rules(): array
     {
