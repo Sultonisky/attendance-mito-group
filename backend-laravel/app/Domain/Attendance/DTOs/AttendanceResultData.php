@@ -15,6 +15,8 @@ final readonly class AttendanceResultData
         public AttendanceRecord $attendanceRecord,
         public ?AttendanceSession $session,
         public ?AttendanceVerification $verification,
+        public array $geofence,
+        public array $policy,
         public string $message,
     ) {}
 }
