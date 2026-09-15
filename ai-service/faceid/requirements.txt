@@ -1,0 +1,16 @@
+# FaceID / MITO attendance engine — teruji di Python 3.13.15 (Windows)
+# Semua versi di-p exact = env yang terbukti jalan end-to-end.
+# Model ONNX udah ada di repo (models_pro/) — gak perlu download apa pun.
+
+# web server + API
+fastapi==0.141.1
+uvicorn==0.52.4
+pydantic==2.13.4
+
+# ML runtime — inferensi SCRFD/ArcFace/MiniFASNetV2/genderage/FER+ (CPU, tanpa torch/cv2)
+onnxruntime==1.29.0
+numpy==2.5.2
+pillow==12.3.0
+
+# self-signed cert buat https lokal port 8443 (mkcert.py) — wajib kamera di HP
+cryptography==50.0.0
