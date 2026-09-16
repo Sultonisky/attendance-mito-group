@@ -25,9 +25,14 @@ class LeaveRequestPolicy
         if (! $user->can('leave.approve')) {
             return false;
         }
+
         $employee = $user->employee()->first();
 
-        return $employee === null || (int) $leave->employee_id !== (int) $employee->getKey();
+        if ($employee !== null && (int) $leave->employee_id === (int) $employee->getKey()) {
+            return false;
+        }
+
+        return true;
     }
 
     public function reject(User $user, LeaveRequest $leave): bool
