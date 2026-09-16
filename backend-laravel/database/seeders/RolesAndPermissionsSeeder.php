@@ -34,6 +34,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'penalty.adjust',
         'penalty.void',
         'employees.manage-faces',
+        'face.verify',
         'leave.view',
         'leave.create',
         'leave.approve',
@@ -49,6 +50,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'monthly_recap.review',
         'monthly_recap.finalize',
         'monthly_recap.export',
+        'attendance.view',
     ];
 
     /**
@@ -67,11 +69,15 @@ class RolesAndPermissionsSeeder extends Seeder
             'penalty.create',
             'penalty.adjust',
             'penalty.void',
+            'employees.manage-faces',
+            'face.verify',
             'leave.view',
+            'leave.create',
             'leave.approve',
             'leave.reject',
             'leave.cancel',
             'overtime.view',
+            'overtime.create',
             'overtime.approve',
             'overtime.reject',
             'overtime.cancel',
@@ -80,9 +86,11 @@ class RolesAndPermissionsSeeder extends Seeder
             'monthly_recap.review',
             'monthly_recap.finalize',
             'monthly_recap.export',
+            'attendance.view',
         ],
         'USER' => [
             'dashboard.view',
+            'attendance.view',
             'penalty.view',
             'leave.view',
             'leave.create',
