@@ -8,7 +8,7 @@ import type { ApiResponse } from '../types/api'
 
 const auth = useAuthStore()
 const router = useRouter()
-const { can } = usePermission()
+const { can, canAny } = usePermission()
 
 const apiStatus = ref('Loading...')
 const rbacStatus = ref('')
@@ -46,7 +46,15 @@ async function logout(): Promise<void> {
 <template>
   <main>
     <header>
-      <h1>Attendance System</h1>
+      <div class="header-left">
+        <h1>Attendance System</h1>
+        <RouterLink v-if="can('dashboard.view')" to="/dashboard" class="header-link">
+          Dashboard
+        </RouterLink>
+        <RouterLink v-if="canAny(['attendance.view', 'leave.view', 'overtime.view', 'penalty.view', 'monthly_recap.view'])" to="/reports" class="header-link">
+          Reports
+        </RouterLink>
+      </div>
       <div v-if="auth.isAuthenticated">
         <span>{{ auth.user?.name }} ({{ auth.user?.email }})</span>
         <span v-if="auth.roles.length"> — roles: {{ auth.roles.join(', ') }}</span>
@@ -60,3 +68,22 @@ async function logout(): Promise<void> {
     <p v-if="rbacStatus">{{ rbacStatus }}</p>
   </main>
 </template>
+
+<style scoped>
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.header-link {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.header-link:hover {
+  color: var(--text-h);
+}
+</style>

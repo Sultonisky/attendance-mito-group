@@ -5,6 +5,7 @@ namespace App\Services\Integration;
 use App\Enums\FastApiStatus;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -37,7 +38,13 @@ class FastApiService
      */
     public function apiKey(): string
     {
-        return (string) config('services.fastapi.api_key', '');
+        $key = (string) config('services.fastapi.api_key', '');
+
+        if ($key === '' && ! app()->environment('local', 'testing')) {
+            throw new \RuntimeException('FastAPI API key is not configured. Set FASTAPI_API_KEY in non-local environments.');
+        }
+
+        return $key;
     }
 
     /**
@@ -155,28 +162,44 @@ class FastApiService
                 ->asMultipart()
                 ->post($this->baseUrl().$endpoint, $formFields);
         } catch (ConnectionException $e) {
+            Log::channel('stack')->warning('FastAPI connection failure.', [
+                'endpoint' => $endpoint,
+                'exception' => $e,
+            ]);
+
             return [
                 'status' => $this->resolveConnectionFailure($e),
                 'data' => null,
-                'error' => $e->getMessage(),
+                'error' => 'AI service unavailable.',
             ];
         } catch (Throwable $e) {
+            Log::channel('stack')->warning('FastAPI request failed.', [
+                'endpoint' => $endpoint,
+                'exception' => $e,
+            ]);
+
             return [
                 'status' => FastApiStatus::Unavailable,
                 'data' => null,
-                'error' => $e->getMessage(),
+                'error' => 'AI service unavailable.',
+            ];
+        }
+
+        if (! $response->successful()) {
+            return [
+                'status' => FastApiStatus::InvalidResponse,
+                'data' => null,
+                'error' => 'Unexpected response from AI service.',
             ];
         }
 
         $payload = $response->json();
 
-        if (! $response->successful() || ! is_array($payload)) {
+        if (! is_array($payload)) {
             return [
                 'status' => FastApiStatus::InvalidResponse,
                 'data' => null,
-                'error' => is_array($payload) && isset($payload['detail'])
-                    ? (string) $payload['detail']
-                    : 'Unexpected response from AI service',
+                'error' => 'Unexpected response from AI service.',
             ];
         }
 

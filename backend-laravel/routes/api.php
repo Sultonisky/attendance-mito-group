@@ -62,9 +62,11 @@ Route::prefix('v1')->group(function () {
             Route::post('/check-out', [AttendanceController::class, 'checkOut'])
                 ->name('attendance.check-out');
             Route::get('/', [AttendanceController::class, 'index'])
-                ->name('attendance.index');
+                ->name('attendance.index')
+                ->middleware('can:attendance.view');
             Route::get('/{attendance}', [AttendanceController::class, 'show'])
-                ->name('attendance.show');
+                ->name('attendance.show')
+                ->middleware('can:attendance.view');
         });
 
         // Face AI/CV verification (Phase 8)
@@ -74,7 +76,8 @@ Route::prefix('v1')->group(function () {
                 ->name('face.enroll')
                 ->middleware('permission:employees.manage-faces');
             Route::post('/verify', [FaceVerificationController::class, 'verify'])
-                ->name('face.verify');
+                ->name('face.verify')
+                ->middleware('permission:face.verify');
         });
 
         // Leave (Phase 9): Laravel owns eligibility, accrual, expiry, FIFO,
@@ -115,7 +118,7 @@ Route::prefix('v1')->group(function () {
 
         // Reports (Phase 13.1)
         Route::prefix('reports')->name('reports.')->group(function () {
-            Route::get('/attendance', [ReportController::class, 'attendance'])->name('attendance');
+            Route::get('/attendance', [ReportController::class, 'attendance'])->middleware('can:attendance.view')->name('attendance');
             Route::get('/leave', [ReportController::class, 'leave'])->middleware('can:leave.view')->name('leave');
             Route::get('/overtime', [ReportController::class, 'overtime'])->middleware('can:overtime.view')->name('overtime');
             Route::get('/penalties', [ReportController::class, 'penalty'])->middleware('can:penalty.view')->name('penalty');
