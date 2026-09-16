@@ -14,3 +14,6 @@ python-multipart>=0.0.9
 # Minimum versions align with the reference implementation's tested stack.
 onnxruntime>=1.29.0
 numpy>=2.0.0
+
+# PostgreSQL driver for durable biometric embedding storage.
+psycopg2-binary>=2.9

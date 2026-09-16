@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     # Production deployments must use a capability-3 (spoof-aware) liveness model.
     liveness_mode: str = "disabled"
 
+    # ------------------------------------------------------------------
+    # Biometric storage (AI-3)
+    # ------------------------------------------------------------------
+    # Dedicated PostgreSQL connection for biometric embedding storage.
+    # FastAPI is the sole accessor. Laravel never connects to this database.
+    # If not set, FastAPI falls back to in-memory storage (development only).
+    biometric_database_url: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
