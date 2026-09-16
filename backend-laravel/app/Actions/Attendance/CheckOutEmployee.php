@@ -4,20 +4,25 @@ namespace App\Actions\Attendance;
 
 use App\Actions\Audit\RecordAuditAction;
 use App\Actions\Face\VerifyFaceAction;
+use App\Domain\Attendance\DTOs\AttendanceOperationData;
+use App\Domain\Attendance\Engines\AttendanceEngine;
+use App\Domain\Attendance\Exceptions\AttendanceBlockedByPolicyException;
+use App\Domain\Attendance\Exceptions\InvalidLocationException;
+use App\Domain\Attendance\Exceptions\NoOpenAttendanceSessionException;
+use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
 use App\DTO\VerifyResult;
-use App\Enums\AttendanceSessionStatus;
+use App\Enums\AttendanceEventType;
 use App\Enums\AttendanceStatus;
 use App\Enums\FastApiStatus;
 use App\Enums\VerificationStatus;
 use App\Enums\VerificationType;
-use App\Models\AttendanceEvent;
+use App\Exceptions\Domain\InactiveEmployeeException;
 use App\Models\AttendanceRecord;
 use App\Models\AttendanceSession;
 use App\Models\AttendanceVerification;
 use App\Models\Employee;
 use App\Models\EmployeeFaceEmbedding;
 use App\Models\EmployeeFaceProfile;
-use App\Services\Attendance\AttendanceEngine;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -32,7 +37,7 @@ class CheckOutEmployee
 
     /**
      * @param  array<string, mixed>|null  $context
-     * @return array{status: AttendanceStatus, record: AttendanceRecord, session: AttendanceSession, geofence: array, policy: array, error: string|null}
+     * @return array{status: AttendanceStatus, record: AttendanceRecord|null, session: AttendanceSession|null, geofence: array, policy: array, error: string|null, conflict: bool}
      */
     public function execute(
         Employee $employee,
@@ -42,12 +47,6 @@ class CheckOutEmployee
         ?Request $request = null,
         ?string $faceImagePath = null
     ): array {
-        $evaluation = $this->engine->evaluateCheckOut($employee, $occurredAt, $context);
-
-        if ($evaluation['error'] !== null || $evaluation['session'] === null) {
-            return $this->mapResult($evaluation);
-        }
-
         $verificationResult = $this->verifyFaceForAttendance(
             $employee,
             $faceImagePath,
@@ -57,54 +56,61 @@ class CheckOutEmployee
         if ($verificationResult['status'] !== FastApiStatus::Available || ! $verificationResult['passed']) {
             return [
                 'status' => AttendanceStatus::Incomplete,
-                'record' => $evaluation['record'],
-                'session' => $evaluation['session'],
-                'geofence' => $evaluation['geofence'],
-                'policy' => $evaluation['policy'],
+                'record' => null,
+                'session' => null,
+                'geofence' => [
+                    'passed' => true,
+                    'distance_meters' => null,
+                    'method' => 'skipped',
+                ],
+                'policy' => [
+                    'allowed' => true,
+                    'reason' => null,
+                    'policies' => [],
+                ],
                 'error' => 'Face verification failed.',
+                'conflict' => false,
             ];
         }
 
-        $checkInAt = CarbonImmutable::parse($evaluation['session']->check_in_at);
-        $durationMinutes = (int) $checkInAt->diffInMinutes($occurredAt);
+        $operationData = new AttendanceOperationData(
+            employeeId: $employee->id,
+            latitude: (float) ($context['latitude'] ?? 0),
+            longitude: (float) ($context['longitude'] ?? 0),
+            accuracy: isset($context['accuracy']) ? (float) $context['accuracy'] : null,
+            deviceIdentifier: $context['device_identifier'] ?? null,
+            source: $context['source'] ?? 'app',
+            workLocationId: isset($context['work_location_id']) ? (int) $context['work_location_id'] : null,
+            occurredAt: $occurredAt,
+            eventType: AttendanceEventType::CheckOut,
+        );
 
-        DB::transaction(function () use (
-            $evaluation, $employee, $occurredAt, $durationMinutes, $actorId, $request, $verificationResult, $context
+        try {
+            $domainResult = $this->engine->checkOut($employee, $operationData);
+        } catch (InactiveEmployeeException $e) {
+            return $this->mapError(AttendanceStatus::Absent, 'Employee employment status is inactive.', null, null, false);
+        } catch (NoOpenAttendanceSessionException $e) {
+            return $this->mapError(AttendanceStatus::Incomplete, 'No open attendance session found.', null, null, false);
+        } catch (OutsideGeofenceException $e) {
+            return $this->mapError(AttendanceStatus::Incomplete, 'Employee is outside the approved work location geofence.', null, null, false);
+        } catch (AttendanceBlockedByPolicyException $e) {
+            return $this->mapError(AttendanceStatus::Incomplete, $e->getMessage(), null, null, false);
+        } catch (InvalidLocationException $e) {
+            return $this->mapError(AttendanceStatus::Incomplete, $e->getMessage(), null, null, false);
+        } catch (\Throwable $e) {
+            return $this->mapError(AttendanceStatus::Incomplete, $e->getMessage(), null, null, false);
+        }
+
+        $result = DB::transaction(function () use (
+            $domainResult,
+            $employee,
+            $actorId,
+            $request,
+            $verificationResult,
+            $context
         ) {
-            $session = $evaluation['session'];
-            $oldSessionValues = [
-                'check_in_at' => $session->check_in_at?->toIso8601String(),
-                'check_out_at' => $session->check_out_at?->toIso8601String(),
-                'duration_minutes' => $session->duration_minutes,
-                'status' => $session->status,
-            ];
-
-            $session->update([
-                'check_out_at' => $occurredAt,
-                'duration_minutes' => $durationMinutes,
-                'status' => AttendanceSessionStatus::Closed->value,
-            ]);
-
-            $record = $evaluation['record'];
-            $oldRecordStatus = $record->status;
-            $record->update([
-                'status' => $this->resolveRecordStatus($record, $session),
-            ]);
-
-            foreach ($evaluation['events'] as $eventData) {
-                AttendanceEvent::create([
-                    'employee_id' => $employee->id,
-                    'attendance_id' => $record->id,
-                    'attendance_session_id' => $session->id,
-                    'event_type' => $eventData['event_type'],
-                    'occurred_at' => $eventData['occurred_at'],
-                    'latitude' => $eventData['latitude'] ?? null,
-                    'longitude' => $eventData['longitude'] ?? null,
-                    'accuracy_meters' => $eventData['accuracy_meters'] ?? null,
-                    'source' => $eventData['source'] ?? 'app',
-                    'device_metadata' => $eventData['device_metadata'] ?? null,
-                ]);
-            }
+            $record = $domainResult->attendanceRecord;
+            $session = $domainResult->session;
 
             if ($verificationResult['result'] !== null) {
                 $aiResult = $verificationResult['result'];
@@ -134,21 +140,35 @@ class CheckOutEmployee
                 $actorId,
                 'attendance.check_out',
                 $session,
-                $oldSessionValues,
+                [
+                    'check_in_at' => $session->check_in_at?->toIso8601String(),
+                    'check_out_at' => $session->check_out_at?->toIso8601String(),
+                    'duration_minutes' => $session->duration_minutes,
+                    'status' => $session->status,
+                ],
                 [
                     'check_in_at' => $session->check_in_at?->toIso8601String(),
                     'check_out_at' => $session->check_out_at?->toIso8601String(),
                     'duration_minutes' => $session->duration_minutes,
                     'status' => $session->status,
                     'attendance_record_status' => $record->status,
-                    'old_attendance_record_status' => $oldRecordStatus,
                 ],
                 $request,
                 ['record_id' => $record->id]
             );
+
+            return ['record' => $record, 'session' => $session];
         });
 
-        return $this->mapResult($evaluation);
+        return [
+            'status' => AttendanceStatus::from($domainResult->attendanceRecord->status),
+            'record' => $result['record'],
+            'session' => $result['session'],
+            'geofence' => $domainResult->geofence,
+            'policy' => $domainResult->policy,
+            'error' => null,
+            'conflict' => false,
+        ];
     }
 
     /**
@@ -198,31 +218,32 @@ class CheckOutEmployee
         );
     }
 
-    private function resolveRecordStatus(AttendanceRecord $record, AttendanceSession $session): string
-    {
-        if ($record->status !== AttendanceStatus::Incomplete->value) {
-            return $record->status;
-        }
-
-        if ($session->duration_minutes !== null && $session->duration_minutes >= 0) {
-            return AttendanceStatus::Present->value;
-        }
-
-        return AttendanceStatus::Incomplete->value;
-    }
-
     /**
-     * @return array{status: AttendanceStatus, record: AttendanceRecord|null, session: AttendanceSession|null, geofence: array, policy: array, error: string|null}
+     * @return array{status: AttendanceStatus, record: AttendanceRecord|null, session: AttendanceSession|null, geofence: array, policy: array, error: string|null, conflict: bool}
      */
-    private function mapResult(array $evaluation): array
-    {
+    private function mapError(
+        AttendanceStatus $status,
+        string $error,
+        ?AttendanceRecord $record,
+        ?AttendanceSession $session,
+        bool $conflict
+    ): array {
         return [
-            'status' => $evaluation['status'],
-            'record' => $evaluation['record'],
-            'session' => $evaluation['session'],
-            'geofence' => $evaluation['geofence'],
-            'policy' => $evaluation['policy'],
-            'error' => $evaluation['error'] ?? null,
+            'status' => $status,
+            'record' => $record,
+            'session' => $session,
+            'geofence' => [
+                'passed' => false,
+                'distance_meters' => null,
+                'method' => 'skipped',
+            ],
+            'policy' => [
+                'allowed' => false,
+                'reason' => $error,
+                'policies' => [],
+            ],
+            'error' => $error,
+            'conflict' => $conflict,
         ];
     }
 }

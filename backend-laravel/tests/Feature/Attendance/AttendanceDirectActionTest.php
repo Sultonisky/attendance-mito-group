@@ -6,6 +6,14 @@ use App\Actions\Attendance\CheckInEmployee;
 use App\Actions\Attendance\CheckOutEmployee;
 use App\Actions\Audit\RecordAuditAction;
 use App\Actions\Face\VerifyFaceAction;
+use App\Domain\Attendance\Engines\AttendanceEngine;
+use App\Domain\Attendance\Rules\AttendanceStateRule;
+use App\Domain\Attendance\Rules\EarlyCheckoutRule;
+use App\Domain\Attendance\Rules\GeofenceRule;
+use App\Domain\Attendance\Rules\GpsValidationRule;
+use App\Domain\Attendance\Rules\LateDetectionRule;
+use App\Domain\Policy\Engines\PolicyEngine;
+use App\Domain\Schedule\Engines\ScheduleEngine;
 use App\Enums\AttendanceEventType;
 use App\Enums\AttendanceSessionStatus;
 use App\Enums\AttendanceStatus;
@@ -15,10 +23,6 @@ use App\Models\ScheduleAssignment;
 use App\Models\Shift;
 use App\Models\User;
 use App\Models\WorkSchedule;
-use App\Services\Attendance\AttendanceEngine;
-use App\Services\Attendance\GeofenceService;
-use App\Services\Attendance\PolicyEvaluator;
-use App\Services\Attendance\ScheduleResolver;
 use App\Services\Integration\FastApiService;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -78,9 +82,13 @@ class AttendanceDirectActionTest extends TestCase
     private function makeEngine(): AttendanceEngine
     {
         return new AttendanceEngine(
-            new GeofenceService,
-            new ScheduleResolver,
-            new PolicyEvaluator
+            new PolicyEngine,
+            new ScheduleEngine,
+            new GpsValidationRule,
+            new GeofenceRule,
+            new LateDetectionRule,
+            new EarlyCheckoutRule,
+            new AttendanceStateRule,
         );
     }
 
@@ -106,7 +114,7 @@ class AttendanceDirectActionTest extends TestCase
         $checkIn = new CheckInEmployee($engine, $audit, $verifyFace);
         $checkOut = new CheckOutEmployee($engine, $audit, $verifyFace);
 
-        $checkInResult = $checkIn->execute($employee, CarbonImmutable::now(), [
+        $checkInResult = $checkIn->execute($employee, CarbonImmutable::create(2026, 9, 12, 7, 59, 0), [
             'latitude' => -6.2,
             'longitude' => 106.8,
         ]);
@@ -123,7 +131,7 @@ class AttendanceDirectActionTest extends TestCase
             'attendance_date' => $record->attendance_date,
         ]);
 
-        $checkOutResult = $checkOut->execute($employee, CarbonImmutable::now(), [
+        $checkOutResult = $checkOut->execute($employee, CarbonImmutable::create(2026, 9, 12, 17, 1, 0), [
             'latitude' => -6.2,
             'longitude' => 106.8,
         ]);

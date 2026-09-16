@@ -3,9 +3,7 @@
 namespace Tests\Feature\Penalty;
 
 use App\Enums\PenaltyStatus;
-use App\Models\Employee;
 use App\Models\PenaltyRecord;
-use App\Models\PenaltyRule;
 use App\Models\User;
 use Database\Factories\EmployeeFactory;
 use Database\Factories\PenaltyRuleFactory;

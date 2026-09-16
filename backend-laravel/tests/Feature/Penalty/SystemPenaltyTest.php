@@ -13,15 +13,7 @@ use App\Enums\RecordStatus;
 use App\Models\AttendanceRecord;
 use App\Models\AttendanceSession;
 use App\Models\Employee;
-use App\Models\LeaveRequest;
-use App\Models\PermissionRequest;
-use App\Models\PenaltyRecord;
-use App\Models\PenaltyRule;
 use App\Models\Policy;
-use App\Models\PolicyAssignment;
-use App\Models\ScheduleAssignment;
-use App\Models\Shift;
-use App\Models\User;
 use App\Models\WorkSchedule;
 use Carbon\CarbonImmutable;
 use Database\Factories\EmployeeFactory;
@@ -83,8 +75,8 @@ class SystemPenaltyTest extends TestCase
     private function makeEngine(): PenaltyEngine
     {
         return new PenaltyEngine(
-            new PolicyEngine(),
-            new ScheduleEngine(),
+            new PolicyEngine,
+            new ScheduleEngine,
         );
     }
 

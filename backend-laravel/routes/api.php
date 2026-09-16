@@ -2,12 +2,14 @@
 
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\FaceVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\LeaveController;
 use App\Http\Controllers\Api\V1\MonthlyRecapController;
 use App\Http\Controllers\Api\V1\OvertimeController;
 use App\Http\Controllers\Api\V1\PenaltyController;
+use App\Http\Controllers\Api\V1\ReportController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -39,9 +41,10 @@ Route::prefix('v1')->group(function () {
             ]);
         })->middleware('can:dashboard.view');
 
-        // Attendance (Phase 7)
-        Route::post('/attendance/check-in', [AttendanceController::class, 'checkIn']);
-        Route::post('/attendance/check-out', [AttendanceController::class, 'checkOut']);
+        // Dashboard KPI (Phase 13.2)
+        Route::get('/dashboard/kpis', [DashboardController::class, 'kpis'])
+            ->middleware('can:dashboard.view')
+            ->name('dashboard.kpis');
 
         // Penalty (Phase 11)
         Route::prefix('penalties')->middleware('auth:sanctum')->group(function () {
@@ -108,6 +111,14 @@ Route::prefix('v1')->group(function () {
             Route::post('/{monthlyRecap}/finalize', [MonthlyRecapController::class, 'finalize'])->middleware('can:monthly_recap.finalize')->name('finalize');
             Route::post('/{monthlyRecap}/export', [MonthlyRecapController::class, 'export'])->middleware('can:monthly_recap.export')->name('export');
             Route::post('/{monthlyRecap}/reopen', [MonthlyRecapController::class, 'reopen'])->middleware('can:monthly_recap.finalize')->name('reopen');
+        });
+
+        // Reports (Phase 13.1)
+        Route::prefix('reports')->name('reports.')->group(function () {
+            Route::get('/attendance', [ReportController::class, 'attendance'])->name('attendance');
+            Route::get('/leave', [ReportController::class, 'leave'])->middleware('can:leave.view')->name('leave');
+            Route::get('/overtime', [ReportController::class, 'overtime'])->middleware('can:overtime.view')->name('overtime');
+            Route::get('/penalties', [ReportController::class, 'penalty'])->middleware('can:penalty.view')->name('penalty');
         });
     });
 });
