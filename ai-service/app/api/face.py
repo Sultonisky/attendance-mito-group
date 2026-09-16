@@ -12,11 +12,14 @@ Endpoints:
 FastAPI returns AI facts only. Laravel makes the final attendance decision.
 """
 
-import hashlib
 import logging
+import uuid
+
+import numpy as np
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
+from app.core.biometric_storage import PostgreSQLBiometricStorage, create_storage, generate_reference
 from app.core.config import Settings, get_settings
 from app.core.face import FaceProcessor
 from app.core.image_utils import ImageValidationError, validate_and_decode_image
@@ -27,21 +30,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/face", tags=["face"])
 
-# In-memory embedding store for the development adapter.
-# Production deployments use a secure vector store (e.g. Redis, PostgreSQL).
-# FastAPI owns this material and never sends raw vectors to Laravel.
-_embeddings: dict[str, list[float]] = {}
+_storage: PostgreSQLBiometricStorage | None = None
+
+
+def _get_storage() -> PostgreSQLBiometricStorage:
+    global _storage
+    if _storage is None:
+        _storage = create_storage(get_settings().biometric_database_url)
+    return _storage
 
 
 def _get_processor(settings: Settings) -> FaceProcessor:
     return FaceProcessor(settings)
-
-
-def _make_embedding_reference(employee_id: str, model_version: str) -> str:
-    """Generate an opaque reference Laravel stores to look up this embedding."""
-    return hashlib.sha256(
-        f"{employee_id}:{model_version}".encode()
-    ).hexdigest()[:32]
 
 
 @router.post("/enroll", response_model=EnrollResponse)
@@ -85,27 +85,37 @@ async def enroll_face(
         processor = _get_processor(settings)
         embedding, quality = processor.enroll(img)
     except Exception:
-        logger.exception("Face enrollment failed for employee %s", employee_id)
+        logger.exception("Face enrollment failed.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Face enrollment processing failed.",
         ) from None
 
-    # Store embedding under employee_id. FastAPI owns this material and does
-    # not expose it. Laravel stores only the opaque embedding_reference.
-    _embeddings[employee_id] = embedding
+    # FastAPI owns the raw embedding and never exposes it to Laravel.
+    # Laravel stores only the opaque embedding_reference.
+    reference = generate_reference()
+    vector_bytes = np.asarray(embedding, dtype=np.float32).tobytes()
 
-    embedding_ref = _make_embedding_reference(employee_id, settings.model_version)
+    storage = _get_storage()
+    storage.store(
+        reference=reference,
+        vector=vector_bytes,
+        dimension=len(embedding),
+        model_version=settings.model_version,
+        idempotency_key=uuid.uuid4().hex,
+    )
 
     logger.info(
-        "Face enrolled — employee=%s ref=%s model=%s quality=%.4f",
-        employee_id, embedding_ref, settings.model_version, quality,
+        "Face enrolled — ref=%s model=%s quality=%.4f",
+        reference,
+        settings.model_version,
+        quality,
     )
 
     return EnrollResponse(
         enrolled=True,
         model_version=settings.model_version,
-        embedding_reference=embedding_ref,
+        embedding_reference=reference,
         face_detected=quality > 0.0,
         quality_score=quality,
     )
@@ -151,23 +161,19 @@ async def verify_face(
             detail=str(exc),
         ) from exc
 
-    # Retrieve stored embedding. FastAPI trusts Laravel to have validated the
-    # employee identity — it does not query the Laravel database.
-    stored_embedding = _embeddings.get(employee_id)
-
-    if stored_embedding is None and embedding_reference is not None:
-        # Attempt lookup via reference (future: query vector store by reference).
-        for emp_id, emb in _embeddings.items():
-            ref = _make_embedding_reference(emp_id, settings.model_version)
-            if ref == embedding_reference:
-                stored_embedding = emb
-                break
+    # Retrieve stored embedding by opaque reference.
+    # FastAPI does not query the Laravel database.
+    stored_embedding = None
+    if embedding_reference is not None:
+        row = _get_storage().get_by_reference(embedding_reference)
+        if row is not None:
+            stored_embedding = np.frombuffer(row.vector, dtype=np.float32).tolist()
 
     try:
         processor = _get_processor(settings)
         result = processor.verify(img, stored_embedding)
     except Exception:
-        logger.exception("Face verification failed for employee %s", employee_id)
+        logger.exception("Face verification failed.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Face verification processing failed.",

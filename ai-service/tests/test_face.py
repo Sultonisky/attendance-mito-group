@@ -178,22 +178,30 @@ class TestVerifyFace:
     def _enroll_before_verify(self):
         """Enroll a face first so verify has an embedding to compare."""
         img_bytes, mime = _png_bytes(_make_test_image(seed=42))
-        client.post(
+        enroll_resp = client.post(
             "/face/enroll",
             files={"image": ("enroll.png", img_bytes, mime)},
             data={"employee_id": "EMP_VERIFY"},
             headers={"X-API-Key": _TEST_API_KEY},
         )
+        assert enroll_resp.status_code == 200
+        self._embedding_reference = enroll_resp.json()["embedding_reference"]
         yield
+
+    def _verify_data(self, img_bytes, mime):
+        return {
+            "files": {"image": ("verify.png", img_bytes, mime)},
+            "data": {
+                "employee_id": "EMP_VERIFY",
+                "embedding_reference": self._embedding_reference,
+            },
+            "headers": {"X-API-Key": _TEST_API_KEY},
+        }
 
     def test_verify_returns_correct_schema(self):
         img_bytes, mime = _png_bytes(_make_test_image(seed=42))
-        resp = client.post(
-            "/face/verify",
-            files={"image": ("verify.png", img_bytes, mime)},
-            data={"employee_id": "EMP_VERIFY"},
-            headers={"X-API-Key": _TEST_API_KEY},
-        )
+        kwargs = self._verify_data(img_bytes, mime)
+        resp = client.post("/face/verify", **kwargs)
         assert resp.status_code == 200
         body = resp.json()
         assert "verified" in body
@@ -210,36 +218,24 @@ class TestVerifyFace:
 
     def test_verify_same_image_returns_high_confidence(self):
         img_bytes, mime = _png_bytes(_make_test_image(seed=42))
-        resp = client.post(
-            "/face/verify",
-            files={"image": ("verify.png", img_bytes, mime)},
-            data={"employee_id": "EMP_VERIFY"},
-            headers={"X-API-Key": _TEST_API_KEY},
-        )
+        kwargs = self._verify_data(img_bytes, mime)
+        resp = client.post("/face/verify", **kwargs)
         assert resp.status_code == 200
         body = resp.json()
         assert body["confidence"] >= 0.9
 
     def test_verify_face_mismatch_returns_verified_false(self):
         different_img, mime = _png_bytes(_make_test_image(seed=99))
-        resp = client.post(
-            "/face/verify",
-            files={"image": ("different.png", different_img, mime)},
-            data={"employee_id": "EMP_VERIFY"},
-            headers={"X-API-Key": _TEST_API_KEY},
-        )
+        kwargs = self._verify_data(different_img, mime)
+        resp = client.post("/face/verify", **kwargs)
         assert resp.status_code == 200
         body = resp.json()
         assert body["verified"] is False
 
     def test_verify_liveness_field_is_present(self):
         img_bytes, mime = _png_bytes(_make_test_image(seed=42))
-        resp = client.post(
-            "/face/verify",
-            files={"image": ("verify.png", img_bytes, mime)},
-            data={"employee_id": "EMP_VERIFY"},
-            headers={"X-API-Key": _TEST_API_KEY},
-        )
+        kwargs = self._verify_data(img_bytes, mime)
+        resp = client.post("/face/verify", **kwargs)
         body = resp.json()
         assert "liveness" in body
         assert "liveness_reason" in body
@@ -247,23 +243,17 @@ class TestVerifyFace:
     def test_verify_liveness_is_false_in_dev_mode(self):
         """In disabled liveness mode, liveness must be False (safe default)."""
         img_bytes, mime = _png_bytes(_make_test_image(seed=42))
-        resp = client.post(
-            "/face/verify",
-            files={"image": ("verify.png", img_bytes, mime)},
-            data={"employee_id": "EMP_VERIFY"},
-            headers={"X-API-Key": _TEST_API_KEY},
-        )
+        kwargs = self._verify_data(img_bytes, mime)
+        resp = client.post("/face/verify", **kwargs)
         body = resp.json()
         assert body["liveness"] is False
 
     def test_verify_unknown_employee_returns_verified_false(self):
         img_bytes, mime = _png_bytes(_make_test_image(seed=7))
-        resp = client.post(
-            "/face/verify",
-            files={"image": ("verify.png", img_bytes, mime)},
-            data={"employee_id": "EMP_UNKNOWN"},
-            headers={"X-API-Key": _TEST_API_KEY},
-        )
+        kwargs = self._verify_data(img_bytes, mime)
+        # Use a reference that doesn't exist
+        kwargs["data"]["embedding_reference"] = "nonexistent-ref"
+        resp = client.post("/face/verify", **kwargs)
         assert resp.status_code == 200
         body = resp.json()
         assert body["verified"] is False
@@ -281,12 +271,8 @@ class TestVerifyFace:
     def test_verify_response_does_not_expose_embedding(self):
         """Raw embeddings must never be returned in verification responses."""
         img_bytes, mime = _png_bytes(_make_test_image(seed=42))
-        resp = client.post(
-            "/face/verify",
-            files={"image": ("verify.png", img_bytes, mime)},
-            data={"employee_id": "EMP_VERIFY"},
-            headers={"X-API-Key": _TEST_API_KEY},
-        )
+        kwargs = self._verify_data(img_bytes, mime)
+        resp = client.post("/face/verify", **kwargs)
         body = resp.json()
         assert "embedding" not in body
         assert "embedding_vector" not in body
@@ -331,7 +317,10 @@ class TestExceptionHandling:
             resp = client.post(
                 "/face/verify",
                 files={"image": ("test.png", img_bytes, mime)},
-                data={"employee_id": "EMP_VERIFY"},
+                data={
+                    "employee_id": "EMP_VERIFY",
+                    "embedding_reference": "nonexistent-ref",
+                },
                 headers={"X-API-Key": _TEST_API_KEY},
             )
             assert resp.status_code == 500
