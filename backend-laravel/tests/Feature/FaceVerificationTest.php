@@ -222,7 +222,7 @@ class FaceVerificationTest extends TestCase
      */
     public function test_verify_returns_ai_facts_and_decision(): void
     {
-        $user = $this->regularUser();
+        $user = $this->adminUser();
         $employee = Employee::factory()->create();
 
         Http::fake([
@@ -259,7 +259,7 @@ class FaceVerificationTest extends TestCase
      */
     public function test_verify_passes_with_face_detected_and_verified(): void
     {
-        $user = $this->regularUser();
+        $user = $this->adminUser();
         $employee = Employee::factory()->create();
 
         Http::fake([
@@ -295,7 +295,7 @@ class FaceVerificationTest extends TestCase
      */
     public function test_verify_fails_when_liveness_required_but_failed(): void
     {
-        $user = $this->regularUser();
+        $user = $this->adminUser();
         $employee = Employee::factory()->create();
 
         Http::fake([
@@ -327,7 +327,7 @@ class FaceVerificationTest extends TestCase
      */
     public function test_verify_fails_when_face_not_detected(): void
     {
-        $user = $this->regularUser();
+        $user = $this->adminUser();
         $employee = Employee::factory()->create();
 
         Http::fake([
@@ -359,7 +359,7 @@ class FaceVerificationTest extends TestCase
      */
     public function test_verify_fails_when_not_verified_by_ai(): void
     {
-        $user = $this->regularUser();
+        $user = $this->adminUser();
         $employee = Employee::factory()->create();
 
         Http::fake([
@@ -390,7 +390,7 @@ class FaceVerificationTest extends TestCase
      */
     public function test_verify_returns_503_when_ai_service_unavailable(): void
     {
-        $user = $this->regularUser();
+        $user = $this->adminUser();
         $employee = Employee::factory()->create();
 
         Http::fake(function () {
@@ -412,7 +412,7 @@ class FaceVerificationTest extends TestCase
      */
     public function test_verify_failure_never_passes(): void
     {
-        $user = $this->regularUser();
+        $user = $this->adminUser();
         $employee = Employee::factory()->create();
 
         Http::fake([
@@ -439,7 +439,7 @@ class FaceVerificationTest extends TestCase
      */
     public function test_verify_persists_verification_record(): void
     {
-        $user = $this->regularUser();
+        $user = $this->adminUser();
         $employee = Employee::factory()->create();
 
         Http::fake([
@@ -469,5 +469,119 @@ class FaceVerificationTest extends TestCase
         $this->assertSame('face-dev-v1', $verification->details['model_version']);
         $this->assertSame(0.94, $verification->details['confidence']);
         $this->assertTrue($verification->details['liveness']);
+    }
+
+    /**
+     * Verify requires face.verify permission.
+     */
+    public function test_verify_requires_face_verify_permission(): void
+    {
+        $user = $this->regularUser();
+        $employee = Employee::factory()->create();
+
+        Http::fake([
+            '*/face/verify' => Http::response([
+                'verified' => true,
+                'confidence' => 0.94,
+                'liveness' => true,
+                'liveness_reason' => null,
+                'face_detected' => true,
+                'model_version' => 'face-dev-v1',
+                'processing_time_ms' => 45,
+                'quality_score' => 0.88,
+            ], 200),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/face/verify', [
+                'employee_id' => $employee->id,
+                'image' => $this->test_image(),
+            ])->assertForbidden();
+    }
+
+    /**
+     * Unauthorized user cannot verify another employee's face (IDOR prevention).
+     */
+    public function test_user_cannot_verify_another_employee_face(): void
+    {
+        $userA = $this->regularUser();
+        $userB = $this->regularUser();
+        $employeeB = Employee::factory()->create(['user_id' => $userB->id]);
+
+        Http::fake([
+            '*/face/verify' => Http::response([
+                'verified' => true,
+                'confidence' => 0.94,
+                'liveness' => true,
+                'liveness_reason' => null,
+                'face_detected' => true,
+                'model_version' => 'face-dev-v1',
+                'processing_time_ms' => 45,
+                'quality_score' => 0.88,
+            ], 200),
+        ]);
+
+        $this->actingAs($userA, 'sanctum')
+            ->postJson('/api/v1/face/verify', [
+                'employee_id' => $employeeB->id,
+                'image' => $this->test_image(),
+            ])->assertForbidden();
+    }
+
+    /**
+     * SUPER_ADMIN can verify any employee.
+     */
+    public function test_super_admin_can_verify_any_employee(): void
+    {
+        $superAdmin = User::factory()->create();
+        $superAdmin->assignRole('SUPER_ADMIN');
+        $employee = Employee::factory()->create();
+
+        Http::fake([
+            '*/face/verify' => Http::response([
+                'verified' => true,
+                'confidence' => 0.94,
+                'liveness' => true,
+                'liveness_reason' => null,
+                'face_detected' => true,
+                'model_version' => 'face-dev-v1',
+                'processing_time_ms' => 45,
+                'quality_score' => 0.88,
+            ], 200),
+        ]);
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->postJson('/api/v1/face/verify', [
+                'employee_id' => $employee->id,
+                'image' => $this->test_image(),
+            ])->assertOk()
+            ->assertJsonPath('success', true);
+    }
+
+    /**
+     * Verify does not leak internal FastAPI error details to the client.
+     */
+    public function test_verify_does_not_leak_fastapi_internal_errors(): void
+    {
+        $user = $this->adminUser();
+        $employee = Employee::factory()->create();
+
+        Http::fake([
+            '*/face/verify' => Http::response([
+                'detail' => 'Traceback (most recent call last): File "/app/internal/server.py", line 42...',
+            ], 500),
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/face/verify', [
+                'employee_id' => $employee->id,
+                'image' => $this->test_image(),
+            ]);
+
+        $response->assertStatus(503);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonMissing(['data']);
+        $this->assertStringNotContainsString('Traceback', (string) $response->getContent());
+        $this->assertStringNotContainsString('/app/', (string) $response->getContent());
     }
 }

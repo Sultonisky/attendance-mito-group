@@ -369,7 +369,10 @@ class AttendanceEngineTest extends TestCase
         AttendanceRecord::factory()->create(['employee_id' => $employee->id]);
         AttendanceRecord::factory()->create(['employee_id' => $otherEmployee->id]);
 
-        $response = $this->actingAs($this->userForEmployee($employee), 'sanctum')
+        $user = $this->userForEmployee($employee);
+        $user->assignRole('USER');
+
+        $response = $this->actingAs($user, 'sanctum')
             ->getJson('/api/v1/attendance');
 
         $response->assertStatus(200);
@@ -385,7 +388,10 @@ class AttendanceEngineTest extends TestCase
         $employee = $this->makeEmployee();
         $record = AttendanceRecord::factory()->create(['employee_id' => $employee->id]);
 
-        $response = $this->actingAs($this->userForEmployee($employee), 'sanctum')
+        $user = $this->userForEmployee($employee);
+        $user->assignRole('USER');
+
+        $response = $this->actingAs($user, 'sanctum')
             ->getJson("/api/v1/attendance/{$record->id}");
 
         $response->assertStatus(200);
@@ -401,7 +407,10 @@ class AttendanceEngineTest extends TestCase
         $otherEmployee = $this->makeEmployee();
         $record = AttendanceRecord::factory()->create(['employee_id' => $otherEmployee->id]);
 
-        $response = $this->actingAs($this->userForEmployee($employee), 'sanctum')
+        $user = $this->userForEmployee($employee);
+        $user->assignRole('USER');
+
+        $response = $this->actingAs($user, 'sanctum')
             ->getJson("/api/v1/attendance/{$record->id}");
 
         $response->assertStatus(404);

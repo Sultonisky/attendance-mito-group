@@ -12,6 +12,7 @@ use App\Models\PenaltyRule;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class ReportApiTest extends TestCase
@@ -54,6 +55,28 @@ class ReportApiTest extends TestCase
     {
         $this->getJson('/api/v1/reports/attendance?from=2026-09-01&to=2026-09-30')
             ->assertUnauthorized();
+    }
+
+    public function test_attendance_report_requires_permission(): void
+    {
+        $user = User::factory()->create();
+        $role = Role::findByName('USER');
+        $role->syncPermissions([
+            'dashboard.view',
+            'penalty.view',
+            'leave.view',
+            'leave.create',
+            'leave.cancel',
+            'overtime.view',
+            'overtime.create',
+            'overtime.cancel',
+            'monthly_recap.view',
+        ]);
+        $user->assignRole('USER');
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/reports/attendance?from=2026-09-01&to=2026-09-30')
+            ->assertForbidden();
     }
 
     public function test_user_sees_own_attendance_report(): void
