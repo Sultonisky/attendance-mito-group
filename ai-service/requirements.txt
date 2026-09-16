@@ -3,9 +3,14 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 pydantic-settings>=2.4
 # Image validation/decoding for face verification endpoints.
-# No heavy ML runtime (OpenCV, NumPy, face-detection models) is required yet;
+# No heavy ML runtime (OpenCV, face-detection models) is required yet;
 # the FaceProcessor uses a deterministic development adapter behind a stable
 # boundary so the integration contract is testable without GPU/CUDA.
 # See DECISIONS.md / DEVELOPMENT.md for model-upgrade guidance.
 pillow>=10.4
 python-multipart>=0.0.9
+
+# ONNX Runtime inference foundation (CPU-only, no torch/cv2/insightface).
+# Minimum versions align with the reference implementation's tested stack.
+onnxruntime>=1.29.0
+numpy>=2.0.0
