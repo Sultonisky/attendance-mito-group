@@ -333,6 +333,8 @@ class AttendanceEngineTest extends TestCase
             ->postJson('/api/v1/attendance/check-in', [
                 'latitude' => -6.2,
                 'longitude' => 106.8,
+            ], [
+                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 21, 30, 0)->toIso8601String(),
             ]);
 
         $response->assertStatus(201);
