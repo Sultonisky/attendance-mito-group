@@ -107,7 +107,7 @@ class TestApiKeyAuth:
         assert resp.status_code == 200
         body = resp.json()
         assert body["enrolled"] is True
-        assert body["model_version"] == "face-dev-v1"
+        assert body["model_version"] == "mito-face-v1"
         assert "embedding_reference" in body
         assert body["face_detected"] is True
 
