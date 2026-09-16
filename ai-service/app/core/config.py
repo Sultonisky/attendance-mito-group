@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -29,11 +30,18 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Face / liveness model configuration
     # ------------------------------------------------------------------
-    # The exact face/liveness model is an implementation detail. This version
-    # string is returned with every AI result so Laravel can store it in
-    # AttendanceVerification for historical traceability.
-    model_version: str = "face-dev-v1"
+    # Pipeline version string identifying the complete model stack
+    # (detector + embedding + liveness + preprocessing).
+    # Returned with every AI result so Laravel can store it for traceability.
+    model_version: str = "mito-face-v1"
 
+    # Directory containing ONNX model assets.
+    # Relative paths are resolved from the application working directory.
+    model_dir: Path = Path("models")
+
+    # ------------------------------------------------------------------
+    # Image validation
+    # ------------------------------------------------------------------
     # Maximum accepted image size in bytes (default 5 MB). Prevents unbounded
     # uploads from exhausting server memory during decode.
     max_image_size_bytes: int = 5_000_000
