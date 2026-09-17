@@ -6,12 +6,14 @@ the browser. All requests (except ``/health``) require the shared API key.
 
 Endpoints:
 
-    POST /face/enroll  — enroll an employee face (admin action via Laravel)
+    POST /face/enroll  — enroll a face embedding (admin action via Laravel)
     POST /face/verify  — verify a probe face against the enrolled embedding
 
 FastAPI returns AI facts only. Laravel makes the final attendance decision.
 """
 
+import hashlib
+import json
 import logging
 import uuid
 
@@ -19,12 +21,18 @@ import numpy as np
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
+from app.ai.engine.mito_ai_engine import (
+    MitoAiEngine,
+    MitoAiError,
+    MultipleFacesDetectedError,
+    NoFaceDetectedError,
+)
 from app.core.biometric_storage import PostgreSQLBiometricStorage, create_storage, generate_reference
 from app.core.config import Settings, get_settings
 from app.core.face import FaceProcessor
 from app.core.image_utils import ImageValidationError, validate_and_decode_image
 from app.core.security import require_api_key
-from app.models.face import EnrollResponse, VerifyResponse
+from app.models.face import EnrollResponse, LivenessResponse, QualityResponse, VerifyResponse
 
 logger = logging.getLogger(__name__)
 
@@ -44,20 +52,83 @@ def _get_processor(settings: Settings) -> FaceProcessor:
     return FaceProcessor(settings)
 
 
+def _get_engine(settings: Settings) -> MitoAiEngine:
+    from app.ai.alignment.face_alignment import FaceAligner
+    from app.ai.detection.scrfd import SCRFDDetector
+    from app.ai.embedding.arcface import ArcFaceEmbedder
+    from app.ai.liveness.mini_fasnet import MiniFASNetV2
+    from app.ai.quality.face_quality import FaceQualityAssessor
+
+    return MitoAiEngine(
+        detector=SCRFDDetector(),
+        aligner=FaceAligner(),
+        quality_assessor=FaceQualityAssessor(),
+        embedder=ArcFaceEmbedder(),
+        liveness=MiniFASNetV2(),
+    )
+
+
+def _build_enroll_response(
+    reference: str,
+    model_version: str,
+    face_detected: bool,
+    quality: object,
+    liveness: object,
+    processing_time_ms: float,
+) -> EnrollResponse:
+    return EnrollResponse(
+        enrolled=True,
+        model_version=model_version,
+        embedding_reference=reference,
+        face_detected=face_detected,
+        quality=QualityResponse(
+            blur=quality.blur,
+            brightness=quality.brightness,
+            contrast=quality.contrast,
+            face_width=quality.face_width,
+            face_height=quality.face_height,
+            yaw=quality.yaw,
+            roll=quality.roll,
+        ),
+        liveness=LivenessResponse(
+            label=liveness.label,
+            live_prob=liveness.live_prob,
+            probs=liveness.probs,
+        ),
+        processing_time_ms=processing_time_ms,
+    )
+
+
+def _build_enroll_response_from_storage(row, settings: Settings) -> EnrollResponse:
+    ai_facts = json.loads(row.ai_facts)
+    quality_data = ai_facts["quality"]
+    liveness_data = ai_facts["liveness"]
+    return EnrollResponse(
+        enrolled=True,
+        model_version=row.model_version,
+        embedding_reference=row.reference,
+        face_detected=ai_facts["face_detected"],
+        quality=QualityResponse(**quality_data),
+        liveness=LivenessResponse(**liveness_data),
+        processing_time_ms=ai_facts["processing_time_ms"],
+    )
+
+
 @router.post("/enroll", response_model=EnrollResponse)
 async def enroll_face(
     image: UploadFile = File(..., description="Face image (JPEG/PNG/WebP)."),
-    employee_id: str = Form(..., description="Employee identifier (e.g. employee_code)."),
+    idempotency_key: str = Form(..., description="Opaque idempotency key for deduplication."),
     settings: Settings = Depends(require_api_key),
 ) -> EnrollResponse:
-    """Enroll an employee's face.
+    """Enroll a face embedding.
 
     - Validates the image server-side (MIME, size, pixel dimensions).
-    - Generates a deterministic embedding via the configured model.
-    - Stores the embedding internally under ``employee_id``.
-    - Returns the model version and an opaque ``embedding_reference``.
+    - Runs the MITO AI pipeline (SCRFD → alignment → quality → ArcFace → MiniFASNetV2).
+    - Stores the raw embedding internally under an opaque ``embedding_reference``.
+    - Returns the model version, quality metrics, liveness facts, and the reference.
 
     The actual embedding vector is retained by FastAPI and is never returned.
+    FastAPI does not know which employee the embedding belongs to.
     """
     image_bytes = await image.read()
     mime_type = image.content_type or "application/octet-stream"
@@ -68,6 +139,14 @@ async def enroll_face(
             detail="No image data received.",
         )
 
+    if not idempotency_key or not idempotency_key.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid idempotency key.",
+        )
+
+    fingerprint = hashlib.sha256(image_bytes).hexdigest()
+
     try:
         img = validate_and_decode_image(
             image_bytes=image_bytes,
@@ -77,47 +156,101 @@ async def enroll_face(
         )
     except ImageValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
 
-    try:
-        processor = _get_processor(settings)
-        embedding, quality = processor.enroll(img)
-    except Exception:
-        logger.exception("Face enrollment failed.")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Face enrollment processing failed.",
-        ) from None
-
-    # FastAPI owns the raw embedding and never exposes it to Laravel.
-    # Laravel stores only the opaque embedding_reference.
-    reference = generate_reference()
-    vector_bytes = np.asarray(embedding, dtype=np.float32).tobytes()
-
     storage = _get_storage()
-    storage.store(
-        reference=reference,
-        vector=vector_bytes,
-        dimension=len(embedding),
-        model_version=settings.model_version,
-        idempotency_key=uuid.uuid4().hex,
-    )
+
+    existing = storage.get_by_idempotency_key(idempotency_key)
+    if existing is not None:
+        if existing.request_fingerprint == fingerprint:
+            return _build_enroll_response_from_storage(existing, settings)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Idempotency key reused with a different request.",
+        )
+
+    try:
+        engine = _get_engine(settings)
+        result = engine.process(img)
+    except NoFaceDetectedError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No face detected in image.",
+        )
+    except MultipleFacesDetectedError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Multiple faces detected. Only one face is allowed.",
+        )
+    except MitoAiError:
+        logger.exception("AI inference failed during enrollment.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI model unavailable.",
+        )
+    except Exception:
+        logger.exception("Unexpected failure during AI inference.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI processing failed.",
+        )
+
+    reference = generate_reference()
+    vector_bytes = np.asarray(result.embedding, dtype=np.float32).tobytes()
+
+    ai_facts = {
+        "face_detected": result.face_detected,
+        "quality": {
+            "blur": result.quality.blur,
+            "brightness": result.quality.brightness,
+            "contrast": result.quality.contrast,
+            "face_width": result.quality.face_width,
+            "face_height": result.quality.face_height,
+            "yaw": result.quality.yaw,
+            "roll": result.quality.roll,
+        },
+        "liveness": {
+            "label": result.liveness.label,
+            "live_prob": result.liveness.live_prob,
+            "probs": result.liveness.probs,
+        },
+        "processing_time_ms": result.processing_time_ms,
+    }
+    ai_facts_json = json.dumps(ai_facts)
+
+    try:
+        storage.store(
+            reference=reference,
+            vector=vector_bytes,
+            dimension=result.embedding_dimension,
+            model_version=result.model_version,
+            idempotency_key=idempotency_key,
+            request_fingerprint=fingerprint,
+            ai_facts=ai_facts_json,
+        )
+    except Exception as exc:
+        logger.exception("Embedding storage failed after successful AI inference.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Embedding storage failed.",
+        ) from exc
 
     logger.info(
-        "Face enrolled — ref=%s model=%s quality=%.4f",
+        "Face enrolled — ref=%s model=%s processing_time_ms=%.1f",
         reference,
-        settings.model_version,
-        quality,
+        result.model_version,
+        result.processing_time_ms,
     )
 
-    return EnrollResponse(
-        enrolled=True,
-        model_version=settings.model_version,
-        embedding_reference=reference,
-        face_detected=quality > 0.0,
-        quality_score=quality,
+    return _build_enroll_response(
+        reference=reference,
+        model_version=result.model_version,
+        face_detected=result.face_detected,
+        quality=result.quality,
+        liveness=result.liveness,
+        processing_time_ms=result.processing_time_ms,
     )
 
 

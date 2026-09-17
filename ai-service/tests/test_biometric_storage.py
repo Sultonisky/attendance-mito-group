@@ -1,11 +1,13 @@
-"""Tests for biometric embedding storage (AI-3.1).
+"""Tests for biometric embedding storage (AI-3.1 / AI-3.2).
 
 Covers reference generation, serialization roundtrip, validation,
-PostgreSQL CRUD, uniqueness, status, and isolation guarantees.
+PostgreSQL CRUD, uniqueness, status, idempotency, request fingerprint,
+and isolation guarantees.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import struct
 import uuid
@@ -62,6 +64,27 @@ def _vector_to_bytes(vec: np.ndarray) -> bytes:
 
 def _bytes_to_vector(data: bytes) -> np.ndarray:
     return np.frombuffer(data, dtype=np.float32)
+
+
+def _make_ai_facts() -> str:
+    return json.dumps({
+        "face_detected": True,
+        "quality": {
+            "blur": 120.5,
+            "brightness": 128.0,
+            "contrast": 45.2,
+            "face_width": 100.0,
+            "face_height": 100.0,
+            "yaw": 0.05,
+            "roll": 0.0,
+        },
+        "liveness": {
+            "label": "real",
+            "live_prob": 0.95,
+            "probs": {"print": 0.02, "real": 0.95, "replay": 0.03},
+        },
+        "processing_time_ms": 42.5,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +172,7 @@ class TestInputValidation:
         vec = _make_vector(256)
         data = _vector_to_bytes(vec)
         with pytest.raises(ValueError, match="dimension"):
-            storage.store("ref1", data, 512, "v1", "key1")
+            storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
 
     def test_rejects_nan_vector(self):
         storage = InMemoryBiometricStorage()
@@ -166,7 +189,7 @@ class TestInputValidation:
         storage = InMemoryBiometricStorage()
         vec = np.zeros(512, dtype=np.float32)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         row = storage.get_by_reference("ref1")
         assert row is not None
         assert row.dimension == 512
@@ -174,13 +197,13 @@ class TestInputValidation:
     def test_rejects_empty_bytes(self):
         storage = InMemoryBiometricStorage()
         with pytest.raises(ValueError, match="dimension"):
-            storage.store("ref1", b"", 512, "v1", "key1")
+            storage.store("ref1", b"", 512, "v1", "key1", "fp1", _make_ai_facts())
 
     def test_rejects_corrupt_payload_dimension_mismatch(self):
         storage = InMemoryBiometricStorage()
         data = b"\x00" * 100
         with pytest.raises(ValueError, match="dimension"):
-            storage.store("ref1", data, 512, "v1", "key1")
+            storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +216,7 @@ class TestInMemoryStorageCRUD:
         storage = InMemoryBiometricStorage()
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         row = storage.get_by_reference("ref1")
         assert row is not None
         assert row.reference == "ref1"
@@ -201,16 +224,19 @@ class TestInMemoryStorageCRUD:
         assert row.model_version == "v1"
         assert row.status == "active"
         assert row.idempotency_key == "key1"
+        assert row.request_fingerprint == "fp1"
+        assert "face_detected" in row.ai_facts
         np.testing.assert_array_equal(_bytes_to_vector(row.vector), vec)
 
     def test_get_by_idempotency_key(self):
         storage = InMemoryBiometricStorage()
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         row = storage.get_by_idempotency_key("key1")
         assert row is not None
         assert row.reference == "ref1"
+        assert row.request_fingerprint == "fp1"
 
     def test_get_missing_reference_returns_none(self):
         storage = InMemoryBiometricStorage()
@@ -224,7 +250,7 @@ class TestInMemoryStorageCRUD:
         storage = InMemoryBiometricStorage()
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         assert storage.delete_by_reference("ref1") is True
         assert storage.get_by_reference("ref1") is None
         assert storage.get_by_idempotency_key("key1") is None
@@ -237,10 +263,11 @@ class TestInMemoryStorageCRUD:
         storage = InMemoryBiometricStorage()
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         assert storage.update_status("ref1", "inactive") is True
         row = storage.get_by_reference("ref1")
         assert row.status == "inactive"
+        assert row.request_fingerprint == "fp1"
 
     def test_update_missing_reference_returns_false(self):
         storage = InMemoryBiometricStorage()
@@ -257,17 +284,56 @@ class TestUniqueness:
         storage = InMemoryBiometricStorage()
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         with pytest.raises(ValueError, match="already exists"):
-            storage.store("ref1", data, 512, "v1", "key2")
+            storage.store("ref1", data, 512, "v1", "key2", "fp2", _make_ai_facts())
 
     def test_duplicate_idempotency_key_raises(self):
         storage = InMemoryBiometricStorage()
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         with pytest.raises(ValueError, match="already exists"):
-            storage.store("ref2", data, 512, "v1", "key1")
+            storage.store("ref2", data, 512, "v1", "key1", "fp1", _make_ai_facts())
+
+
+# ---------------------------------------------------------------------------
+# Request fingerprint
+# ---------------------------------------------------------------------------
+
+
+class TestRequestFingerprint:
+    def test_fingerprint_stored_with_embedding(self):
+        storage = InMemoryBiometricStorage()
+        vec = _make_vector(512)
+        data = _vector_to_bytes(vec)
+        fp = "abc123fingerprint"
+        storage.store("ref1", data, 512, "v1", "key1", fp, _make_ai_facts())
+        row = storage.get_by_reference("ref1")
+        assert row.request_fingerprint == fp
+
+    def test_fingerprint_retrieved_by_idempotency_key(self):
+        storage = InMemoryBiometricStorage()
+        vec = _make_vector(512)
+        data = _vector_to_bytes(vec)
+        fp = "fingerprint456"
+        storage.store("ref1", data, 512, "v1", "key1", fp, _make_ai_facts())
+        row = storage.get_by_idempotency_key("key1")
+        assert row is not None
+        assert row.request_fingerprint == fp
+
+    def test_ai_facts_stored_as_json(self):
+        storage = InMemoryBiometricStorage()
+        vec = _make_vector(512)
+        data = _vector_to_bytes(vec)
+        facts = _make_ai_facts()
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", facts)
+        row = storage.get_by_reference("ref1")
+        parsed = json.loads(row.ai_facts)
+        assert parsed["face_detected"] is True
+        assert "quality" in parsed
+        assert "liveness" in parsed
+        assert "processing_time_ms" in parsed
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +346,7 @@ class TestStatusLifecycle:
         storage = InMemoryBiometricStorage()
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         row = storage.get_by_reference("ref1")
         assert row.status == "active"
 
@@ -288,7 +354,7 @@ class TestStatusLifecycle:
         storage = InMemoryBiometricStorage()
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         storage.update_status("ref1", "inactive")
         row = storage.get_by_reference("ref1")
         assert row.status == "inactive"
@@ -297,7 +363,7 @@ class TestStatusLifecycle:
         storage = InMemoryBiometricStorage()
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         storage.update_status("ref1", "revoked")
         row = storage.get_by_reference("ref1")
         assert row.status == "revoked"
@@ -313,7 +379,7 @@ class TestIsolation:
         storage = InMemoryBiometricStorage()
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         row = storage.get_by_reference("ref1")
         assert not hasattr(row, "employee_id")
         assert not hasattr(row, "employee_code")
@@ -324,7 +390,7 @@ class TestIsolation:
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
         # store() signature has no employee_id parameter
-        storage.store("ref1", data, 512, "v1", "key1")
+        storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         row = storage.get_by_reference("ref1")
         assert "employee" not in str(row).lower()
 
@@ -358,7 +424,7 @@ class TestPostgreSQLStorage:
     def test_store_and_get_by_reference(self):
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        self.storage.store("ref1", data, 512, "v1", "key1")
+        self.storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         row = self.storage.get_by_reference("ref1")
         assert row is not None
         assert row.reference == "ref1"
@@ -366,15 +432,18 @@ class TestPostgreSQLStorage:
         assert row.model_version == "v1"
         assert row.status == "active"
         assert row.idempotency_key == "key1"
+        assert row.request_fingerprint == "fp1"
+        assert "face_detected" in row.ai_facts
         np.testing.assert_array_equal(_bytes_to_vector(row.vector), vec)
 
     def test_get_by_idempotency_key(self):
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        self.storage.store("ref1", data, 512, "v1", "key1")
+        self.storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         row = self.storage.get_by_idempotency_key("key1")
         assert row is not None
         assert row.reference == "ref1"
+        assert row.request_fingerprint == "fp1"
 
     def test_get_missing_reference_returns_none(self):
         assert self.storage.get_by_reference("nonexistent") is None
@@ -385,28 +454,28 @@ class TestPostgreSQLStorage:
     def test_delete_by_reference(self):
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        self.storage.store("ref1", data, 512, "v1", "key1")
+        self.storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         assert self.storage.delete_by_reference("ref1") is True
         assert self.storage.get_by_reference("ref1") is None
 
     def test_duplicate_reference_raises_integrity_error(self):
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        self.storage.store("ref1", data, 512, "v1", "key1")
+        self.storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         with pytest.raises(IntegrityError):
-            self.storage.store("ref1", data, 512, "v1", "key2")
+            self.storage.store("ref1", data, 512, "v1", "key2", "fp2", _make_ai_facts())
 
     def test_duplicate_idempotency_key_raises_integrity_error(self):
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        self.storage.store("ref1", data, 512, "v1", "key1")
+        self.storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         with pytest.raises(IntegrityError):
-            self.storage.store("ref2", data, 512, "v1", "key1")
+            self.storage.store("ref2", data, 512, "v1", "key1", "fp1", _make_ai_facts())
 
     def test_update_status(self):
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        self.storage.store("ref1", data, 512, "v1", "key1")
+        self.storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         assert self.storage.update_status("ref1", "inactive") is True
         row = self.storage.get_by_reference("ref1")
         assert row.status == "inactive"
@@ -414,14 +483,14 @@ class TestPostgreSQLStorage:
     def test_bytea_preserves_exact_bytes(self):
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        self.storage.store("ref1", data, 512, "v1", "key1")
+        self.storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         row = self.storage.get_by_reference("ref1")
         assert row.vector == data
 
     def test_no_employee_identity_in_database(self):
         vec = _make_vector(512)
         data = _vector_to_bytes(vec)
-        self.storage.store("ref1", data, 512, "v1", "key1")
+        self.storage.store("ref1", data, 512, "v1", "key1", "fp1", _make_ai_facts())
         # Verify by querying information_schema — no employee columns exist
         conn = self.storage._connection()
         try:

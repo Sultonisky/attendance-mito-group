@@ -585,16 +585,30 @@ class TestResultIntegrity:
 
 
 class TestNoRawEmbeddingExposure:
-    """MitoAiResult must not expose the raw embedding vector."""
+    """MitoAiResult exposes the raw embedding for the orchestration layer.
 
-    def test_result_has_no_embedding_attribute(self):
+    The raw embedding is an internal AI fact retained by FastAPI and stored
+    through BiometricStorage. It is never returned in API responses.
+    """
+
+    def test_result_has_embedding_attribute(self):
         detector, aligner, quality_assessor, embedder, liveness = _build_mock_components()
         engine = MitoAiEngine(detector, aligner, quality_assessor, embedder, liveness)
 
         img = _make_image()
         result = engine.process(img)
 
-        assert not hasattr(result, "embedding")
+        assert hasattr(result, "embedding")
+        assert isinstance(result.embedding, np.ndarray)
+
+    def test_result_embedding_has_correct_shape(self):
+        detector, aligner, quality_assessor, embedder, liveness = _build_mock_components()
+        engine = MitoAiEngine(detector, aligner, quality_assessor, embedder, liveness)
+
+        img = _make_image()
+        result = engine.process(img)
+
+        assert result.embedding.shape == (512,)
 
     def test_result_has_no_verified_attribute(self):
         detector, aligner, quality_assessor, embedder, liveness = _build_mock_components()

@@ -6,9 +6,27 @@ FastAPI returns *facts* only — never attendance decisions, never employee
 authorization, never business policy outcomes.
 """
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
+
+
+class QualityResponse(BaseModel):
+    """Face quality metrics returned in enrollment/verification responses."""
+
+    blur: float = Field(..., description="Laplacian variance of the face crop. Higher = sharper.")
+    brightness: float = Field(..., description="Mean pixel value of the grayscale face crop.")
+    contrast: float = Field(..., description="Standard deviation of the grayscale face crop.")
+    face_width: float = Field(..., description="Face bounding-box width in original image pixels.")
+    face_height: float = Field(..., description="Face bounding-box height in original image pixels.")
+    yaw: float = Field(..., description="Approximate yaw angle in radians, derived from landmarks.")
+    roll: float = Field(..., description="Approximate roll angle in degrees, derived from eye landmarks.")
+
+
+class LivenessResponse(BaseModel):
+    """Liveness assessment facts returned in enrollment/verification responses."""
+
+    label: str = Field(..., description="Predicted class: print, real, or replay.")
+    live_prob: float = Field(..., ge=0.0, le=1.0, description="Probability that the face is a real live person.")
+    probs: dict[str, float] = Field(..., description="Per-class probabilities keyed by class name.")
 
 
 class EnrollResponse(BaseModel):
@@ -26,7 +44,9 @@ class EnrollResponse(BaseModel):
         ..., description="Opaque reference Laravel stores to look up this embedding."
     )
     face_detected: bool = Field(..., description="Whether a face was detected during enrollment.")
-    quality_score: float = Field(..., ge=0.0, le=1.0, description="Enrollment image quality (0..1).")
+    quality: QualityResponse = Field(..., description="Face image quality metrics.")
+    liveness: LivenessResponse = Field(..., description="Liveness assessment facts.")
+    processing_time_ms: float = Field(..., ge=0.0, description="Server-side processing duration in ms.")
 
 
 class VerifyResponse(BaseModel):
@@ -39,7 +59,7 @@ class VerifyResponse(BaseModel):
     verified: bool = Field(..., description="Whether the face matches the enrolled profile.")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Match confidence score (0..1).")
     liveness: bool = Field(..., description="Whether the liveness check passed.")
-    liveness_reason: Optional[str] = Field(default=None, description="Human-readable liveness detail.")
+    liveness_reason: str | None = Field(default=None, description="Human-readable liveness detail.")
     face_detected: bool = Field(..., description="Whether a face was detected in the probe image.")
     model_version: str = Field(..., description="Model version used for this verification.")
     processing_time_ms: int = Field(..., ge=1, description="Server-side processing duration in ms.")
