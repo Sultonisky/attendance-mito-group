@@ -18,7 +18,7 @@ class EnrollResource extends JsonResource
     /**
      * Transform the resource into an array.
      *
-     * @param  array<string, mixed>  $payload  The processed enrollment data.
+     * @param  Request  $request  The HTTP request instance.
      * @return array<string, mixed>
      */
     public function toArray(Request $request): array
