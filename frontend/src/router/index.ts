@@ -11,6 +11,7 @@ import LeaveReportPage from '../pages/reports/LeaveReportPage.vue'
 import OvertimeReportPage from '../pages/reports/OvertimeReportPage.vue'
 import PenaltyReportPage from '../pages/reports/PenaltyReportPage.vue'
 import MonthlyRecapsReportPage from '../pages/reports/MonthlyRecapsReportPage.vue'
+import OutsourceAttendanceReportPage from '../pages/reports/OutsourceAttendanceReportPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -69,12 +70,18 @@ const router = createRouter({
       component: PenaltyReportPage,
       meta: { requiresAuth: true, adminOnly: true },
     },
-    {
-      path: '/reports/monthly-recaps',
-      name: 'reports.monthly-recaps',
-      component: MonthlyRecapsReportPage,
-      meta: { requiresAuth: true, adminOnly: true },
-    },
+      {
+        path: '/outsource-attendance',
+        name: 'outsource-attendance',
+        component: OutsourceAttendanceReportPage,
+        meta: { requiresAuth: true, adminOnly: true },
+      },
+      {
+        path: '/reports/monthly-recaps',
+        name: 'reports.monthly-recaps',
+        component: MonthlyRecapsReportPage,
+        meta: { requiresAuth: true, adminOnly: true },
+      },
     {
       path: '/login',
       name: 'login',
@@ -111,6 +118,10 @@ const router = createRouter({
  * regardless of this guard.
  */
 router.beforeEach(async (to) => {
+  if (to.path === '/outsource' || to.meta.requiresAuth === false) {
+    return true
+  }
+
   const auth = useAuthStore()
 
   if (!auth.isInitialized) {
@@ -121,10 +132,6 @@ router.beforeEach(async (to) => {
     return {
       name: to.meta.adminOnly ? 'login.admin' : 'login.employee',
     }
-  }
-
-  if (to.path === '/outsource') {
-    return true
   }
 
   const isAdmin = auth.roles.some((role) => ['ADMIN', 'SUPER_ADMIN'].includes(role))
