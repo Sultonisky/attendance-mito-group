@@ -63,6 +63,33 @@ const locationStatus = ref<'idle' | 'locating' | 'ready' | 'error'>('idle')
 const now = ref(new Date())
 let clockTimer: number | null = null
 
+const attendanceDurationSeconds = computed(() => {
+  if (!isAttendanceOpen.value || !checkInAt.value) {
+    return null
+  }
+
+  const checkInTime = new Date(checkInAt.value).getTime()
+  if (!Number.isFinite(checkInTime)) {
+    return null
+  }
+
+  const elapsedMs = now.value.getTime() - checkInTime
+  return Math.max(0, Math.floor(elapsedMs / 1000))
+})
+
+const attendanceDurationLabel = computed(() => {
+  if (step.value === 'completed' && durationMinutes.value !== null) {
+    const totalSeconds = Math.max(0, Math.round(durationMinutes.value * 60))
+    return formatDurationSeconds(totalSeconds)
+  }
+
+  if (step.value === 'attendance_open' && checkInAt.value) {
+    return formatDurationSeconds(attendanceDurationSeconds.value)
+  }
+
+  return '00:00:00'
+})
+
 const isSessionActive = computed(() => step.value === 'session' || step.value === 'attendance_open')
 const isAttendanceOpen = computed(() => step.value === 'attendance_open')
 
@@ -142,6 +169,21 @@ function formatCurrentTime(): string {
     minute: '2-digit',
     second: '2-digit',
   })
+}
+
+function formatDurationSeconds(totalSeconds: number | null): string {
+  if (totalSeconds === null || !Number.isFinite(totalSeconds)) {
+    return '--:--:--'
+  }
+
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const seconds = safeSeconds % 60
+
+  return [hours, minutes, seconds]
+    .map((value) => value.toString().padStart(2, '0'))
+    .join(':')
 }
 
 function formatTime(iso: string | null): string {
@@ -885,6 +927,10 @@ onUnmounted(() => {
             <strong>{{ formatTime(checkInAt) }}</strong>
           </div>
           <div class="time-item">
+            <span>Durasi</span>
+            <strong>{{ attendanceDurationLabel }}</strong>
+          </div>
+          <div class="time-item">
             <span>Check Out</span>
             <strong>{{ formatTime(checkOutAt) }}</strong>
           </div>
@@ -964,6 +1010,10 @@ onUnmounted(() => {
         <div class="mini-summary-item">
           <span>Waktu</span>
           <strong>{{ formatCurrentTime() }}</strong>
+        </div>
+        <div class="mini-summary-item">
+          <span>Durasi</span>
+          <strong>{{ attendanceDurationLabel }}</strong>
         </div>
         <div class="mini-summary-item">
           <span>GPS</span>
