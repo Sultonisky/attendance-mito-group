@@ -48,7 +48,7 @@ async function load(): Promise<void> {
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 401) {
-        await router.push({ name: 'login', query: { redirect: '/reports/monthly-recaps' } })
+        await router.push({ name: 'login.admin' })
         return
       }
 
