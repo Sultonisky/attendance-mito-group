@@ -3,13 +3,16 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Report\OutsourceAttendanceReportRequest;
 use App\Http\Requests\Report\ReportQueryRequest;
 use App\Http\Resources\Report\AttendanceReportResource;
 use App\Http\Resources\Report\LeaveReportResource;
+use App\Http\Resources\Report\OutsourceAttendanceReportResource;
 use App\Http\Resources\Report\OvertimeReportResource;
 use App\Http\Resources\Report\PenaltyReportResource;
 use App\Services\Report\AttendanceReportQuery;
 use App\Services\Report\LeaveReportQuery;
+use App\Services\Report\OutsourceAttendanceReportQuery;
 use App\Services\Report\OvertimeReportQuery;
 use App\Services\Report\PenaltyReportQuery;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +22,7 @@ class ReportController extends Controller
     public function __construct(
         private AttendanceReportQuery $attendanceReportQuery,
         private LeaveReportQuery $leaveReportQuery,
+        private OutsourceAttendanceReportQuery $outsourceAttendanceReportQuery,
         private OvertimeReportQuery $overtimeReportQuery,
         private PenaltyReportQuery $penaltyReportQuery,
     ) {}
@@ -36,6 +40,32 @@ class ReportController extends Controller
         return response()->json([
             'success' => true,
             'data' => AttendanceReportResource::collection($result),
+            'meta' => [
+                'current_page' => $result->currentPage(),
+                'per_page' => $result->perPage(),
+                'total' => $result->total(),
+                'last_page' => $result->lastPage(),
+            ],
+        ]);
+    }
+
+    public function outsourceAttendance(OutsourceAttendanceReportRequest $request): JsonResponse
+    {
+        $filters = $request->validated();
+        $filters['per_page'] = (int) ($filters['per_page'] ?? 25);
+        $filters['sort'] = $filters['sort'] ?? null;
+        $filters['direction'] = $filters['direction'] ?? null;
+        $filters['city_id'] = $filters['city_id'] ?? null;
+        $filters['store_id'] = $filters['store_id'] ?? null;
+        $filters['outsource_id'] = $filters['outsource_id'] ?? null;
+        $filters['status'] = $filters['status'] ?? null;
+        $filters['search'] = $filters['search'] ?? null;
+
+        $result = $this->outsourceAttendanceReportQuery->paginate($request->user(), $filters);
+
+        return response()->json([
+            'success' => true,
+            'data' => OutsourceAttendanceReportResource::collection($result),
             'meta' => [
                 'current_page' => $result->currentPage(),
                 'per_page' => $result->perPage(),
