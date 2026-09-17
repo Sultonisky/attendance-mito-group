@@ -1,8 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import HomePage from '../pages/HomePage.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import DashboardPage from '../pages/DashboardPage.vue'
+import EmployeeAppPage from '../pages/EmployeeAppPage.vue'
 import AttendancePage from '../pages/AttendancePage.vue'
 import ReportsPage from '../pages/reports/ReportsPage.vue'
 import AttendanceReportPage from '../pages/reports/AttendanceReportPage.vue'
@@ -17,13 +17,19 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: HomePage,
+      redirect: { name: 'dashboard' },
       meta: { requiresAuth: true },
     },
     {
       path: '/dashboard',
       name: 'dashboard',
       component: DashboardPage,
+      meta: { requiresAuth: true, adminOnly: true },
+    },
+    {
+      path: '/employee',
+      name: 'employee-app',
+      component: EmployeeAppPage,
       meta: { requiresAuth: true },
     },
     {
@@ -36,37 +42,37 @@ const router = createRouter({
       path: '/reports',
       name: 'reports',
       component: ReportsPage,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, adminOnly: true },
     },
     {
       path: '/reports/attendance',
       name: 'reports.attendance',
       component: AttendanceReportPage,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, adminOnly: true },
     },
     {
       path: '/reports/leave',
       name: 'reports.leave',
       component: LeaveReportPage,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, adminOnly: true },
     },
     {
       path: '/reports/overtime',
       name: 'reports.overtime',
       component: OvertimeReportPage,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, adminOnly: true },
     },
     {
       path: '/reports/penalties',
       name: 'reports.penalties',
       component: PenaltyReportPage,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, adminOnly: true },
     },
     {
       path: '/reports/monthly-recaps',
       name: 'reports.monthly-recaps',
       component: MonthlyRecapsReportPage,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, adminOnly: true },
     },
     {
       path: '/login',
@@ -94,8 +100,14 @@ router.beforeEach(async (to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
+  const isAdmin = auth.roles.some((role) => ['ADMIN', 'SUPER_ADMIN'].includes(role))
+
+  if (to.meta.adminOnly && !isAdmin) {
+    return { name: 'employee-app' }
+  }
+
   if (to.name === 'login' && auth.isAuthenticated) {
-    return { name: 'home' }
+    return { name: isAdmin ? 'dashboard' : 'employee-app' }
   }
 
   return true
