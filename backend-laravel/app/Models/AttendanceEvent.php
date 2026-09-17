@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'employee_id',
+    'outsource_id',
     'attendance_id',
     'attendance_session_id',
     'event_type',
@@ -31,6 +32,14 @@ class AttendanceEvent extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    /**
+     * The outsource who generated the event.
+     */
+    public function outsource(): BelongsTo
+    {
+        return $this->belongsTo(Outsource::class);
     }
 
     /**
