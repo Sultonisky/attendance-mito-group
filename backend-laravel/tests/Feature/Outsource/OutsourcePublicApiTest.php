@@ -86,6 +86,23 @@ class OutsourcePublicApiTest extends TestCase
         $response->assertJsonPath('data.0.id', $outsource->id);
     }
 
+    public function test_stores_endpoint_includes_coordinates_when_available(): void
+    {
+        $city = City::factory()->create();
+        $store = WorkLocation::factory()->create([
+            'city_id' => $city->id,
+            'latitude' => -6.2001,
+            'longitude' => 106.8166,
+        ]);
+
+        $response = $this->getJson('/api/v1/outsource/stores?city_id=' . $city->id);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.0.id', $store->id);
+        $response->assertJsonPath('data.0.latitude', -6.2001);
+        $response->assertJsonPath('data.0.longitude', 106.8166);
+    }
+
     public function test_stores_endpoint_excludes_inactive_stores(): void
     {
         $city = City::factory()->create();
