@@ -11,7 +11,7 @@ import type { DashboardKpiData } from '../types/dashboard'
 
 const auth = useAuthStore()
 const router = useRouter()
-const { canAny } = usePermission()
+const { can, canAny } = usePermission()
 
 const loading = ref(true)
 const error = ref('')
@@ -85,6 +85,10 @@ onMounted(() => {
         <RouterLink v-if="canAny(['attendance.view', 'leave.view', 'overtime.view', 'penalty.view', 'monthly_recap.view'])" to="/reports" class="sidebar-link">
           <span class="nav-icon">▤</span>
           <span>Reports</span>
+        </RouterLink>
+        <RouterLink v-if="can('outsource_attendance.view')" to="/outsource-attendance" class="sidebar-link">
+          <span class="nav-icon">◷</span>
+          <span>Outsource Attendance</span>
         </RouterLink>
       </nav>
 

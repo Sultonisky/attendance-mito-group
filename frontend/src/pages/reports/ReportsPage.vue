@@ -52,6 +52,15 @@ const { can } = usePermission()
       </RouterLink>
 
       <RouterLink
+        v-if="can('outsource_attendance.view')"
+        to="/outsource-attendance"
+        class="report-card"
+      >
+        <h2>Outsource Attendance</h2>
+        <p>Outsource worker attendance records, dates, and status.</p>
+      </RouterLink>
+
+      <RouterLink
         v-if="
           can('monthly_recap.view') ||
           can('monthly_recap.generate') ||
