@@ -27,7 +27,7 @@ async function load(): Promise<void> {
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 401) {
-        await router.push({ name: 'login', query: { redirect: '/dashboard' } })
+        await router.push({ name: 'login.admin' })
         return
       }
 
@@ -56,7 +56,7 @@ function formatDate(dateStr: string): string {
 
 async function logout(): Promise<void> {
   await auth.logout()
-  await router.push({ name: 'login' })
+  await router.push({ name: 'login.admin' })
 }
 
 onMounted(() => {
