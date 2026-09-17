@@ -45,7 +45,7 @@ async function load(): Promise<void> {
     record.value = await fetchAttendanceToday()
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
-      await router.push({ name: 'login', query: { redirect: '/employee' } })
+      await router.push({ name: 'login.employee' })
       return
     }
 
@@ -57,7 +57,7 @@ async function load(): Promise<void> {
 
 async function logout(): Promise<void> {
   await auth.logout()
-  await router.push({ name: 'login' })
+  await router.push({ name: 'login.employee' })
 }
 
 onMounted(load)
