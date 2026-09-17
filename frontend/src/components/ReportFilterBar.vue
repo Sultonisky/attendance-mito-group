@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppButton from './AppButton.vue'
 import type { ReportSortOption } from '../types/reports'
 
 defineProps<{
@@ -96,7 +97,7 @@ const emit = defineEmits<{
     </div>
 
     <div class="filter-actions">
-      <button type="submit" :disabled="loading">Apply Filters</button>
+      <AppButton type="submit" :disabled="loading">Apply Filters</AppButton>
     </div>
   </form>
 </template>
