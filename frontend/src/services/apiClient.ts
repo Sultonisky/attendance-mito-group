@@ -96,3 +96,59 @@ export async function apiFetch<T>(
 
   return response.json();
 }
+
+/**
+ * Submit a multipart/form-data request (e.g. file uploads) reusing the same
+ * CSRF, credential, and error-handling behavior as apiFetch.
+ */
+export async function apiFetchFormData<T>(
+  endpoint: string,
+  formData: FormData,
+  options: RequestInit = {},
+): Promise<T> {
+  const method = (options.method ?? "GET").toUpperCase();
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...((options.headers as Record<string, string>) ?? {}),
+  };
+
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    const token = readXsrfToken();
+    if (token) {
+      headers["X-XSRF-TOKEN"] = token;
+    }
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+    body: formData,
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    let message = `API request failed: ${response.status}`;
+    let errors: Record<string, string[]> = {};
+
+    try {
+      const body = await response.json();
+      if (typeof body?.message === "string") {
+        message = body.message;
+      }
+      if (body?.errors && typeof body.errors === "object") {
+        errors = body.errors;
+      }
+    } catch {
+      // Non-JSON error body; keep the generic message.
+    }
+
+    throw new ApiError(response.status, message, errors);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json();
+}
