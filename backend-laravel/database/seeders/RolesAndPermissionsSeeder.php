@@ -112,11 +112,16 @@ class RolesAndPermissionsSeeder extends Seeder
             Permission::firstOrCreate(['name' => $permission]);
         }
 
-        Role::firstOrCreate(['name' => 'SUPER_ADMIN']);
-        Role::firstOrCreate(['name' => 'ADMIN'])
-            ->syncPermissions(self::ROLE_PERMISSIONS['ADMIN']);
-        Role::firstOrCreate(['name' => 'USER'])
-            ->syncPermissions(self::ROLE_PERMISSIONS['USER']);
+        $superAdminRole = Role::firstOrCreate(['name' => 'SUPER_ADMIN']);
+        $adminRole = Role::firstOrCreate(['name' => 'ADMIN']);
+        $userRole = Role::firstOrCreate(['name' => 'USER']);
+
+        $adminRole->syncPermissions(Permission::all());
+        $userRole->syncPermissions(self::ROLE_PERMISSIONS['USER']);
+
+        // Keep SUPER_ADMIN as the bypass role, but still make the resolved
+        // permission set explicit for local dashboard/admin testing.
+        $superAdminRole->syncPermissions(Permission::all());
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
