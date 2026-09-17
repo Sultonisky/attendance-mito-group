@@ -1,5 +1,12 @@
 <script setup lang="ts">
+declare global {
+  interface Window {
+    google?: any
+  }
+}
+
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import AppButton from '../components/AppButton.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { ApiError } from '../services/apiClient'
 import {
@@ -9,14 +16,10 @@ import {
   initOutsourceSession,
   outsourceCheckIn,
   outsourceCheckOut,
-  getStoredOutsourceSession,
-  saveStoredOutsourceSession,
-  clearStoredOutsourceSession,
   type City,
   type Store,
   type Outsource,
   type OutsourceAttendanceResponse,
-  type StoredOutsourceSession,
 } from '../services/outsourceService'
 
 type Step = 'city' | 'store' | 'outsource' | 'session' | 'attendance_open' | 'completed'
@@ -24,6 +27,14 @@ type Step = 'city' | 'store' | 'outsource' | 'session' | 'attendance_open' | 'co
 const step = ref<Step>('city')
 const sessionToken = ref<string | null>(null)
 const expiresAt = ref<string | null>(null)
+const mapContainer = ref<HTMLElement | null>(null)
+const mapError = ref('')
+const currentMapLocation = ref<{ latitude: number; longitude: number; accuracy?: number } | null>(null)
+let googleMap: any = null
+let storeMarker: any = null
+let userMarker: any = null
+let storeRadius: any = null
+let googleMapsLoadPromise: Promise<void> | null = null
 
 const cities = ref<City[]>([])
 const stores = ref<Store[]>([])
@@ -76,6 +87,40 @@ const statusTitle = computed(() => {
   return 'Inisiasi Sesi'
 })
 
+const selectedStoreLocation = computed(() => {
+  if (selectedStore.value === null) return null
+
+  const store = stores.value.find((item) => item.id === selectedStore.value)
+  if (!store) return null
+
+  const latitude = Number(store.latitude)
+  const longitude = Number(store.longitude)
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null
+  if (latitude < -90 || latitude > 90) return null
+  if (longitude < -180 || longitude > 180) return null
+
+  return { lat: latitude, lng: longitude }
+})
+
+const showStoreMap = computed(() => Boolean(selectedStoreLocation.value) && step.value !== 'completed')
+
+const mapDistanceLabel = computed(() => {
+  if (!selectedStoreLocation.value || !currentMapLocation.value) return null
+
+  const earthRadius = 6371000
+  const dLat = ((currentMapLocation.value.latitude - selectedStoreLocation.value.lat) * Math.PI) / 180
+  const dLng = ((currentMapLocation.value.longitude - selectedStoreLocation.value.lng) * Math.PI) / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((selectedStoreLocation.value.lat * Math.PI) / 180) * Math.cos((currentMapLocation.value.latitude * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+  const distanceMeters = 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+  if (distanceMeters < 1000) {
+    return `${Math.round(distanceMeters)} m dari toko`
+  }
+
+  return `${(distanceMeters / 1000).toFixed(1)} km dari toko`
+})
+
 const actionButtonLabel = computed(() => {
   if (isSubmitting.value) return 'Memproses Presensi...'
   if (isAttendanceOpen.value) return 'Clock Out Sekarang'
@@ -116,6 +161,153 @@ function formatDate(iso: string | null): string {
   })
 }
 
+function loadGoogleMapsScript(apiKey: string): Promise<void> {
+  if (window.google?.maps) {
+    return Promise.resolve()
+  }
+
+  if (googleMapsLoadPromise) {
+    return googleMapsLoadPromise
+  }
+
+  googleMapsLoadPromise = new Promise((resolve, reject) => {
+    const existingScript = document.querySelector('script[data-google-maps-sdk]') as HTMLScriptElement | null
+
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve(), { once: true })
+      existingScript.addEventListener('error', () => reject(new Error('Google Maps failed to load.')), { once: true })
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}`
+    script.async = true
+    script.defer = true
+    script.dataset.googleMapsSdk = 'true'
+    script.onload = () => resolve()
+    script.onerror = () => reject(new Error('Google Maps failed to load.'))
+    document.head.appendChild(script)
+  })
+
+  return googleMapsLoadPromise
+}
+
+function updateGoogleMap(): void {
+  if (!selectedStoreLocation.value || !mapContainer.value || !window.google?.maps) {
+    return
+  }
+
+  if (!googleMap) {
+    googleMap = new window.google.maps.Map(mapContainer.value, {
+      center: selectedStoreLocation.value,
+      zoom: 15,
+      disableDefaultUI: true,
+      gestureHandling: 'greedy',
+      zoomControl: true,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+    })
+  }
+
+  googleMap.setCenter(selectedStoreLocation.value)
+  googleMap.panTo(selectedStoreLocation.value)
+
+  if (!storeMarker) {
+    storeMarker = new window.google.maps.Marker({
+      map: googleMap,
+      position: selectedStoreLocation.value,
+      title: selectedStoreName.value || 'Store',
+      icon: {
+        path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z',
+        fillColor: '#eb1c24',
+        fillOpacity: 1,
+        strokeWeight: 0,
+        scale: 1.4,
+      },
+    })
+  } else {
+    storeMarker.setPosition(selectedStoreLocation.value)
+    storeMarker.setTitle(selectedStoreName.value || 'Store')
+  }
+
+  if (!storeRadius) {
+    storeRadius = new window.google.maps.Circle({
+      map: googleMap,
+      center: selectedStoreLocation.value,
+      radius: 150,
+      fillColor: '#f97316',
+      fillOpacity: 0.18,
+      strokeColor: '#f59e0b',
+      strokeOpacity: 0.8,
+      strokeWeight: 2,
+    })
+  } else {
+    storeRadius.setCenter(selectedStoreLocation.value)
+  }
+
+  if (currentMapLocation.value) {
+    const userPosition = {
+      lat: currentMapLocation.value.latitude,
+      lng: currentMapLocation.value.longitude,
+    }
+
+    if (!userMarker) {
+      userMarker = new window.google.maps.Marker({
+        map: googleMap,
+        position: userPosition,
+        title: 'Current location',
+        icon: {
+          path: 'M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 4.5a5.5 5.5 0 1 1-5.5 5.5A5.5 5.5 0 0 1 12 6.5zm0 2.5a3 3 0 1 0 3 3A3 3 0 0 0 12 9z',
+          fillColor: '#2563eb',
+          fillOpacity: 1,
+          strokeWeight: 0,
+          scale: 1.2,
+        },
+      })
+    } else {
+      userMarker.setPosition(userPosition)
+    }
+  } else if (userMarker) {
+    userMarker.setMap(null)
+    userMarker = null
+  }
+}
+
+async function ensureGoogleMapsReady(): Promise<void> {
+  if (!selectedStoreLocation.value) {
+    return
+  }
+
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+
+  if (!apiKey) {
+    mapError.value = 'Google Maps is not configured yet. Add VITE_GOOGLE_MAPS_API_KEY to the frontend environment.'
+    return
+  }
+
+  try {
+    await loadGoogleMapsScript(apiKey)
+    mapError.value = ''
+    updateGoogleMap()
+  } catch {
+    mapError.value = 'Google Maps failed to load. Please try again later.'
+  }
+}
+
+async function refreshMapLocation(): Promise<void> {
+  const location = await requestLocation()
+  if (!location) return
+
+  currentMapLocation.value = {
+    latitude: location.latitude,
+    longitude: location.longitude,
+    accuracy: location.accuracy ?? undefined,
+  }
+
+  updateGoogleMap()
+}
+
 async function loadCities(): Promise<void> {
   isLoading.value = true
   error.value = ''
@@ -133,11 +325,26 @@ async function loadCities(): Promise<void> {
   }
 }
 
+function invalidateSessionState(): void {
+  sessionToken.value = null
+  expiresAt.value = null
+  attendanceId.value = null
+  attendanceStatus.value = null
+  attendanceDate.value = null
+  checkInAt.value = null
+  checkOutAt.value = null
+  durationMinutes.value = null
+  locationAccuracy.value = null
+  locationStatus.value = 'idle'
+  error.value = ''
+  message.value = ''
+}
+
 async function onCitySelected(): Promise<void> {
   if (selectedCity.value === null) return
 
+  invalidateSessionState()
   isLoading.value = true
-  error.value = ''
   stores.value = []
   selectedStore.value = null
   selectedStoreName.value = ''
@@ -162,6 +369,8 @@ async function onCitySelected(): Promise<void> {
 async function onStoreSelected(): Promise<void> {
   if (selectedStore.value === null) return
 
+  invalidateSessionState()
+
   const foundStore = Array.isArray(stores.value)
     ? stores.value.find((s) => s.id === selectedStore.value)
     : undefined
@@ -170,13 +379,18 @@ async function onStoreSelected(): Promise<void> {
   }
 
   isLoading.value = true
-  error.value = ''
   outsources.value = []
   selectedOutsource.value = null
 
   try {
     outsources.value = await fetchOutsourceOutsources(selectedStore.value)
     step.value = 'outsource'
+    if (!selectedStoreLocation.value) {
+      mapError.value = 'Lokasi toko belum tersedia. Silakan hubungi admin untuk koordinat toko.'
+    } else {
+      mapError.value = ''
+      await ensureGoogleMapsReady()
+    }
   } catch (e: unknown) {
     const err = e as Error
     if (err instanceof ApiError) {
@@ -186,6 +400,48 @@ async function onStoreSelected(): Promise<void> {
     }
   } finally {
     isLoading.value = false
+  }
+}
+
+function goToStep(target: Step): void {
+  step.value = target
+
+  if (target === 'city') {
+    selectedStore.value = null
+    selectedStoreName.value = ''
+    stores.value = []
+    selectedOutsource.value = null
+    outsources.value = []
+    sessionToken.value = null
+    expiresAt.value = null
+    attendanceId.value = null
+    attendanceStatus.value = null
+    attendanceDate.value = null
+    checkInAt.value = null
+    checkOutAt.value = null
+    durationMinutes.value = null
+    mapError.value = ''
+  }
+
+  if (target === 'store') {
+    selectedOutsource.value = null
+    outsources.value = []
+    sessionToken.value = null
+    expiresAt.value = null
+    attendanceId.value = null
+    attendanceStatus.value = null
+    attendanceDate.value = null
+    checkInAt.value = null
+    checkOutAt.value = null
+    durationMinutes.value = null
+    mapError.value = ''
+  }
+}
+
+function onOutsourceSelected(): void {
+  invalidateSessionState()
+  if (selectedOutsource.value) {
+    step.value = 'outsource'
   }
 }
 
@@ -209,16 +465,6 @@ async function startSession(): Promise<void> {
     sessionToken.value = response.data.session_token
     expiresAt.value = response.data.expires_at
     step.value = 'session'
-
-    // Persist individual session to local storage for mobile continuity
-    const sessionToSave: StoredOutsourceSession = {
-      session_token: response.data.session_token,
-      expires_at: response.data.expires_at,
-      outsource: response.data.outsource,
-      store: response.data.store,
-      status: 'session',
-    }
-    saveStoredOutsourceSession(sessionToSave)
     message.value = `Sesi individu aktif untuk ${response.data.outsource.name}.`
   } catch (e: unknown) {
     const err = e as Error
@@ -302,22 +548,11 @@ async function submitAttendance(): Promise<void> {
       if (isAttendanceOpen.value) {
         step.value = 'completed'
         message.value = 'Presensi Clock-Out berhasil dicatat. Tugas hari ini selesai!'
-        clearStoredOutsourceSession()
+        invalidateSessionState()
       } else {
         step.value = 'attendance_open'
         message.value = 'Presensi Clock-In berhasil dicatat! Selamat bertugas.'
 
-        if (selectedOutsource.value && selectedStore.value) {
-          saveStoredOutsourceSession({
-            session_token: sessionToken.value,
-            expires_at: expiresAt.value ?? '',
-            outsource: selectedOutsource.value,
-            store: { id: selectedStore.value, name: selectedStoreName.value, city_id: selectedCity.value ?? 0 },
-            attendance_id: response.data.attendance_id,
-            check_in_at: response.data.check_in_at,
-            status: 'attendance_open',
-          })
-        }
       }
     }
   } catch (e: unknown) {
@@ -326,7 +561,6 @@ async function submitAttendance(): Promise<void> {
       switch (err.status) {
         case 401:
           error.value = 'Sesi presensi telah berakhir. Silakan pilih kembali penugasan Anda.'
-          clearStoredOutsourceSession()
           resetSelection()
           break
         case 422:
@@ -346,47 +580,31 @@ async function submitAttendance(): Promise<void> {
   }
 }
 
-function restoreExistingSession(): boolean {
-  const saved = getStoredOutsourceSession()
-  if (saved && saved.session_token) {
-    sessionToken.value = saved.session_token
-    expiresAt.value = saved.expires_at
-    selectedOutsource.value = saved.outsource
-    selectedStore.value = saved.store.id
-    selectedStoreName.value = saved.store.name
-    selectedCity.value = saved.store.city_id
-
-    if (saved.check_in_at) {
-      checkInAt.value = saved.check_in_at
-      step.value = 'attendance_open'
-    } else {
-      step.value = 'session'
-    }
-    return true
-  }
-  return false
-}
-
 function resetSelection(): void {
-  clearStoredOutsourceSession()
-  sessionToken.value = null
-  expiresAt.value = null
+  invalidateSessionState()
+  currentMapLocation.value = null
+  mapError.value = ''
+  if (googleMap) {
+    googleMap = null
+  }
+  if (storeMarker) {
+    storeMarker.setMap(null)
+    storeMarker = null
+  }
+  if (userMarker) {
+    userMarker.setMap(null)
+    userMarker = null
+  }
+  if (storeRadius) {
+    storeRadius.setMap(null)
+    storeRadius = null
+  }
   selectedCity.value = null
   selectedStore.value = null
   selectedStoreName.value = ''
   selectedOutsource.value = null
   stores.value = []
   outsources.value = []
-  attendanceId.value = null
-  attendanceStatus.value = null
-  attendanceDate.value = null
-  checkInAt.value = null
-  checkOutAt.value = null
-  durationMinutes.value = null
-  locationAccuracy.value = null
-  locationStatus.value = 'idle'
-  error.value = ''
-  message.value = ''
   step.value = 'city'
   loadCities()
 }
@@ -396,10 +614,7 @@ onMounted(() => {
     now.value = new Date()
   }, 1000)
 
-  const restored = restoreExistingSession()
-  if (!restored) {
-    loadCities()
-  }
+  loadCities()
 })
 
 onUnmounted(() => {
@@ -504,7 +719,7 @@ onUnmounted(() => {
             <select id="city-select" v-model="selectedCity" :disabled="isLoading" @change="onCitySelected">
               <option :value="null" disabled>-- Pilih kota penempatan --</option>
               <option v-for="city in cities" :key="city.id" :value="city.id">
-                {{ city.name }} ({{ city.code }})
+                {{ city.code ? `${city.name} (${city.code})` : city.name }}
               </option>
             </select>
             <AppIcon name="ChevronDown" class="select-chevron" :size="16" :stroke-width="2.3" aria-hidden="true" />
@@ -548,7 +763,7 @@ onUnmounted(() => {
         </div>
 
         <div class="button-group">
-          <AppButton type="button" class="btn-secondary" variant="secondary" icon="ArrowLeft" icon-position="left" @click="step = 'city'">
+          <AppButton type="button" class="btn-secondary" variant="secondary" icon="ArrowLeft" icon-position="left" @click="goToStep('city')">
             Kembali
           </AppButton>
           <AppButton
@@ -575,10 +790,15 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <div class="profile-summary" v-if="outsources.length > 0">
+          <span class="profile-summary__label">Profil tersedia</span>
+          <strong>{{ outsources.length }} orang</strong>
+        </div>
+
         <div class="field-block">
           <label for="outsource-select">Nama Personel Outsource</label>
           <div class="select-wrapper">
-            <select id="outsource-select" v-model="selectedOutsource" :disabled="isLoading || outsources.length === 0">
+            <select id="outsource-select" v-model="selectedOutsource" :disabled="isLoading || outsources.length === 0" @change="onOutsourceSelected">
               <option :value="null" disabled>-- Pilih nama Anda --</option>
               <option v-for="outsource in outsources" :key="outsource.id" :value="outsource">
                 {{ outsource.name }} ({{ outsource.outsource_code }})
@@ -592,7 +812,7 @@ onUnmounted(() => {
         </div>
 
         <div class="button-group">
-          <AppButton type="button" class="btn-secondary" variant="secondary" icon="ArrowLeft" icon-position="left" @click="step = 'store'">
+          <AppButton type="button" class="btn-secondary" variant="secondary" icon="ArrowLeft" icon-position="left" @click="goToStep('store')">
             Kembali
           </AppButton>
           <AppButton
@@ -605,6 +825,46 @@ onUnmounted(() => {
           >
             {{ isSubmitting ? 'Menginisiasi Sesi...' : 'Mulai Sesi Presensi' }}
           </AppButton>
+        </div>
+      </section>
+
+      <section v-if="showStoreMap" class="pwa-card map-card">
+        <div class="card-title-row">
+          <span class="card-icon-pill" aria-hidden="true">
+            <AppIcon name="MapPinned" :size="18" :stroke-width="2" />
+          </span>
+          <div>
+            <h2>Lokasi Toko & Radius</h2>
+            <p class="card-sub">Visualisasi toko dan area validasi 150 meter.</p>
+          </div>
+        </div>
+
+        <div v-if="mapError" class="map-warning">
+          {{ mapError }}
+        </div>
+
+        <div v-else ref="mapContainer" class="google-map" aria-label="Google Map for selected store" />
+
+        <div class="map-meta-row">
+          <div class="map-meta-pill">
+            <span>Store</span>
+            <strong>{{ selectedStoreName || 'Toko' }}</strong>
+          </div>
+          <div class="map-meta-pill">
+            <span>Radius</span>
+            <strong>150 m</strong>
+          </div>
+          <div class="map-meta-pill">
+            <span>GPS</span>
+            <strong>{{ currentMapLocation ? `±${Math.round(currentMapLocation.accuracy ?? 0)} m` : 'Belum ada' }}</strong>
+          </div>
+        </div>
+
+        <div class="map-detail-row">
+          <span>{{ mapDistanceLabel ?? 'Lokasi Anda belum diukur' }}</span>
+          <button type="button" class="map-refresh-button" @click="refreshMapLocation">
+            Ambil lokasi saya
+          </button>
         </div>
       </section>
     </template>
@@ -932,6 +1192,87 @@ onUnmounted(() => {
   font-size: 0.85rem;
 }
 
+.map-card {
+  margin-top: 1rem;
+}
+
+.google-map {
+  width: 100%;
+  height: 220px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: linear-gradient(135deg, #e2e8f0, #dbeafe);
+  overflow: hidden;
+}
+
+.map-warning {
+  display: flex;
+  align-items: center;
+  min-height: 220px;
+  padding: 1rem;
+  border-radius: 14px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a5b00;
+  line-height: 1.5;
+}
+
+.map-meta-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.map-meta-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+}
+
+.map-meta-pill span {
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.map-meta-pill strong {
+  font-size: 0.8rem;
+  color: var(--text-h);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.map-refresh-button {
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  background: rgba(37, 99, 235, 0.06);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.5rem 0.8rem;
+  font-size: 0.73rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .banner-content {
   display: flex;
   align-items: center;
@@ -1032,6 +1373,30 @@ onUnmounted(() => {
   margin-bottom: 1.25rem;
 }
 
+.profile-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: -0.2rem 0 1rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  background: rgba(235, 28, 36, 0.04);
+  border: 1px solid rgba(235, 28, 36, 0.12);
+}
+
+.profile-summary__label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.profile-summary strong {
+  font-size: 0.82rem;
+  color: var(--text-h);
+}
+
 .card-title-row {
   display: flex;
   gap: 0.75rem;
@@ -1080,6 +1445,7 @@ onUnmounted(() => {
 
 .select-wrapper select {
   width: 100%;
+  min-height: 3rem;
   appearance: none;
   padding: 0.75rem 2.2rem 0.75rem 0.85rem;
   border: 1px solid var(--border);
@@ -1088,7 +1454,7 @@ onUnmounted(() => {
   color: var(--text-h);
   font-size: 0.92rem;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s ease;
 }
 
 .select-wrapper select:focus {
@@ -1118,8 +1484,23 @@ onUnmounted(() => {
 
 /* Button System */
 .button-group {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(112px, 0.9fr) minmax(170px, 1.6fr);
   gap: 0.75rem;
+  align-items: stretch;
+}
+
+.button-group > * {
+  width: 100%;
+}
+
+.button-group .app-button {
+  min-height: 3rem;
+  font-size: 0.92rem;
+}
+
+.button-group .btn-secondary {
+  background: #f8f8f9;
 }
 
 .btn-primary {
@@ -1188,11 +1569,11 @@ onUnmounted(() => {
 
 /* HERO ATTENDANCE CARD (Employee PWA Concept) */
 .hero-attendance-card {
-  padding: 1.35rem;
-  border-radius: 14px;
-  background: var(--accent);
+  padding: 1.35rem 1.2rem 1.15rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #eb1c24 0%, #c5151d 100%);
   color: #fff;
-  box-shadow: 0 16px 32px rgba(235, 28, 36, 0.25);
+  box-shadow: 0 18px 34px rgba(235, 28, 36, 0.24);
   margin-bottom: 1.25rem;
 }
 
@@ -1200,6 +1581,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .hero-kicker {
@@ -1214,12 +1596,13 @@ onUnmounted(() => {
 }
 
 .status-pulse-dot {
-  width: 0.75rem;
-  height: 0.75rem;
+  width: 0.8rem;
+  height: 0.8rem;
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, 0.35);
   background: rgba(255, 255, 255, 0.5);
   transition: all 0.3s;
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.08);
 }
 
 .status-pulse-dot.active {
@@ -1232,9 +1615,9 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
-  margin: 1.25rem 0;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.25);
+  margin: 1.2rem 0 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.22);
 }
 
 .time-item {
@@ -1243,14 +1626,14 @@ onUnmounted(() => {
 }
 
 .time-item span {
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .time-item strong {
-  font-size: 1.35rem;
+  font-size: 1.3rem;
   font-family: var(--mono);
 }
 
@@ -1259,15 +1642,16 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  min-height: 3.1rem;
   padding: 0.9rem 1.15rem;
-  border-radius: 9px;
+  border-radius: 11px;
   border: none;
   background: #fff;
   color: var(--accent);
   font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 8px 18px rgba(17, 17, 17, 0.08);
+  box-shadow: 0 10px 20px rgba(17, 17, 17, 0.08);
   transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
 }
 
@@ -1334,6 +1718,10 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #fff, #f9f9fb);
   box-shadow: 0 10px 18px rgba(17, 17, 17, 0.02);
   margin-bottom: 1rem;
+}
+
+.geo-tracker-card .geo-content {
+  gap: 0.7rem;
 }
 
 .geo-map {
@@ -1627,7 +2015,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.7rem;
-  margin: 1.1rem 0 1rem;
+  margin: 1rem 0 1rem;
 }
 
 .summary-pill {
@@ -1637,6 +2025,7 @@ onUnmounted(() => {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(3px);
 }
 
 .mini-label {
@@ -1653,15 +2042,16 @@ onUnmounted(() => {
 
 .completed-icon {
   display: grid;
-  width: 3.5rem;
-  height: 3.5rem;
+  width: 3.85rem;
+  height: 3.85rem;
   margin: 0 auto 1rem;
   place-items: center;
   border-radius: 50%;
-  background: #dcfce7;
+  background: linear-gradient(135deg, #dcfce7, #bbf7d0);
   color: #15803d;
   font-size: 1.8rem;
   font-weight: 700;
+  box-shadow: 0 10px 24px rgba(34, 197, 94, 0.18);
 }
 
 .completed-box h2 {
@@ -1682,7 +2072,7 @@ onUnmounted(() => {
   text-align: left;
   background: #fafafa;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 1rem;
   margin-bottom: 1.5rem;
 }
@@ -1699,19 +2089,21 @@ onUnmounted(() => {
 }
 
 .summary-item span {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   color: var(--text);
   text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .summary-item strong {
-  font-size: 0.95rem;
+  font-size: 0.93rem;
   color: var(--text-h);
 }
 
 .highlight-duration {
   color: var(--accent);
   font-size: 1.1rem !important;
+  font-weight: 700;
 }
 
 /* Responsive Container on Larger Displays (Desktop/Tablet) */

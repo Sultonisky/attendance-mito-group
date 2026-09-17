@@ -10,6 +10,8 @@ export interface Store {
   id: number
   name: string
   city_id: number
+  latitude?: number | null
+  longitude?: number | null
 }
 
 export interface Outsource {
@@ -64,7 +66,6 @@ export async function initOutsourceSession(
 ): Promise<OutsourceSessionResponse> {
   return apiFetch<OutsourceSessionResponse>('/outsource/session/init', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${localStorage.getItem('outsource_session_token') ?? ''}` },
     body: JSON.stringify({ city_id: cityId, store_id: storeId, outsource_id: outsourceId }),
   })
 }
@@ -109,51 +110,3 @@ export async function outsourceCheckOut(
   })
 }
 
-export interface StoredOutsourceSession {
-  session_token: string
-  expires_at: string
-  outsource: Outsource
-  store: Store
-  attendance_id?: number | null
-  check_in_at?: string | null
-  check_out_at?: string | null
-  duration_minutes?: number | null
-  status?: string | null
-}
-
-const STORAGE_KEY = 'mito_outsource_session'
-
-export function getStoredOutsourceSession(): StoredOutsourceSession | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as StoredOutsourceSession
-    if (parsed && parsed.expires_at) {
-      if (new Date(parsed.expires_at).getTime() <= Date.now()) {
-        localStorage.removeItem(STORAGE_KEY)
-        return null
-      }
-    }
-    return parsed
-  } catch {
-    return null
-  }
-}
-
-export function saveStoredOutsourceSession(session: StoredOutsourceSession): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(session))
-    localStorage.setItem('outsource_session_token', session.session_token)
-  } catch {
-    // Ignore storage quota errors
-  }
-}
-
-export function clearStoredOutsourceSession(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY)
-    localStorage.removeItem('outsource_session_token')
-  } catch {
-    // Ignore errors
-  }
-}
