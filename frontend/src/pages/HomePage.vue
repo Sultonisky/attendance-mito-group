@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import AppButton from '../components/AppButton.vue'
 import { useAuthStore } from '../stores/auth'
 import { usePermission } from '../features/auth/composables/usePermission'
 import { apiFetch, ApiError } from '../services/apiClient'
@@ -67,9 +68,9 @@ async function logout(): Promise<void> {
       <div v-if="auth.isAuthenticated" class="user-menu">
         <span>{{ auth.user?.name }} ({{ auth.user?.email }})</span>
         <span v-if="auth.roles.length" class="role-label">{{ auth.roles.join(', ') }}</span>
-        <button type="button" :disabled="auth.isLoading" @click="logout">
+        <AppButton type="button" variant="secondary" :disabled="auth.isLoading" @click="logout">
           Logout
-        </button>
+        </AppButton>
       </div>
     </header>
 

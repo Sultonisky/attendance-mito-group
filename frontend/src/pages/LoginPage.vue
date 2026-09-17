@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import AppButton from '../components/AppButton.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { useAuthStore } from '../stores/auth'
 import { ApiError } from '../services/apiClient'
 
@@ -77,7 +79,7 @@ async function submit(): Promise<void> {
         <label class="field-label">
           <span>Email address</span>
           <span class="field-control">
-            <span class="field-icon" aria-hidden="true">@</span>
+            <AppIcon name="Mail" class-name="field-icon" :size="16" :stroke-width="2" aria-hidden="true" />
             <input v-model="email" type="email" name="email" autocomplete="username" placeholder="you@mito.co.id" />
           </span>
         </label>
@@ -86,7 +88,7 @@ async function submit(): Promise<void> {
         <label class="field-label">
           <span>Password</span>
           <span class="field-control">
-            <span class="field-icon" aria-hidden="true">*</span>
+            <AppIcon name="LockKeyhole" class-name="field-icon" :size="16" :stroke-width="2" aria-hidden="true" />
             <input
               v-model="password"
               :type="showPassword ? 'text' : 'password'"
@@ -100,7 +102,8 @@ async function submit(): Promise<void> {
               :aria-label="showPassword ? 'Hide password' : 'Show password'"
               @click="showPassword = !showPassword"
             >
-              {{ showPassword ? 'Hide' : 'Show' }}
+              <AppIcon v-if="!showPassword" name="Eye" :size="16" :stroke-width="2" />
+              <AppIcon v-else name="EyeOff" :size="16" :stroke-width="2" />
             </button>
           </span>
         </label>
@@ -108,10 +111,9 @@ async function submit(): Promise<void> {
 
         <p v-if="errorMessage" class="error error-banner" role="alert">{{ errorMessage }}</p>
 
-        <button type="submit" :disabled="auth.isLoading">
-          <span>{{ auth.isLoading ? 'Signing in…' : 'Sign in' }}</span>
-          <span aria-hidden="true">→</span>
-        </button>
+        <AppButton type="submit" :disabled="auth.isLoading" icon="ArrowRight">
+          {{ auth.isLoading ? 'Signing in…' : 'Sign in' }}
+        </AppButton>
       </form>
 
       <RouterLink
@@ -120,9 +122,9 @@ async function submit(): Promise<void> {
         :to="{ name: 'login.employee' }"
       >
         Need employee access?
-        <span aria-hidden="true">→</span>
+        <AppIcon name="ArrowRight" :size="16" :stroke-width="2.2" aria-hidden="true" />
       </RouterLink>
-      <p class="login-note"><span class="secure-mark">✓</span> Your connection is protected and secure.</p>
+      <p class="login-note"><AppIcon name="ShieldCheck" class-name="secure-mark" :size="14" :stroke-width="2.5" /> Your connection is protected and secure.</p>
     </section>
   </main>
 </template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import AppIcon from '../components/AppIcon.vue'
 import { ApiError } from '../services/apiClient'
 import {
   fetchOutsourceCities,
@@ -53,6 +54,20 @@ let clockTimer: number | null = null
 
 const isSessionActive = computed(() => step.value === 'session' || step.value === 'attendance_open')
 const isAttendanceOpen = computed(() => step.value === 'attendance_open')
+
+const trackingStatusLabel = computed(() => {
+  if (locationStatus.value === 'locating') return 'Mengambil lokasi'
+  if (locationStatus.value === 'ready') return 'Lokasi valid'
+  if (locationStatus.value === 'error') return 'GPS error'
+  return 'Menunggu lokasi'
+})
+
+const trackerHint = computed(() => {
+  if (locationStatus.value === 'ready') return 'Wilayah kerja terdeteksi aman.'
+  if (locationStatus.value === 'locating') return 'Sedang membaca sinyal GPS Anda.'
+  if (locationStatus.value === 'error') return 'Periksa izin GPS dan sinyal Anda.'
+  return 'Sinyal GPS belum aktif untuk validasi.'
+})
 
 const statusTitle = computed(() => {
   if (step.value === 'completed') return 'Presensi Selesai'
@@ -396,7 +411,6 @@ onUnmounted(() => {
 
 <template>
   <main class="outsource-app">
-    <!-- PWA Top Header -->
     <header class="app-header">
       <div class="brand-lockup">
         <img class="brand-logo" src="/images/mito.png" alt="MITO electronic" />
@@ -406,15 +420,16 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div v-if="isSessionActive && selectedOutsource" class="user-badge" :title="selectedOutsource.name">
-        <span>{{ selectedOutsource.name.charAt(0).toUpperCase() }}</span>
-      </div>
-      <div v-else class="kiosk-badge" title="Sesi Individu">
-        <span class="badge-icon">⚡</span>
+      <div class="header-meta">
+        <div v-if="isSessionActive && selectedOutsource" class="user-badge" :title="selectedOutsource.name">
+          <span>{{ selectedOutsource.name.charAt(0).toUpperCase() }}</span>
+        </div>
+        <div v-else class="kiosk-badge" title="Sesi Individu">
+          <AppIcon name="Building2" class="badge-icon" :size="18" :stroke-width="2" aria-hidden="true" />
+        </div>
       </div>
     </header>
 
-    <!-- Welcome & Realtime Digital Clock Block -->
     <section class="welcome-block">
       <div class="date-row">
         <p class="welcome-kicker">{{ formatCurrentDate() }}</p>
@@ -430,30 +445,31 @@ onUnmounted(() => {
         Sesi individu aktif di <strong>{{ selectedStoreName || 'Toko Penugasan' }}</strong>.
       </p>
       <p v-else>
-        Pilih penugasan individu Anda untuk memulai presensi kerja.
+        Pilih penugasan individu Anda dan validasi lokasi kerja Anda secara otomatis.
       </p>
     </section>
 
-    <!-- Alerts / Notifications -->
     <section v-if="error" class="app-banner banner-error" role="alert">
       <div class="banner-content">
-        <span class="banner-icon">⚠️</span>
+        <AppIcon name="TriangleAlert" class="banner-icon" :size="18" :stroke-width="2.2" aria-hidden="true" />
         <p>{{ error }}</p>
       </div>
-      <button type="button" class="banner-dismiss" @click="error = ''">✕</button>
+      <button type="button" class="banner-dismiss" @click="error = ''">
+        <AppIcon name="X" :size="14" :stroke-width="2.5" aria-hidden="true" />
+      </button>
     </section>
 
     <section v-if="message" class="app-banner banner-success" role="status">
       <div class="banner-content">
-        <span class="banner-icon">✓</span>
+        <AppIcon name="CircleCheckBig" class="banner-icon" :size="18" :stroke-width="2.2" aria-hidden="true" />
         <p>{{ message }}</p>
       </div>
-      <button type="button" class="banner-dismiss" @click="message = ''">✕</button>
+      <button type="button" class="banner-dismiss" @click="message = ''">
+        <AppIcon name="X" :size="14" :stroke-width="2.5" aria-hidden="true" />
+      </button>
     </section>
 
-    <!-- STEP WIZARD (When No Session Active) -->
     <template v-if="!isSessionActive && step !== 'completed'">
-      <!-- Wizard Progress Indicators -->
       <div class="wizard-stepper" aria-label="Langkah Inisiasi Sesi">
         <div class="step-item" :class="{ active: step === 'city', done: step === 'store' || step === 'outsource' }">
           <span class="step-num">1</span>
@@ -471,10 +487,11 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Step 1: Select City -->
       <section v-if="step === 'city'" class="pwa-card">
         <div class="card-title-row">
-          <span class="card-icon-pill">📍</span>
+          <span class="card-icon-pill" aria-hidden="true">
+            <AppIcon name="MapPinned" :size="18" :stroke-width="2" />
+          </span>
           <div>
             <h2>Pilih Kota Penempatan</h2>
             <p class="card-sub">Tentukan wilayah operasional kerja Anda hari ini.</p>
@@ -484,36 +501,33 @@ onUnmounted(() => {
         <div class="field-block">
           <label for="city-select">Wilayah Kota</label>
           <div class="select-wrapper">
-            <select
-              id="city-select"
-              v-model="selectedCity"
-              :disabled="isLoading"
-              @change="onCitySelected"
-            >
+            <select id="city-select" v-model="selectedCity" :disabled="isLoading" @change="onCitySelected">
               <option :value="null" disabled>-- Pilih kota penempatan --</option>
               <option v-for="city in cities" :key="city.id" :value="city.id">
                 {{ city.name }} ({{ city.code }})
               </option>
             </select>
-            <span class="select-chevron">▾</span>
+            <AppIcon name="ChevronDown" class="select-chevron" :size="16" :stroke-width="2.3" aria-hidden="true" />
           </div>
         </div>
 
-        <button
+        <AppButton
           type="button"
           class="btn-primary"
+          variant="primary"
+          icon="ArrowRight"
           :disabled="selectedCity === null || isLoading"
           @click="onCitySelected"
         >
-          <span>{{ isLoading ? 'Memuat Toko...' : 'Lanjutkan ke Pilih Toko' }}</span>
-          <span aria-hidden="true">→</span>
-        </button>
+          {{ isLoading ? 'Memuat Toko...' : 'Lanjutkan ke Pilih Toko' }}
+        </AppButton>
       </section>
 
-      <!-- Step 2: Select Store -->
       <section v-if="step === 'store'" class="pwa-card">
         <div class="card-title-row">
-          <span class="card-icon-pill">🏪</span>
+          <span class="card-icon-pill" aria-hidden="true">
+            <AppIcon name="Building2" :size="18" :stroke-width="2" />
+          </span>
           <div>
             <h2>Pilih Toko / Lokasi Kerja</h2>
             <p class="card-sub">Pilih toko tempat Anda bertugas di kota yang dipilih.</p>
@@ -523,41 +537,38 @@ onUnmounted(() => {
         <div class="field-block">
           <label for="store-select">Toko / Outlet</label>
           <div class="select-wrapper">
-            <select
-              id="store-select"
-              v-model="selectedStore"
-              :disabled="isLoading"
-              @change="onStoreSelected"
-            >
+            <select id="store-select" v-model="selectedStore" :disabled="isLoading" @change="onStoreSelected">
               <option :value="null" disabled>-- Pilih toko / outlet --</option>
               <option v-for="store in stores" :key="store.id" :value="store.id">
                 {{ store.name }}
               </option>
             </select>
-            <span class="select-chevron">▾</span>
+            <AppIcon name="ChevronDown" class="select-chevron" :size="16" :stroke-width="2.3" aria-hidden="true" />
           </div>
         </div>
 
         <div class="button-group">
-          <button type="button" class="btn-secondary" @click="step = 'city'">
-            ← Kembali
-          </button>
-          <button
+          <AppButton type="button" class="btn-secondary" variant="secondary" icon="ArrowLeft" icon-position="left" @click="step = 'city'">
+            Kembali
+          </AppButton>
+          <AppButton
             type="button"
             class="btn-primary"
+            variant="primary"
+            icon="ArrowRight"
             :disabled="selectedStore === null || isLoading"
             @click="onStoreSelected"
           >
-            <span>{{ isLoading ? 'Memuat Personel...' : 'Lanjutkan ke Profil' }}</span>
-            <span aria-hidden="true">→</span>
-          </button>
+            {{ isLoading ? 'Memuat Personel...' : 'Lanjutkan ke Profil' }}
+          </AppButton>
         </div>
       </section>
 
-      <!-- Step 3: Select Outsource Worker -->
       <section v-if="step === 'outsource'" class="pwa-card">
         <div class="card-title-row">
-          <span class="card-icon-pill">👤</span>
+          <span class="card-icon-pill" aria-hidden="true">
+            <AppIcon name="UserRound" :size="18" :stroke-width="2" />
+          </span>
           <div>
             <h2>Pilih Profil Personel</h2>
             <p class="card-sub">Pilih nama Anda yang terdaftar pada penugasan toko ini.</p>
@@ -567,17 +578,13 @@ onUnmounted(() => {
         <div class="field-block">
           <label for="outsource-select">Nama Personel Outsource</label>
           <div class="select-wrapper">
-            <select
-              id="outsource-select"
-              v-model="selectedOutsource"
-              :disabled="isLoading || outsources.length === 0"
-            >
+            <select id="outsource-select" v-model="selectedOutsource" :disabled="isLoading || outsources.length === 0">
               <option :value="null" disabled>-- Pilih nama Anda --</option>
               <option v-for="outsource in outsources" :key="outsource.id" :value="outsource">
                 {{ outsource.name }} ({{ outsource.outsource_code }})
               </option>
             </select>
-            <span class="select-chevron">▾</span>
+            <AppIcon name="ChevronDown" class="select-chevron" :size="16" :stroke-width="2.3" aria-hidden="true" />
           </div>
           <p v-if="outsources.length === 0 && !isLoading" class="hint-empty">
             Belum ada data pekerja outsource yang ditugaskan di toko ini.
@@ -585,36 +592,31 @@ onUnmounted(() => {
         </div>
 
         <div class="button-group">
-          <button type="button" class="btn-secondary" @click="step = 'store'">
-            ← Kembali
-          </button>
-          <button
+          <AppButton type="button" class="btn-secondary" variant="secondary" icon="ArrowLeft" icon-position="left" @click="step = 'store'">
+            Kembali
+          </AppButton>
+          <AppButton
             type="button"
             class="btn-primary"
+            variant="primary"
+            icon="ArrowRight"
             :disabled="!selectedOutsource || isSubmitting"
             @click="startSession"
           >
-            <span>{{ isSubmitting ? 'Menginisiasi Sesi...' : 'Mulai Sesi Presensi' }}</span>
-            <span aria-hidden="true">⚡</span>
-          </button>
+            {{ isSubmitting ? 'Menginisiasi Sesi...' : 'Mulai Sesi Presensi' }}
+          </AppButton>
         </div>
       </section>
     </template>
 
-    <!-- SESSION ACTIVE: HERO PWA ATTENDANCE CARD -->
     <template v-if="isSessionActive">
-      <!-- MITO Signature Red Hero Attendance Card -->
       <section class="hero-attendance-card" aria-live="polite">
         <div class="card-header-line">
           <div>
             <p class="hero-kicker">STATUS HARI INI</p>
             <h2>{{ statusTitle }}</h2>
           </div>
-          <span
-            class="status-pulse-dot"
-            :class="{ active: isAttendanceOpen }"
-            :title="isAttendanceOpen ? 'Sesi Terbuka' : 'Sesi Aktif'"
-          />
+          <span class="status-pulse-dot" :class="{ active: isAttendanceOpen }" :title="isAttendanceOpen ? 'Sesi Terbuka' : 'Sesi Aktif'" />
         </div>
 
         <div class="time-grid">
@@ -628,46 +630,115 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Big Primary Action Button inside Hero Card -->
-        <button
+        <div class="summary-row">
+          <div class="summary-pill">
+            <span class="mini-label">Lokasi</span>
+            <strong>{{ selectedStoreName || 'Menunggu penugasan' }}</strong>
+          </div>
+          <div class="summary-pill">
+            <span class="mini-label">Akurasi GPS</span>
+            <strong>{{ locationAccuracy !== null ? `±${locationAccuracy} m` : 'Belum terukur' }}</strong>
+          </div>
+        </div>
+
+        <AppButton
           type="button"
           class="hero-action-button"
+          variant="primary"
+          icon="ArrowRight"
           :disabled="isSubmitting"
           @click="submitAttendance"
         >
-          <span>{{ actionButtonLabel }}</span>
-          <span aria-hidden="true">→</span>
-        </button>
+          {{ actionButtonLabel }}
+        </AppButton>
       </section>
 
-      <!-- GPS Geofence & Location Status Card -->
-      <section class="quick-status-card">
-        <div class="quick-icon-pill">
-          <span>📡</span>
+      <section class="geo-tracker-card">
+        <div class="geo-map">
+          <div class="map-outer-ring" />
+          <div class="map-inner-ring" />
+          <div class="map-pin" />
+          <div class="map-safe-zone" />
+          <div class="map-tag">Safe Zone 150m</div>
         </div>
-        <div class="quick-details">
-          <strong>Validasi Lokasi (PostGIS Geofence 150m)</strong>
-          <small v-if="locationAccuracy !== null">
-            Akurasi GPS terdeteksi: ±{{ locationAccuracy }} meter
-          </small>
-          <small v-else>
-            GPS akan diverifikasi otomatis saat tombol Clock In/Out ditekan.
-          </small>
+
+        <div class="geo-content">
+          <div class="geo-header-row">
+            <div>
+              <p class="geo-label">Live Tracking</p>
+              <h3>{{ trackingStatusLabel }}</h3>
+            </div>
+            <span class="status-indicator-badge" :class="{
+              'badge-ready': locationStatus === 'ready',
+              'badge-locating': locationStatus === 'locating',
+              'badge-error': locationStatus === 'error',
+            }">
+              {{ locationStatus === 'locating' ? 'Mencari...' : (locationStatus === 'ready' ? 'Siap' : 'GPS') }}
+            </span>
+          </div>
+
+          <p class="geo-hint">{{ trackerHint }}</p>
+
+          <div class="geo-metrics">
+            <div>
+              <span>Radius</span>
+              <strong>150 m</strong>
+            </div>
+            <div>
+              <span>GPS</span>
+              <strong>{{ locationAccuracy !== null ? `±${locationAccuracy} m` : 'Belum ada' }}</strong>
+            </div>
+            <div>
+              <span>Jam</span>
+              <strong>{{ formatCurrentTime() }}</strong>
+            </div>
+          </div>
         </div>
-        <span
-          class="status-indicator-badge"
-          :class="{
-            'badge-ready': locationStatus === 'ready',
-            'badge-locating': locationStatus === 'locating',
-            'badge-error': locationStatus === 'error',
-          }"
-        >
-          {{ locationStatus === 'locating' ? 'Mencari...' : (locationStatus === 'ready' ? 'Siap' : 'GPS') }}
-        </span>
       </section>
 
-      <!-- Individual Session Info Card -->
+      <section class="mini-summary-grid">
+        <div class="mini-summary-item">
+          <span>Penugasan</span>
+          <strong>{{ selectedStoreName || 'Belum dipilih' }}</strong>
+        </div>
+        <div class="mini-summary-item">
+          <span>Waktu</span>
+          <strong>{{ formatCurrentTime() }}</strong>
+        </div>
+        <div class="mini-summary-item">
+          <span>GPS</span>
+          <strong>{{ locationAccuracy !== null ? `±${locationAccuracy} m` : 'Belum ada' }}</strong>
+        </div>
+        <div class="mini-summary-item">
+          <span>Status</span>
+          <strong>{{ isAttendanceOpen ? 'Clock In aktif' : 'Siap hadir' }}</strong>
+        </div>
+      </section>
+
+      <section class="info-grid">
+        <div class="info-card">
+          <span class="info-title">Personel</span>
+          <strong>{{ selectedOutsource?.name }}</strong>
+          <small>{{ selectedOutsource?.outsource_code }}</small>
+        </div>
+        <div class="info-card">
+          <span class="info-title">Toko</span>
+          <strong>{{ selectedStoreName }}</strong>
+          <small>Radius validasi 150 m</small>
+        </div>
+        <div class="info-card">
+          <span class="info-title">Sesi</span>
+          <strong>{{ expiresAt ? formatDate(expiresAt) : 'Aktif' }}</strong>
+          <small>{{ expiresAt ? 'Kedaluwarsa sesi' : 'Belum diatur' }}</small>
+        </div>
+      </section>
+
       <section class="session-details-card">
+        <div class="detail-header-row">
+          <h3>Detail sesi</h3>
+          <span class="detail-pill">{{ isAttendanceOpen ? 'Bertugas' : 'Siap hadir' }}</span>
+        </div>
+
         <div class="session-row">
           <span class="label">Personel</span>
           <strong class="value">{{ selectedOutsource?.name }} ({{ selectedOutsource?.outsource_code }})</strong>
@@ -676,22 +747,26 @@ onUnmounted(() => {
           <span class="label">Lokasi Toko</span>
           <span class="value">{{ selectedStoreName }}</span>
         </div>
+        <div class="session-row">
+          <span class="label">Status Absensi</span>
+          <span class="value">{{ isAttendanceOpen ? 'Clock In sedang aktif' : 'Sesi belum di-clock in' }}</span>
+        </div>
         <div v-if="expiresAt" class="session-row">
           <span class="label">Kedaluwarsa Sesi</span>
           <span class="value text-muted">{{ formatDate(expiresAt) }}</span>
         </div>
 
-        <button type="button" class="btn-link-reset" @click="resetSelection">
-          <span>Ganti Personel / Akhiri Sesi</span>
-          <span aria-hidden="true">↪</span>
-        </button>
+        <AppButton type="button" class="btn-link-reset" variant="ghost" icon="ArrowRight" @click="resetSelection">
+          Ganti Personel / Akhiri Sesi
+        </AppButton>
       </section>
     </template>
 
-    <!-- STEP COMPLETED SCREEN -->
     <template v-if="step === 'completed'">
       <section class="pwa-card completed-box">
-        <div class="completed-icon">✓</div>
+        <div class="completed-icon" aria-hidden="true">
+          <AppIcon name="CircleCheckBig" :size="40" :stroke-width="2.3" />
+        </div>
         <h2>Presensi Hari Ini Selesai</h2>
         <p class="completed-sub">Terima kasih atas kerja keras Anda hari ini!</p>
 
@@ -720,10 +795,9 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <button type="button" class="btn-primary" @click="resetSelection">
-          <span>Selesai & Tutup Sesi</span>
-          <span aria-hidden="true">✓</span>
-        </button>
+        <AppButton type="button" class="btn-primary" variant="primary" icon="CircleCheckBig" @click="resetSelection">
+          Selesai & Tutup Sesi
+        </AppButton>
       </section>
     </template>
   </main>
@@ -746,20 +820,23 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.35rem 0 1.5rem;
+  gap: 0.75rem;
+  padding: 0.45rem 0 1.25rem;
 }
 
 .brand-lockup {
   display: flex;
   align-items: center;
   gap: 0.65rem;
+  min-width: 0;
 }
 
 .brand-logo {
   width: 2.5rem;
   height: 2.5rem;
-  border-radius: 7px;
+  border-radius: 10px;
   object-fit: cover;
+  box-shadow: 0 6px 18px rgba(17, 17, 17, 0.1);
 }
 
 .brand-eyebrow,
@@ -777,16 +854,23 @@ onUnmounted(() => {
   color: var(--text-h);
 }
 
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
 .user-badge {
   display: grid;
   width: 2.25rem;
   height: 2.25rem;
   place-items: center;
   border-radius: 50%;
-  background: var(--accent);
+  background: linear-gradient(135deg, #eb1c24, #b5171d);
   color: #fff;
   font-weight: 700;
   font-size: 0.95rem;
+  box-shadow: 0 8px 18px rgba(235, 28, 36, 0.22);
 }
 
 .kiosk-badge {
@@ -795,14 +879,15 @@ onUnmounted(() => {
   height: 2.25rem;
   place-items: center;
   border-radius: 50%;
-  background: var(--accent-bg);
+  background: linear-gradient(135deg, #fff, #f4f4f5);
   color: var(--accent);
   font-size: 1rem;
+  border: 1px solid rgba(235, 28, 36, 0.1);
 }
 
 /* Welcome Block */
 .welcome-block {
-  padding: 0.5rem 0 1.5rem;
+  padding: 0.5rem 0 1.1rem;
 }
 
 .date-row {
@@ -819,12 +904,12 @@ onUnmounted(() => {
   color: var(--text);
   background: var(--code-bg);
   padding: 0.15rem 0.5rem;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .welcome-block h1 {
   margin: 0.35rem 0 0.25rem;
-  font-size: 1.85rem;
+  font-size: clamp(1.6rem, 3vw, 2rem);
   font-weight: 700;
   letter-spacing: -0.04em;
   color: var(--text-h);
@@ -833,6 +918,7 @@ onUnmounted(() => {
 .welcome-block p {
   color: var(--text);
   font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 /* App Notification Banners */
@@ -880,16 +966,17 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 1.25rem;
-  padding: 0.65rem 1rem;
-  background: #fff;
-  border-radius: 12px;
+  padding: 0.8rem 1rem;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 14px;
   border: 1px solid var(--border);
+  box-shadow: 0 10px 20px rgba(17, 17, 17, 0.02);
 }
 
 .step-item {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   color: #a1a1aa;
 }
 
@@ -904,8 +991,8 @@ onUnmounted(() => {
 
 .step-num {
   display: grid;
-  width: 1.4rem;
-  height: 1.4rem;
+  width: 1.5rem;
+  height: 1.5rem;
   place-items: center;
   border-radius: 50%;
   font-size: 0.72rem;
@@ -1006,6 +1093,11 @@ onUnmounted(() => {
 
 .select-wrapper select:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(235, 28, 36, 0.08);
+}
+
+.select-wrapper select:hover {
+  border-color: rgba(235, 28, 36, 0.35);
 }
 
 .select-chevron {
@@ -1039,17 +1131,31 @@ onUnmounted(() => {
   padding: 0.85rem 1.25rem;
   border-radius: 9px;
   border: none;
-  background: var(--accent);
+  background: linear-gradient(180deg, #eb1c24 0%, #c5151d 100%);
   color: #fff;
   font-size: 0.92rem;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(235, 28, 36, 0.25);
-  transition: transform 0.1s, opacity 0.2s;
+  box-shadow: 0 6px 18px rgba(235, 28, 36, 0.24);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(235, 28, 36, 0.3);
+}
+
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.banner-dismiss:focus-visible,
+.btn-link-reset:focus-visible,
+.hero-action-button:focus-visible {
+  outline: 3px solid rgba(235, 28, 36, 0.18);
+  outline-offset: 2px;
 }
 
 .btn-primary:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(0.985);
 }
 
 .btn-primary:disabled {
@@ -1062,6 +1168,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.45rem;
   padding: 0.85rem 1rem;
   border-radius: 9px;
   border: 1px solid var(--border);
@@ -1070,10 +1177,13 @@ onUnmounted(() => {
   font-size: 0.92rem;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
 .btn-secondary:hover {
   background: #f4f4f5;
+  border-color: rgba(235, 28, 36, 0.2);
+  transform: translateY(-1px);
 }
 
 /* HERO ATTENDANCE CARD (Employee PWA Concept) */
@@ -1157,11 +1267,17 @@ onUnmounted(() => {
   font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.1s, opacity 0.2s;
+  box-shadow: 0 8px 18px rgba(17, 17, 17, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.hero-action-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(17, 17, 17, 0.12);
 }
 
 .hero-action-button:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(0.985);
 }
 
 .hero-action-button:disabled {
@@ -1179,6 +1295,7 @@ onUnmounted(() => {
   border-radius: 12px;
   border: 1px solid var(--border);
   margin-bottom: 1rem;
+  box-shadow: 0 10px 18px rgba(17, 17, 17, 0.02);
 }
 
 .quick-icon-pill {
@@ -1207,6 +1324,136 @@ onUnmounted(() => {
   color: var(--text);
 }
 
+.geo-tracker-card {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: linear-gradient(135deg, #fff, #f9f9fb);
+  box-shadow: 0 10px 18px rgba(17, 17, 17, 0.02);
+  margin-bottom: 1rem;
+}
+
+.geo-map {
+  position: relative;
+  height: 120px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #f4f4f5 0%, #e8e8ec 100%);
+  border: 1px solid rgba(17, 17, 17, 0.05);
+}
+
+.map-outer-ring,
+.map-inner-ring,
+.map-safe-zone,
+.map-pin {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.map-outer-ring {
+  inset: 18px;
+  border: 1.5px solid rgba(235, 28, 36, 0.2);
+}
+
+.map-inner-ring {
+  inset: 34px;
+  border: 1.5px solid rgba(235, 28, 36, 0.3);
+}
+
+.map-safe-zone {
+  width: 54px;
+  height: 54px;
+  top: 28px;
+  left: 28px;
+  background: rgba(23, 183, 92, 0.14);
+  border: 1px solid rgba(23, 183, 92, 0.3);
+}
+
+.map-pin {
+  width: 14px;
+  height: 14px;
+  top: 54px;
+  left: 62px;
+  background: var(--accent);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 6px rgba(235, 28, 36, 0.1);
+}
+
+.map-tag {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.7);
+  color: #fff;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.geo-content {
+  display: grid;
+  gap: 0.8rem;
+  align-content: center;
+}
+
+.geo-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.geo-label {
+  margin: 0 0 0.2rem;
+  color: var(--text);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.geo-content h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-h);
+}
+
+.geo-hint {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.geo-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.geo-metrics div {
+  display: grid;
+  gap: 0.12rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #ececf0;
+}
+
+.geo-metrics span {
+  color: var(--text);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.geo-metrics strong {
+  color: var(--text-h);
+  font-size: 0.72rem;
+}
+
 .status-indicator-badge {
   font-size: 0.7rem;
   font-weight: 700;
@@ -1214,6 +1461,7 @@ onUnmounted(() => {
   border-radius: 6px;
   background: #f4f4f5;
   color: #71717a;
+  white-space: nowrap;
 }
 
 .status-indicator-badge.badge-ready {
@@ -1231,12 +1479,103 @@ onUnmounted(() => {
   color: #b91c1c;
 }
 
+.mini-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 0 0 1rem;
+}
+
+.mini-summary-item {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.7rem 0.75rem;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+}
+
+.mini-summary-item span {
+  color: var(--text);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.mini-summary-item strong {
+  color: var(--text-h);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 0 0 1rem;
+}
+
+.info-card {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.8rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.info-title {
+  color: var(--text);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.info-card strong {
+  color: var(--text-h);
+  font-size: 0.9rem;
+}
+
+.info-card small {
+  color: var(--text);
+  font-size: 0.72rem;
+}
+
 /* Session Details Card */
 .session-details-card {
   background: #fff;
   border-radius: 12px;
   border: 1px solid var(--border);
   padding: 1rem;
+  box-shadow: 0 8px 18px rgba(17, 17, 17, 0.02);
+}
+
+.detail-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.detail-header-row h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-h);
+}
+
+.detail-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(23, 183, 92, 0.12);
+  color: #15803d;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .session-row {
@@ -1282,6 +1621,34 @@ onUnmounted(() => {
 .completed-box {
   text-align: center;
   padding: 2rem 1.5rem;
+}
+
+.summary-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 1.1rem 0 1rem;
+}
+
+.summary-pill {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.mini-label {
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.summary-pill strong {
+  color: #fff;
+  font-size: 0.84rem;
 }
 
 .completed-icon {

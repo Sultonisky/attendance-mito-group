@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppButton from '../../components/AppButton.vue'
 import { useAuthStore } from '../../stores/auth'
 import { fetchMonthlyRecaps } from '../../services/reports/monthlyRecapApi'
 import { ApiError } from '../../services/apiClient'
@@ -105,13 +106,13 @@ onMounted(() => {
           </label>
         </div>
         <div class="filter-actions">
-          <button type="submit" :disabled="loading">Apply Filters</button>
+          <AppButton type="submit" :disabled="loading">Apply Filters</AppButton>
         </div>
       </form>
 
       <section v-if="error" class="report-error" role="alert">
         <p>{{ error }}</p>
-        <button type="button" @click="load">Retry</button>
+        <AppButton type="button" variant="secondary" @click="load">Retry</AppButton>
       </section>
 
       <section v-else-if="data.length" class="report-table-wrapper">
@@ -149,61 +150,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.report-page {
-  max-width: 1126px;
-  margin: 0 auto;
-  padding: 1.5rem;
-  text-align: left;
-}
-
-.report-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 1rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.report-brand-logo {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 5px;
-  object-fit: cover;
-}
-
-.header-link {
-  color: var(--text);
-  text-decoration: none;
-}
-
-.header-link:hover {
-  color: var(--text-h);
-}
-
-.header-separator {
-  color: var(--text);
-}
-
-.header-active {
-  color: var(--text-h);
-  font-weight: 500;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
+@import '../../styles/report-page.css';
 
 .report-filters {
   border: 1px solid var(--border);
@@ -262,60 +209,5 @@ onMounted(() => {
 .filter-actions button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.report-error {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.25rem;
-  background: var(--bg);
-}
-
-.report-error p {
-  margin: 0 0 0.75rem;
-  color: #b91c1c;
-}
-
-.report-table-wrapper {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: auto;
-  background: var(--bg);
-}
-
-.report-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.report-table th,
-.report-table td {
-  padding: 0.75rem 1rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-.report-table th {
-  background: var(--code-bg);
-  color: var(--text-h);
-  font-weight: 600;
-}
-
-.report-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.report-empty {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.25rem;
-  background: var(--bg);
-  color: var(--text);
-}
-
-.report-loading {
-  color: var(--text);
 }
 </style>

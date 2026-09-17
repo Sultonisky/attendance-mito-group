@@ -2,6 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { RouterLink } from 'vue-router'
+import AppButton from '../components/AppButton.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { useAuthStore } from '../stores/auth'
 import { fetchDashboardKpis } from '../services/dashboardApi'
 import { ApiError } from '../services/apiClient'
@@ -75,26 +77,28 @@ onMounted(() => {
       <div class="sidebar-section-label">Workspace</div>
       <nav class="sidebar-nav" aria-label="Main navigation">
         <RouterLink to="/dashboard" class="sidebar-link active">
-          <span class="nav-icon">▦</span>
+          <AppIcon name="Grid2x2" class="nav-icon" :size="18" :stroke-width="2" />
           <span>Dashboard</span>
         </RouterLink>
         <RouterLink to="/attendance" class="sidebar-link">
-          <span class="nav-icon">◷</span>
+          <AppIcon name="CalendarCheck2" class="nav-icon" :size="18" :stroke-width="2" />
           <span>Attendance</span>
         </RouterLink>
         <RouterLink v-if="canAny(['attendance.view', 'leave.view', 'overtime.view', 'penalty.view', 'monthly_recap.view'])" to="/reports" class="sidebar-link">
-          <span class="nav-icon">▤</span>
+          <AppIcon name="BarChart3" class="nav-icon" :size="18" :stroke-width="2" />
           <span>Reports</span>
         </RouterLink>
         <RouterLink v-if="can('outsource_attendance.view')" to="/outsource-attendance" class="sidebar-link">
-          <span class="nav-icon">◷</span>
+          <AppIcon name="BriefcaseBusiness" class="nav-icon" :size="18" :stroke-width="2" />
           <span>Outsource Attendance</span>
         </RouterLink>
       </nav>
 
       <div class="sidebar-footer">
         <div class="system-status"><span /> API connected</div>
-        <button type="button" :disabled="auth.isLoading" @click="logout">Sign out</button>
+        <AppButton type="button" variant="secondary" icon="LogOut" :disabled="auth.isLoading" @click="logout">
+          Sign out
+        </AppButton>
       </div>
     </aside>
 
@@ -118,7 +122,7 @@ onMounted(() => {
 
       <section v-if="error" class="dashboard-error" role="alert">
         <p>{{ error }}</p>
-        <button type="button" @click="load">Retry</button>
+        <AppButton type="button" variant="secondary" @click="load">Retry</AppButton>
       </section>
 
       <section v-else-if="kpis" class="dashboard-content">
@@ -128,7 +132,10 @@ onMounted(() => {
             <h1>Good morning, {{ auth.user?.name?.split(' ')[0] || 'there' }}.</h1>
             <p class="dashboard-date">{{ formatDate(kpis.date) }} <span>•</span> Today&rsquo;s attendance pulse</p>
           </div>
-          <RouterLink to="/attendance" class="dashboard-action">Open attendance <span aria-hidden="true">→</span></RouterLink>
+          <RouterLink to="/attendance" class="dashboard-action">
+            <span>Open attendance</span>
+            <AppIcon name="ArrowRight" :size="16" :stroke-width="2.2" aria-hidden="true" />
+          </RouterLink>
         </div>
 
         <div class="kpi-grid">
@@ -224,9 +231,16 @@ onMounted(() => {
 
 .nav-icon {
   width: 1.25rem;
+  height: 1.25rem;
   color: currentColor;
-  font-size: 1.1rem;
-  text-align: center;
+  flex-shrink: 0;
+}
+
+.logout-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
 }
 
 .sidebar-footer {

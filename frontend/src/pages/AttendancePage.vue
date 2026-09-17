@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import AppButton from '../components/AppButton.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { ApiError } from '../services/apiClient'
 import { fetchAttendanceToday, submitCheckIn, submitCheckOut } from '../services/attendanceService'
 import { useAttendanceCamera } from '../composables/useAttendanceCamera'
@@ -209,9 +211,14 @@ onUnmounted(() => {
 <template>
   <main class="attendance-page">
     <header class="attendance-header">
-      <button type="button" class="back-button" aria-label="Back to employee app" @click="router.push({ name: 'employee-app' })">
-        <span aria-hidden="true">←</span>
-      </button>
+      <AppButton
+        type="button"
+        class="back-button"
+        variant="ghost"
+        icon="ArrowLeft"
+        aria-label="Back to employee app"
+        @click="router.push({ name: 'employee-app' })"
+      />
       <div class="attendance-title">
         <img src="/images/mito.png" alt="MITO electronic" />
         <div>
@@ -220,7 +227,10 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="attendance-header-meta">
-        <span class="secure-pill"><span /> Secure</span>
+        <span class="secure-pill">
+          <AppIcon name="ShieldCheck" :size="12" :stroke-width="2.5" aria-hidden="true" />
+          <span>Secure</span>
+        </span>
         <p class="attendance-date">{{ formatDate(now) }}</p>
       </div>
     </header>
@@ -235,7 +245,7 @@ onUnmounted(() => {
       role="alert"
     >
       <p>{{ pageError }}</p>
-      <button type="button" @click="loadToday">Retry</button>
+      <AppButton type="button" variant="secondary" @click="loadToday">Retry</AppButton>
     </section>
 
     <section v-else class="attendance-body">
@@ -274,15 +284,16 @@ onUnmounted(() => {
           {{ hasOpenSession ? 'You are currently checked in. Complete your day when you leave.' : 'Ready to record your presence with Face ID and location.' }}
         </p>
 
-        <button
+        <AppButton
           v-if="!hasOpenSession || todayRecord"
           type="button"
-          class="primary-action"
+          variant="primary"
+          icon="ArrowRight"
           :disabled="isSubmitting || showCameraWorkflow"
           @click="startAction"
         >
           {{ actionLabel }}
-        </button>
+        </AppButton>
       </section>
 
       <section
@@ -295,7 +306,7 @@ onUnmounted(() => {
             <p class="status-kicker">VERIFICATION</p>
             <h2>Ready when you are</h2>
           </div>
-          <span class="workflow-lock" aria-hidden="true">⌁</span>
+          <AppIcon name="ShieldCheck" class="workflow-lock" :size="18" :stroke-width="2.2" aria-hidden="true" />
         </div>
         <div class="verification-steps" aria-label="Verification progress">
           <span :class="{ complete: cameraState === 'ready' }"><b>1</b> Face</span>
@@ -355,43 +366,47 @@ onUnmounted(() => {
         </div>
 
         <div class="workflow-actions">
-          <button
+          <AppButton
             v-if="cameraState !== 'ready'"
             type="button"
             class="secondary-action"
+            variant="secondary"
             :disabled="isSubmitting"
             @click="startCamera"
           >
             Enable Camera
-          </button>
+          </AppButton>
 
-          <button
+          <AppButton
             v-if="locationState !== 'ready'"
             type="button"
             class="secondary-action"
+            variant="secondary"
             :disabled="isSubmitting"
             @click="requestLocation"
           >
             Enable Location
-          </button>
+          </AppButton>
 
-          <button
+          <AppButton
             type="button"
             class="primary-action"
+            variant="primary"
             :disabled="!canCapture"
             @click="captureAndSubmit"
           >
             {{ isSubmitting ? 'Verifying...' : 'Capture & Submit' }}
-          </button>
+          </AppButton>
 
-          <button
+          <AppButton
             v-if="!isSubmitting"
             type="button"
             class="secondary-action"
+            variant="secondary"
             @click="stopCamera(); clearLocation(); showCameraWorkflow = false"
           >
             Cancel
-          </button>
+          </AppButton>
         </div>
       </section>
 
@@ -401,7 +416,7 @@ onUnmounted(() => {
         role="status"
       >
         <p>{{ resultMessage }}</p>
-        <button type="button" @click="dismissResult">Dismiss</button>
+        <AppButton type="button" variant="secondary" @click="dismissResult">Dismiss</AppButton>
       </section>
 
       <section
@@ -410,7 +425,7 @@ onUnmounted(() => {
         role="alert"
       >
         <p>{{ resultError }}</p>
-        <button type="button" @click="dismissResult">Dismiss</button>
+        <AppButton type="button" variant="secondary" @click="dismissResult">Dismiss</AppButton>
       </section>
     </section>
   </main>
