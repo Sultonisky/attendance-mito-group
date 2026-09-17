@@ -2,9 +2,11 @@
 
 namespace Database\Seeders;
 
+use App\Models\Employee;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Spatie\Permission\Models\Permission;
 
 class DatabaseSeeder extends Seeder
 {
@@ -46,6 +48,21 @@ class DatabaseSeeder extends Seeder
             if ($developmentUser['role'] !== null) {
                 $user->assignRole($developmentUser['role']);
             }
+
+            if ($developmentUser['email'] === 'user@example.com') {
+                $user->syncPermissions(Permission::all());
+            }
+
+            Employee::updateOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'employee_code' => 'DEV-'.strtoupper(strtok($developmentUser['email'], '@')),
+                    'full_name' => $developmentUser['name'],
+                    'email' => $developmentUser['email'],
+                    'employment_status' => 'permanent',
+                    'join_date' => now()->subYear()->toDateString(),
+                ],
+            );
         }
     }
 }
