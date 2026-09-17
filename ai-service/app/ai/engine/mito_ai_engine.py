@@ -65,7 +65,9 @@ class MitoAiResult:
     """Pure AI inference result from the MITO pipeline.
 
     Contains only AI facts. No employee identity, attendance decision,
-    or business policy is encoded here.
+    or business policy is encoded here. The raw embedding is included
+    so the orchestration layer can persist it through BiometricStorage
+    without duplicating the pipeline.
     """
 
     face_detected: bool
@@ -82,6 +84,9 @@ class MitoAiResult:
 
     liveness: LivenessResult
     """Liveness assessment from AI-2E."""
+
+    embedding: np.ndarray
+    """Raw ArcFace embedding vector. Retained internally; never returned to API clients."""
 
     embedding_dimension: int
     """Dimensionality of the ArcFace embedding (typically 512)."""
@@ -189,6 +194,7 @@ class MitoAiEngine:
             landmarks=landmarks,
             quality=quality_result,
             liveness=liveness_result,
+            embedding=embedding_result.embedding,
             embedding_dimension=embedding_result.dimension,
             model_version=embedding_result.model_version,
             processing_time_ms=processing_time_ms,
