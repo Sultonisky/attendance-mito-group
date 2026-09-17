@@ -13,31 +13,30 @@ use Illuminate\Support\Facades\DB;
  */
 class GeofenceRule
 {
-    public function validate(WorkLocation $workLocation, float $latitude, float $longitude): void
+    public function validate(WorkLocation $workLocation, float $latitude, float $longitude, ?float $radiusMeters = null): void
     {
         $driver = DB::connection()->getDriverName();
 
         if ($driver === 'pgsql' && ! empty($workLocation->location_point)) {
-            $this->validatePostgis($workLocation, $latitude, $longitude);
+            $this->validatePostgis($workLocation, $latitude, $longitude, $radiusMeters);
         } else {
-            $this->validateScalar($workLocation, $latitude, $longitude);
+            $this->validateScalar($workLocation, $latitude, $longitude, $radiusMeters);
         }
     }
 
-    private function validatePostgis(WorkLocation $workLocation, float $latitude, float $longitude): void
+    private function validatePostgis(WorkLocation $workLocation, float $latitude, float $longitude, ?float $radiusMeters = null): void
     {
+        $radius = $radiusMeters ?? $workLocation->radius_meters ?? 0;
+
         $inside = DB::selectOne(
             'SELECT ST_DWithin(
-                ?::geography,
+                wl.location_point::geography,
                 ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
                 COALESCE(?, 0)
-            ) AS inside',
-            [
-                $workLocation->location_point,
-                $longitude,
-                $latitude,
-                $workLocation->radius_meters ?? 0,
-            ]
+            ) AS inside
+            FROM work_locations wl
+            WHERE wl.id = ?',
+            [$longitude, $latitude, $radius, $workLocation->id]
         );
 
         if (empty($inside->inside)) {
@@ -45,7 +44,7 @@ class GeofenceRule
         }
     }
 
-    private function validateScalar(WorkLocation $workLocation, float $latitude, float $longitude): void
+    private function validateScalar(WorkLocation $workLocation, float $latitude, float $longitude, ?float $radiusMeters = null): void
     {
         if ($workLocation->latitude === null || $workLocation->longitude === null) {
             return;
@@ -58,7 +57,7 @@ class GeofenceRule
             (float) $workLocation->longitude
         );
 
-        $radius = (float) ($workLocation->radius_meters ?? 0);
+        $radius = $radiusMeters !== null ? (float) $radiusMeters : (float) ($workLocation->radius_meters ?? 0);
 
         if ($distance > $radius) {
             throw new OutsideGeofenceException('Employee is outside the work location geofence.');

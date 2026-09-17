@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import AppButton from '../components/AppButton.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { useAuthStore } from '../stores/auth'
 import { fetchAttendanceToday } from '../services/attendanceService'
 import { ApiError } from '../services/apiClient'
@@ -45,7 +47,7 @@ async function load(): Promise<void> {
     record.value = await fetchAttendanceToday()
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
-      await router.push({ name: 'login', query: { redirect: '/employee' } })
+      await router.push({ name: 'login.employee' })
       return
     }
 
@@ -57,7 +59,7 @@ async function load(): Promise<void> {
 
 async function logout(): Promise<void> {
   await auth.logout()
-  await router.push({ name: 'login' })
+  await router.push({ name: 'login.employee' })
 }
 
 onMounted(load)
@@ -105,10 +107,9 @@ onMounted(load)
         </div>
       </div>
 
-      <button class="attendance-button" type="button" @click="router.push({ name: 'attendance' })">
-        <span>{{ actionLabel }}</span>
-        <span aria-hidden="true">→</span>
-      </button>
+      <AppButton type="button" variant="primary" icon="ArrowRight" full-width @click="router.push({ name: 'attendance' })">
+        {{ actionLabel }}
+      </AppButton>
     </section>
 
     <section class="quick-section">
@@ -117,26 +118,26 @@ onMounted(load)
         <span>Today</span>
       </div>
       <button class="quick-card" type="button" @click="router.push({ name: 'attendance' })">
-        <span class="quick-icon">◷</span>
+        <AppIcon name="CalendarCheck2" class="quick-icon" :size="20" :stroke-width="2" />
         <span>
           <strong>Attendance</strong>
           <small>Face ID and location verification</small>
         </span>
-        <span class="quick-arrow" aria-hidden="true">›</span>
+        <AppIcon name="ArrowRight" class="quick-arrow" :size="18" :stroke-width="2.2" aria-hidden="true" />
       </button>
     </section>
 
     <nav class="bottom-nav" aria-label="Employee navigation">
       <button class="bottom-link active" type="button">
-        <span>⌂</span>
+        <AppIcon name="House" :size="18" :stroke-width="2" />
         <small>Home</small>
       </button>
       <button class="bottom-link" type="button" @click="router.push({ name: 'attendance' })">
-        <span>◷</span>
+        <AppIcon name="CalendarCheck2" :size="18" :stroke-width="2" />
         <small>Attendance</small>
       </button>
       <button class="bottom-link" type="button" @click="logout">
-        <span>↪</span>
+        <AppIcon name="LogOut" :size="18" :stroke-width="2" />
         <small>Sign out</small>
       </button>
     </nav>

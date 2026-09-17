@@ -91,6 +91,12 @@ class EnrollFaceAction
                     ],
                 );
 
+                EmployeeFaceProfile::where('id', $profile->id)->lockForUpdate()->first();
+
+                EmployeeFaceEmbedding::where('employee_face_profile_id', $profile->id)
+                    ->where('status', 'active')
+                    ->update(['status' => 'inactive']);
+
                 $newEmbedding = EmployeeFaceEmbedding::create([
                     'employee_face_profile_id' => $profile->id,
                     'model_version' => $result->modelVersion,
@@ -99,11 +105,6 @@ class EnrollFaceAction
                     'status' => 'active',
                     'idempotency_key' => $idempotencyKey,
                 ]);
-
-                EmployeeFaceEmbedding::where('employee_face_profile_id', $profile->id)
-                    ->where('status', 'active')
-                    ->where('id', '!=', $newEmbedding->id)
-                    ->update(['status' => 'inactive']);
 
                 AttendanceVerification::create([
                     'employee_id' => $employee->id,
@@ -134,6 +135,31 @@ class EnrollFaceAction
                     'result' => $result,
                     'error' => null,
                 ];
+            }
+
+            $profile = EmployeeFaceProfile::where('employee_id', $employee->id)->first();
+
+            if ($profile !== null) {
+                $existing = EmployeeFaceEmbedding::where('employee_face_profile_id', $profile->id)
+                    ->where('status', 'active')
+                    ->first();
+
+                if ($existing !== null) {
+                    Log::channel('stack')->info('Concurrent enrollment resolved: returning existing active embedding.', [
+                        'employee_id' => $employee->id,
+                        'embedding_reference' => $existing->embedding_reference,
+                        'idempotency_key' => $idempotencyKey,
+                    ]);
+
+                    $result = $this->reconstructResultFromEmbedding($existing);
+
+                    return [
+                        'status' => FastApiStatus::Available,
+                        'enrolled' => true,
+                        'result' => $result,
+                        'error' => null,
+                    ];
+                }
             }
 
             $this->maybeCompensate($newEmbeddingReference);

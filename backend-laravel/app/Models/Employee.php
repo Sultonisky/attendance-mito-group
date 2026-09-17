@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Contracts\AttendanceSubject;
+use Carbon\CarbonImmutable;
 use Database\Factories\EmployeeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -28,7 +30,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'indirect_superior_id',
     'user_id',
 ])]
-class Employee extends Model
+class Employee extends Model implements AttendanceSubject
 {
     /** @use HasFactory<EmployeeFactory> */
     use HasFactory, SoftDeletes;
@@ -154,7 +156,7 @@ class Employee extends Model
     }
 
     /**
-     * The attributes that should be cast.
+     * Get the attributes that should be cast.
      *
      * @return array<string, string>
      */
@@ -165,5 +167,24 @@ class Employee extends Model
             'end_date' => 'date',
             'deleted_at' => 'datetime',
         ];
+    }
+
+    public function getId(): int
+    {
+        return $this->id;
+    }
+
+    public function getEndDate(): ?CarbonImmutable
+    {
+        if ($this->end_date === null) {
+            return null;
+        }
+
+        return CarbonImmutable::instance($this->end_date);
+    }
+
+    public function isAttendanceActive(): bool
+    {
+        return $this->end_date === null || $this->end_date->isFuture();
     }
 }

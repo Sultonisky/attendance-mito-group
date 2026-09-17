@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import LoginPage from '../pages/LoginPage.vue'
+import OutsourcePage from '../pages/OutsourcePage.vue'
 import DashboardPage from '../pages/DashboardPage.vue'
 import EmployeeAppPage from '../pages/EmployeeAppPage.vue'
 import AttendancePage from '../pages/AttendancePage.vue'
@@ -10,6 +11,7 @@ import LeaveReportPage from '../pages/reports/LeaveReportPage.vue'
 import OvertimeReportPage from '../pages/reports/OvertimeReportPage.vue'
 import PenaltyReportPage from '../pages/reports/PenaltyReportPage.vue'
 import MonthlyRecapsReportPage from '../pages/reports/MonthlyRecapsReportPage.vue'
+import OutsourceAttendanceReportPage from '../pages/reports/OutsourceAttendanceReportPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -30,13 +32,13 @@ const router = createRouter({
       path: '/employee',
       name: 'employee-app',
       component: EmployeeAppPage,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, employeeOnly: true },
     },
     {
       path: '/attendance',
       name: 'attendance',
       component: AttendancePage,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, employeeOnly: true },
     },
     {
       path: '/reports',
@@ -68,16 +70,42 @@ const router = createRouter({
       component: PenaltyReportPage,
       meta: { requiresAuth: true, adminOnly: true },
     },
-    {
-      path: '/reports/monthly-recaps',
-      name: 'reports.monthly-recaps',
-      component: MonthlyRecapsReportPage,
-      meta: { requiresAuth: true, adminOnly: true },
-    },
+      {
+        path: '/outsource-attendance',
+        name: 'outsource-attendance',
+        component: OutsourceAttendanceReportPage,
+        meta: { requiresAuth: true, adminOnly: true },
+      },
+      {
+        path: '/reports/monthly-recaps',
+        name: 'reports.monthly-recaps',
+        component: MonthlyRecapsReportPage,
+        meta: { requiresAuth: true, adminOnly: true },
+      },
     {
       path: '/login',
       name: 'login',
+      redirect: { name: 'login.employee' },
+    },
+    {
+      path: '/login/admin',
+      name: 'login.admin',
       component: LoginPage,
+      props: { audience: 'admin' },
+      meta: { loginAudience: 'admin' },
+    },
+    {
+      path: '/login/employee',
+      name: 'login.employee',
+      component: LoginPage,
+      props: { audience: 'employee' },
+      meta: { loginAudience: 'employee' },
+    },
+    {
+      path: '/outsource',
+      name: 'outsource',
+      component: OutsourcePage,
+      meta: { requiresAuth: false },
     },
   ],
 })
@@ -90,6 +118,10 @@ const router = createRouter({
  * regardless of this guard.
  */
 router.beforeEach(async (to) => {
+  if (to.path === '/outsource' || to.meta.requiresAuth === false) {
+    return true
+  }
+
   const auth = useAuthStore()
 
   if (!auth.isInitialized) {
@@ -97,7 +129,9 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } }
+    return {
+      name: to.meta.adminOnly ? 'login.admin' : 'login.employee',
+    }
   }
 
   const isAdmin = auth.roles.some((role) => ['ADMIN', 'SUPER_ADMIN'].includes(role))
@@ -106,7 +140,11 @@ router.beforeEach(async (to) => {
     return { name: 'employee-app' }
   }
 
-  if (to.name === 'login' && auth.isAuthenticated) {
+  if (to.meta.employeeOnly && isAdmin) {
+    return { name: 'dashboard' }
+  }
+
+  if (to.meta.loginAudience && auth.isAuthenticated) {
     return { name: isAdmin ? 'dashboard' : 'employee-app' }
   }
 

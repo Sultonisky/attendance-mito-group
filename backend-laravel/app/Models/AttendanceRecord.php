@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'employee_id',
+    'outsource_id',
+    'attendable_type',
     'attendance_date',
     'status',
 ])]
@@ -24,6 +26,14 @@ class AttendanceRecord extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    /**
+     * The outsource this daily record belongs to.
+     */
+    public function outsource(): BelongsTo
+    {
+        return $this->belongsTo(Outsource::class);
     }
 
     /**

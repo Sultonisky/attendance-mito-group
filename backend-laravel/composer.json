@@ -10,9 +10,11 @@
         "laravel/framework": "^13.17",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
+        "phpoffice/phpspreadsheet": "5.10",
         "spatie/laravel-permission": "^8.3"
     },
     "require-dev": {
+        "doctrine/dbal": "*",
         "fakerphp/faker": "^1.23",
         "laravel/pail": "^1.2.5",
         "laravel/pao": "^1.0.6",

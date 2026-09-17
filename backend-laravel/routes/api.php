@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\LeaveController;
 use App\Http\Controllers\Api\V1\MonthlyRecapController;
 use App\Http\Controllers\Api\V1\OvertimeController;
+use App\Http\Controllers\Api\V1\OutsourceAttendanceController;
 use App\Http\Controllers\Api\V1\PenaltyController;
 use App\Http\Controllers\Api\V1\ReportController;
 use Illuminate\Http\Request;
@@ -24,6 +25,33 @@ Route::prefix('v1')->group(function () {
 
     // Authentication (first-party Sanctum SPA, session/cookie based)
     Route::post('/login', [AuthController::class, 'login']);
+
+    // Outsource public attendance (OUTSOURCE-2C)
+    Route::prefix('outsource')->group(function () {
+        Route::get('/cities', [OutsourceAttendanceController::class, 'cities'])
+            ->middleware('throttle:60,1')
+            ->name('outsource.cities');
+
+        Route::get('/stores', [OutsourceAttendanceController::class, 'stores'])
+            ->middleware('throttle:60,1')
+            ->name('outsource.stores');
+
+        Route::get('/outsources', [OutsourceAttendanceController::class, 'outsources'])
+            ->middleware('throttle:60,1')
+            ->name('outsource.outsources');
+
+        Route::post('/session/init', [OutsourceAttendanceController::class, 'initSession'])
+            ->middleware('throttle:10,5')
+            ->name('outsource.session.init');
+
+        Route::post('/attendance/check-in', [OutsourceAttendanceController::class, 'checkIn'])
+            ->middleware('throttle:20,1')
+            ->name('outsource.attendance.check-in');
+
+        Route::post('/attendance/check-out', [OutsourceAttendanceController::class, 'checkOut'])
+            ->middleware('throttle:20,1')
+            ->name('outsource.attendance.check-out');
+    });
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
@@ -119,6 +147,7 @@ Route::prefix('v1')->group(function () {
         // Reports (Phase 13.1)
         Route::prefix('reports')->name('reports.')->group(function () {
             Route::get('/attendance', [ReportController::class, 'attendance'])->middleware('can:attendance.view')->name('attendance');
+            Route::get('/outsource-attendance', [ReportController::class, 'outsourceAttendance'])->middleware('can:outsource_attendance.view')->name('outsource-attendance');
             Route::get('/leave', [ReportController::class, 'leave'])->middleware('can:leave.view')->name('leave');
             Route::get('/overtime', [ReportController::class, 'overtime'])->middleware('can:overtime.view')->name('overtime');
             Route::get('/penalties', [ReportController::class, 'penalty'])->middleware('can:penalty.view')->name('penalty');

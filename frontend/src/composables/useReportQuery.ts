@@ -56,7 +56,7 @@ export function useReportQuery(
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         if (err.status === 401) {
-          await router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
+          await router.push({ name: 'login.admin' })
           return
         }
 

@@ -32,6 +32,7 @@ class DatabaseSeeder extends Seeder
         $developmentUsers = [
             ['name' => 'Super Admin (dev)', 'email' => 'superadmin@example.com', 'role' => 'SUPER_ADMIN'],
             ['name' => 'Admin (dev)', 'email' => 'admin@example.com', 'role' => 'ADMIN'],
+            ['name' => 'Developer Admin (dev)', 'email' => 'developer@example.com', 'role' => 'ADMIN'],
             ['name' => 'User (dev)', 'email' => 'user@example.com', 'role' => 'USER'],
             ['name' => 'Permless User (dev)', 'email' => 'permless@example.com', 'role' => null],
         ];
@@ -49,20 +50,29 @@ class DatabaseSeeder extends Seeder
                 $user->assignRole($developmentUser['role']);
             }
 
-            if ($developmentUser['email'] === 'user@example.com') {
+            if (
+                in_array($developmentUser['role'], ['ADMIN', 'SUPER_ADMIN'], true)
+                || $developmentUser['email'] === 'user@example.com'
+            ) {
                 $user->syncPermissions(Permission::all());
             }
 
-            Employee::updateOrCreate(
-                ['user_id' => $user->id],
-                [
-                    'employee_code' => 'DEV-'.strtoupper(strtok($developmentUser['email'], '@')),
-                    'full_name' => $developmentUser['name'],
-                    'email' => $developmentUser['email'],
-                    'employment_status' => 'permanent',
-                    'join_date' => now()->subYear()->toDateString(),
-                ],
-            );
+            if (! in_array($developmentUser['role'], ['ADMIN', 'SUPER_ADMIN'], true)) {
+                Employee::updateOrCreate(
+                    ['user_id' => $user->id],
+                    [
+                        'employee_code' => 'DEV-'.strtoupper(strtok($developmentUser['email'], '@')),
+                        'full_name' => $developmentUser['name'],
+                        'email' => $developmentUser['email'],
+                        'employment_status' => 'permanent',
+                        'join_date' => now()->subYear()->toDateString(),
+                    ],
+                );
+            }
         }
+
+        // Factory-driven demo data (cities, stores, schedules, policies,
+        // employees, outsource workers, attendance history). Dev only.
+        $this->call(DevelopmentDataSeeder::class);
     }
 }

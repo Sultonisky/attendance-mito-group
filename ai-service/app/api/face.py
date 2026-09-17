@@ -230,6 +230,20 @@ async def enroll_face(
             ai_facts=ai_facts_json,
         )
     except Exception as exc:
+        existing = None
+        try:
+            existing = storage.get_by_idempotency_key(idempotency_key)
+        except Exception:
+            pass
+
+        if existing is not None:
+            if existing.request_fingerprint == fingerprint:
+                return _build_enroll_response_from_storage(existing, settings)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Idempotency key reused with a different request.",
+            )
+
         logger.exception("Embedding storage failed after successful AI inference.")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

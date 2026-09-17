@@ -1,15 +1,21 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
+import AppButton from '../components/AppButton.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { useAuthStore } from '../stores/auth'
 import { ApiError } from '../services/apiClient'
 
+const props = defineProps<{
+  audience: 'admin' | 'employee'
+}>()
+
 const auth = useAuthStore()
-const route = useRoute()
 const router = useRouter()
 
 const email = ref('')
 const password = ref('')
+const showPassword = ref(false)
 const errorMessage = ref('')
 const fieldErrors = ref<Record<string, string[]>>({})
 
@@ -25,8 +31,18 @@ async function submit(): Promise<void> {
   try {
     await auth.login(email.value, password.value)
 
-    const redirect = route.query.redirect
-    await router.push(typeof redirect === 'string' ? redirect : { name: 'dashboard' })
+    const isAdmin = auth.roles.some((role) => ['ADMIN', 'SUPER_ADMIN'].includes(role))
+    const expectedAdmin = props.audience === 'admin'
+
+    if (isAdmin !== expectedAdmin) {
+      await auth.logout()
+      errorMessage.value = expectedAdmin
+        ? 'This account belongs to the employee app. Use the employee sign-in.'
+        : 'This account belongs to the admin console. Use the admin sign-in.'
+      return
+    }
+
+    await router.push(expectedAdmin ? { name: 'dashboard' } : { name: 'employee-app' })
   } catch (error) {
     if (error instanceof ApiError) {
       errorMessage.value = error.message
@@ -46,47 +62,69 @@ async function submit(): Promise<void> {
         <div class="logo-frame">
           <img class="brand-logo" src="/images/mito.png" alt="MITO electronic" />
         </div>
-        <p class="visual-kicker">ATTENDANCE MANAGEMENT</p>
-        <h1>Every day,<br /><strong>on record.</strong></h1>
-        <p class="visual-copy">A clear, reliable workspace for your attendance and daily work activity.</p>
+        <p class="visual-kicker">{{ props.audience === 'admin' ? 'ADMIN CONSOLE' : 'EMPLOYEE APP' }}</p>
+        <h1>{{ props.audience === 'admin' ? 'Run the day,' : 'Your day,' }}<br /><strong>{{ props.audience === 'admin' ? 'with clarity.' : 'on record.' }}</strong></h1>
+        <p class="visual-copy">{{ props.audience === 'admin' ? 'A focused workspace for attendance operations and workforce insights.' : 'A clear, reliable way to record your attendance wherever you work.' }}</p>
       </div>
     </section>
 
     <section class="login-panel">
       <div class="login-heading">
-        <p class="eyebrow">WELCOME BACK</p>
-        <h2>Sign in to your account</h2>
+        <p class="eyebrow">{{ props.audience === 'admin' ? 'ADMIN ACCESS' : 'EMPLOYEE ACCESS' }}</p>
+        <h2>{{ props.audience === 'admin' ? 'Sign in to admin console' : 'Sign in to employee app' }}</h2>
         <p class="login-intro">Use your company credentials to continue.</p>
       </div>
 
       <form novalidate @submit.prevent="submit">
-        <label>
-          Email address
-          <input v-model="email" type="email" name="email" autocomplete="username" placeholder="you@mito.co.id" />
+        <label class="field-label">
+          <span>Email address</span>
+          <span class="field-control">
+            <AppIcon name="Mail" class-name="field-icon" :size="16" :stroke-width="2" aria-hidden="true" />
+            <input v-model="email" type="email" name="email" autocomplete="username" placeholder="you@mito.co.id" />
+          </span>
         </label>
         <p v-if="fieldErrors.email" class="error">{{ fieldErrors.email[0] }}</p>
 
-        <label>
-          Password
-          <input
-            v-model="password"
-            type="password"
-            name="password"
-            autocomplete="current-password"
-            placeholder="Enter your password"
-          />
+        <label class="field-label">
+          <span>Password</span>
+          <span class="field-control">
+            <AppIcon name="LockKeyhole" class-name="field-icon" :size="16" :stroke-width="2" aria-hidden="true" />
+            <input
+              v-model="password"
+              :type="showPassword ? 'text' : 'password'"
+              name="password"
+              autocomplete="current-password"
+              placeholder="Enter your password"
+            />
+            <button
+              type="button"
+              class="password-toggle"
+              :aria-label="showPassword ? 'Hide password' : 'Show password'"
+              @click="showPassword = !showPassword"
+            >
+              <AppIcon v-if="!showPassword" name="Eye" :size="16" :stroke-width="2" />
+              <AppIcon v-else name="EyeOff" :size="16" :stroke-width="2" />
+            </button>
+          </span>
         </label>
         <p v-if="fieldErrors.password" class="error">{{ fieldErrors.password[0] }}</p>
 
         <p v-if="errorMessage" class="error error-banner" role="alert">{{ errorMessage }}</p>
 
-        <button type="submit" :disabled="auth.isLoading">
-          <span>{{ auth.isLoading ? 'Signing in…' : 'Sign in' }}</span>
-          <span aria-hidden="true">→</span>
-        </button>
+        <AppButton type="submit" :disabled="auth.isLoading" icon="ArrowRight">
+          {{ auth.isLoading ? 'Signing in…' : 'Sign in' }}
+        </AppButton>
       </form>
 
-      <p class="login-note"><span class="secure-mark">✓</span> Your connection is protected and secure.</p>
+      <RouterLink
+        v-if="props.audience === 'admin'"
+        class="portal-switch"
+        :to="{ name: 'login.employee' }"
+      >
+        Need employee access?
+        <AppIcon name="ArrowRight" :size="16" :stroke-width="2.2" aria-hidden="true" />
+      </RouterLink>
+      <p class="login-note"><AppIcon name="ShieldCheck" class-name="secure-mark" :size="14" :stroke-width="2.5" /> Your connection is protected and secure.</p>
     </section>
   </main>
 </template>
@@ -217,14 +255,35 @@ async function submit(): Promise<void> {
 
 .login-panel {
   box-sizing: border-box;
-  width: min(100%, 31rem);
+  width: min(100%, 32rem);
   margin: auto;
-  padding: 2rem;
+  padding: clamp(1.5rem, 4vw, 3rem);
   animation: login-rise 0.7s 0.1s ease both;
 }
 
 .login-heading {
-  margin-bottom: 2rem;
+  margin-bottom: 1.75rem;
+}
+
+.portal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 1.25rem;
+  padding: 0.38rem 0.6rem;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.portal-badge-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .login-heading h2 {
@@ -249,10 +308,30 @@ label {
   font-weight: 600;
 }
 
+.field-label {
+  gap: 0.45rem;
+}
+
+.field-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.field-icon {
+  position: absolute;
+  left: 0.9rem;
+  z-index: 1;
+  color: #a1a1a8;
+  font-size: 0.85rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
 input {
   box-sizing: border-box;
   width: 100%;
-  padding: 0.9rem 1rem;
+  padding: 0.9rem 2.5rem;
   border: 1px solid #dedee2;
   border-radius: 7px;
   color: var(--text-h);
@@ -268,6 +347,28 @@ input:focus {
   border-color: var(--accent);
   outline: none;
   box-shadow: 0 0 0 4px rgba(235, 28, 36, 0.1);
+}
+
+.password-toggle {
+  position: absolute;
+  right: 0.65rem;
+  width: auto;
+  margin: 0;
+  padding: 0.25rem;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  box-shadow: none;
+  transform: none;
+}
+
+.password-toggle:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: none;
+  color: #c9151c;
+  transform: none;
 }
 
 button {
@@ -313,6 +414,28 @@ button:disabled {
   color: #85858d;
   font-size: 0.78rem;
   text-align: center;
+}
+
+.portal-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.portal-switch span {
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+.portal-switch:hover {
+  color: var(--accent);
 }
 
 .secure-mark {

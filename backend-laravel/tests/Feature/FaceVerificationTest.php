@@ -9,6 +9,7 @@ use App\Models\EmployeeFaceProfile;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
 use Illuminate\Http\Testing\File;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -245,7 +246,7 @@ class FaceVerificationTest extends TestCase
         $user = $this->adminUser();
         $employee = Employee::factory()->create();
 
-        /** @var \Illuminate\Http\Client\Request|null $capturedRequest */
+        /** @var Request|null $capturedRequest */
         $capturedRequest = null;
 
         Http::fake([

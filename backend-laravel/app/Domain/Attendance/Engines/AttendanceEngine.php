@@ -2,6 +2,7 @@
 
 namespace App\Domain\Attendance\Engines;
 
+use App\Contracts\AttendanceSubject;
 use App\Domain\Attendance\DTOs\AttendanceOperationData;
 use App\Domain\Attendance\DTOs\AttendanceResultData;
 use App\Domain\Attendance\Exceptions\AttendanceAlreadyCheckedInException;
@@ -19,10 +20,13 @@ use App\Domain\Policy\Engines\PolicyEngine;
 use App\Domain\Schedule\Engines\ScheduleEngine;
 use App\Enums\AttendanceSessionStatus;
 use App\Exceptions\Domain\InactiveEmployeeException;
+use App\Exceptions\Domain\InactiveSubjectException;
 use App\Models\AttendanceEvent;
 use App\Models\AttendanceRecord;
 use App\Models\AttendanceSession;
 use App\Models\Employee;
+use App\Models\Outsource;
+use App\Models\OutsourceStoreAssignment;
 use App\Models\Policy;
 use App\Models\PolicyAssignment;
 use App\Models\ScheduleAssignment;
@@ -54,56 +58,64 @@ class AttendanceEngine
     ) {}
 
     /**
-     * Perform check-in for an employee.
+     * Perform check-in for an attendance subject.
      */
-    public function checkIn(Employee $employee, AttendanceOperationData $data): AttendanceResultData
+    public function checkIn(AttendanceSubject $subject, AttendanceOperationData $data): AttendanceResultData
     {
-        if ($employee->end_date && $employee->end_date->isPast()) {
-            throw new InactiveEmployeeException('Employee has ended employment.');
+        if ($subject->getEndDate() && $subject->getEndDate()->isPast()) {
+            if ($subject instanceof Employee) {
+                throw new InactiveEmployeeException('Employee employment status is inactive.');
+            }
+
+            throw new InactiveSubjectException('Subject has ended.');
         }
 
         $this->gpsValidationRule->validate($data->latitude, $data->longitude, $data->accuracy);
 
-        $date = $this->resolveWorkDate($data->occurredAt, $employee);
+        $date = $this->resolveWorkDate($data->occurredAt, $subject);
 
-        $policyResult = $this->resolveAttendancePolicy($employee, $date, 'check_in_blocked');
+        $policyResult = $this->resolvePolicyResult($subject, $date, 'check_in_blocked');
         if (! $policyResult['allowed']) {
             throw new AttendanceBlockedByPolicyException($policyResult['reason']);
         }
 
-        $scheduleResult = $this->resolveAttendanceSchedule($employee, $date);
+        $scheduleResult = $this->resolveScheduleResult($subject, $date);
         if (! $scheduleResult['hasSchedule']) {
             throw new AttendanceBlockedByPolicyException('No active schedule found for this date.');
         }
 
         $workLocation = $this->resolveWorkLocation($data->workLocationId);
-        $geofenceResult = $this->evaluateGeofence($workLocation, $data->latitude, $data->longitude);
-        if (! $geofenceResult['passed']) {
-            throw new OutsideGeofenceException('Employee is outside the approved work location geofence.');
+
+        if ($subject instanceof Outsource) {
+            $this->validateOutsourceAssignment($subject, $workLocation);
         }
 
-        $existingRecord = AttendanceRecord::where('employee_id', $employee->id)
-            ->whereDate('attendance_date', $date->toDateString())
-            ->first();
+        $geofenceRadius = $subject instanceof Outsource ? 150.0 : null;
+        $geofenceResult = $this->evaluateGeofence($workLocation, $data->latitude, $data->longitude, $geofenceRadius);
+        if (! $geofenceResult['passed']) {
+            throw new OutsideGeofenceException('Subject is outside the approved work location geofence.');
+        }
+
+        $existingRecord = $this->findExistingRecord($subject, $date);
 
         if ($existingRecord && $existingRecord->sessions()->where('status', AttendanceSessionStatus::Open->value)->exists()) {
-            throw new AttendanceAlreadyCheckedInException('Employee already has an open attendance session.');
+            throw new AttendanceAlreadyCheckedInException('Subject already has an open attendance session.');
         }
 
         try {
-            $record = $existingRecord ?? $this->createAttendanceRecord($employee, $date);
+            $record = $existingRecord ?? $this->createAttendanceRecord($subject, $date);
         } catch (UniqueConstraintViolationException $e) {
-            throw new AttendanceAlreadyCheckedInException('Employee already has an attendance record for this date.', previous: $e);
+            throw new AttendanceAlreadyCheckedInException('Subject already has an attendance record for this date.', previous: $e);
         }
 
         $session = $this->createSession($record, $data->occurredAt);
-        $event = $this->createEvent($employee, $record, $session, $data);
+        $event = $this->createEvent($subject, $record, $session, $data);
 
         $scheduledStart = $this->resolveScheduledStart($scheduleResult['shift'], $data->occurredAt);
         $isLate = $this->lateDetectionRule->isLate($data->occurredAt, $scheduledStart);
 
         $status = $this->attendanceStateRule->determine(
-            hasPolicy: true,
+            hasPolicy: $policyResult['allowed'],
             hasSchedule: $scheduleResult['hasSchedule'],
             hasOpenSession: false,
             isLate: $isLate,
@@ -123,18 +135,26 @@ class AttendanceEngine
     }
 
     /**
-     * Perform check-out for an employee.
+     * Perform check-out for an attendance subject.
      */
-    public function checkOut(Employee $employee, AttendanceOperationData $data): AttendanceResultData
+    public function checkOut(AttendanceSubject $subject, AttendanceOperationData $data): AttendanceResultData
     {
-        if ($employee->end_date && $employee->end_date->isPast()) {
-            throw new InactiveEmployeeException('Employee has ended employment.');
+        if ($subject->getEndDate() && $subject->getEndDate()->isPast()) {
+            if ($subject instanceof Employee) {
+                throw new InactiveEmployeeException('Employee employment status is inactive.');
+            }
+
+            throw new InactiveSubjectException('Subject has ended.');
         }
 
         $this->gpsValidationRule->validate($data->latitude, $data->longitude, $data->accuracy);
 
-        $openSession = AttendanceSession::whereHas('attendanceRecord', function ($query) use ($employee) {
-            $query->where('employee_id', $employee->id);
+        $openSession = AttendanceSession::whereHas('attendanceRecord', function ($query) use ($subject) {
+            if ($subject instanceof Employee) {
+                $query->where('employee_id', $subject->getId());
+            } else {
+                $query->where('outsource_id', $subject->getId());
+            }
         })
             ->where('status', AttendanceSessionStatus::Open->value)
             ->orderByDesc('check_in_at')
@@ -147,9 +167,15 @@ class AttendanceEngine
         $record = $openSession->attendanceRecord;
 
         $workLocation = $this->resolveWorkLocation($data->workLocationId);
-        $geofenceResult = $this->evaluateGeofence($workLocation, $data->latitude, $data->longitude);
+
+        if ($subject instanceof Outsource) {
+            $this->validateOutsourceAssignment($subject, $workLocation);
+        }
+
+        $geofenceRadius = $subject instanceof Outsource ? 150.0 : null;
+        $geofenceResult = $this->evaluateGeofence($workLocation, $data->latitude, $data->longitude, $geofenceRadius);
         if (! $geofenceResult['passed']) {
-            throw new OutsideGeofenceException('Employee is outside the approved work location geofence.');
+            throw new OutsideGeofenceException('Subject is outside the approved work location geofence.');
         }
 
         $checkInAt = CarbonImmutable::parse($openSession->check_in_at);
@@ -161,11 +187,11 @@ class AttendanceEngine
 
         $durationMinutes = (int) $checkInAt->diffInMinutes($checkOutAt);
 
-        $scheduleResult = $this->resolveAttendanceSchedule($employee, CarbonImmutable::parse($record->attendance_date));
+        $scheduleResult = $this->resolveScheduleResult($subject, CarbonImmutable::parse($record->attendance_date));
         $scheduledEnd = $this->resolveScheduledEnd($scheduleResult['shift'], $checkOutAt);
         $isEarlyCheckout = $this->earlyCheckoutRule->isEarlyCheckout($checkOutAt, $scheduledEnd);
 
-        $policyResult = $this->resolveAttendancePolicy($employee, CarbonImmutable::parse($record->attendance_date), 'check_out_blocked');
+        $policyResult = $this->resolvePolicyResult($subject, CarbonImmutable::parse($record->attendance_date), 'check_out_blocked');
         if (! $policyResult['allowed']) {
             throw new AttendanceBlockedByPolicyException($policyResult['reason']);
         }
@@ -176,12 +202,12 @@ class AttendanceEngine
             'status' => AttendanceSessionStatus::Closed->value,
         ]);
 
-        $event = $this->createEvent($employee, $record, $openSession, $data);
+        $event = $this->createEvent($subject, $record, $openSession, $data);
 
         $hasOpenSession = false;
 
         $status = $this->attendanceStateRule->determine(
-            hasPolicy: true,
+            hasPolicy: $policyResult['allowed'],
             hasSchedule: $scheduleResult['hasSchedule'],
             hasOpenSession: $hasOpenSession,
             isLate: false,
@@ -200,14 +226,41 @@ class AttendanceEngine
         );
     }
 
-    private function evaluateGeofence(?WorkLocation $workLocation, ?float $latitude, ?float $longitude): array
+    private function resolvePolicyResult(AttendanceSubject $subject, CarbonImmutable $date, string $blockFlag): array
+    {
+        if ($subject instanceof Outsource) {
+            return [
+                'allowed' => true,
+                'reason' => null,
+                'policies' => [],
+            ];
+        }
+
+        return $this->resolveAttendancePolicy($subject, $date, $blockFlag);
+    }
+
+    private function resolveScheduleResult(AttendanceSubject $subject, CarbonImmutable $date): array
+    {
+        if ($subject instanceof Outsource) {
+            return [
+                'hasSchedule' => true,
+                'schedule' => null,
+                'shift' => null,
+                'assignment' => null,
+            ];
+        }
+
+        return $this->resolveAttendanceSchedule($subject, $date);
+    }
+
+    private function evaluateGeofence(?WorkLocation $workLocation, ?float $latitude, ?float $longitude, ?float $radiusMeters = null): array
     {
         if ($workLocation === null || $latitude === null || $longitude === null) {
             return ['passed' => true, 'distance_meters' => null, 'method' => 'skipped'];
         }
 
         try {
-            $this->geofenceRule->validate($workLocation, $latitude, $longitude);
+            $this->geofenceRule->validate($workLocation, $latitude, $longitude, $radiusMeters);
             $distanceMeters = $this->queryGeofenceDistance($workLocation, $latitude, $longitude);
 
             return ['passed' => true, 'distance_meters' => $distanceMeters, 'method' => 'postgis'];
@@ -218,19 +271,49 @@ class AttendanceEngine
         }
     }
 
+    private function validateOutsourceAssignment(Outsource $outsource, ?WorkLocation $workLocation): void
+    {
+        if ($workLocation === null) {
+            throw new \InvalidArgumentException('Work location is required for outsource attendance.');
+        }
+
+        if ($outsource->status !== 'active' || $outsource->trashed()) {
+            throw new InactiveSubjectException('Outsource is inactive.');
+        }
+
+        if ($workLocation->status !== 'active' || $workLocation->trashed()) {
+            throw new \InvalidArgumentException('Work location is inactive.');
+        }
+
+        $assignment = OutsourceStoreAssignment::query()
+            ->where('outsource_id', $outsource->id)
+            ->where('store_id', $workLocation->id)
+            ->where('status', 'active')
+            ->first();
+
+        if ($assignment === null) {
+            throw new \InvalidArgumentException('Outsource is not assigned to this work location.');
+        }
+    }
+
     private function queryGeofenceDistance(WorkLocation $workLocation, float $latitude, float $longitude): ?float
     {
         try {
             return WorkLocation::where('id', $workLocation->id)
-                ->selectRaw('ST_DDistance(location_point, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) AS distance_meters', [$longitude, $latitude])
+                ->selectRaw('ST_Distance(location_point::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) AS distance_meters', [$longitude, $latitude])
                 ->value('distance_meters');
         } catch (\Throwable $e) {
             return null;
         }
     }
 
-    private function resolveAttendancePolicy(Employee $employee, CarbonImmutable $date, string $blockFlag): array
+    private function resolveAttendancePolicy(AttendanceSubject $subject, CarbonImmutable $date, string $blockFlag): array
     {
+        $employee = $subject instanceof Employee ? $subject : null;
+        if ($employee === null) {
+            return ['allowed' => true, 'reason' => null, 'policies' => []];
+        }
+
         $policies = PolicyAssignment::query()
             ->where('employee_id', $employee->id)
             ->where('effective_from', '<=', $date->toDateString())
@@ -264,8 +347,18 @@ class AttendanceEngine
         ];
     }
 
-    private function resolveAttendanceSchedule(Employee $employee, CarbonImmutable $date): array
+    private function resolveAttendanceSchedule(AttendanceSubject $subject, CarbonImmutable $date): array
     {
+        $employee = $subject instanceof Employee ? $subject : null;
+        if ($employee === null) {
+            return [
+                'hasSchedule' => true,
+                'schedule' => null,
+                'shift' => null,
+                'assignment' => null,
+            ];
+        }
+
         $assignment = ScheduleAssignment::query()
             ->where('employee_id', $employee->id)
             ->where('effective_from', '<=', $date->toDateString())
@@ -298,8 +391,14 @@ class AttendanceEngine
         ];
     }
 
-    private function resolveWorkDate(CarbonImmutable $occurredAt, Employee $employee): CarbonImmutable
+    private function resolveWorkDate(CarbonImmutable $occurredAt, AttendanceSubject $subject): CarbonImmutable
     {
+        if ($subject instanceof Outsource) {
+            return $occurredAt;
+        }
+
+        $employee = $subject;
+
         $scheduleResult = $this->resolveAttendanceSchedule($employee, $occurredAt);
 
         if ($scheduleResult['hasSchedule'] && $scheduleResult['shift'] !== null) {
@@ -356,13 +455,36 @@ class AttendanceEngine
         return CarbonImmutable::createFromFormat('Y-m-d H:i:s', $date.' '.$shift->end_time);
     }
 
-    private function createAttendanceRecord(Employee $employee, CarbonImmutable $date): AttendanceRecord
+    private function findExistingRecord(AttendanceSubject $subject, CarbonImmutable $date): ?AttendanceRecord
     {
-        return AttendanceRecord::create([
-            'employee_id' => $employee->id,
+        $query = AttendanceRecord::query()
+            ->whereDate('attendance_date', $date->toDateString());
+
+        if ($subject instanceof Employee) {
+            $query->where('employee_id', $subject->getId());
+        } else {
+            $query->where('outsource_id', $subject->getId());
+        }
+
+        return $query->first();
+    }
+
+    private function createAttendanceRecord(AttendanceSubject $subject, CarbonImmutable $date): AttendanceRecord
+    {
+        $attributes = [
             'attendance_date' => $date->toDateString(),
             'status' => 'incomplete',
-        ]);
+        ];
+
+        if ($subject instanceof Employee) {
+            $attributes['employee_id'] = $subject->getId();
+            $attributes['attendable_type'] = 'employee';
+        } else {
+            $attributes['outsource_id'] = $subject->getId();
+            $attributes['attendable_type'] = 'outsource';
+        }
+
+        return AttendanceRecord::create($attributes);
     }
 
     private function createSession(AttendanceRecord $record, CarbonImmutable $checkInAt): AttendanceSession
@@ -375,13 +497,12 @@ class AttendanceEngine
     }
 
     private function createEvent(
-        Employee $employee,
+        AttendanceSubject $subject,
         AttendanceRecord $record,
         AttendanceSession $session,
         AttendanceOperationData $data,
     ): AttendanceEvent {
-        return AttendanceEvent::create([
-            'employee_id' => $employee->id,
+        $attributes = [
             'attendance_id' => $record->id,
             'attendance_session_id' => $session->id,
             'event_type' => $data->eventType->value,
@@ -391,6 +512,14 @@ class AttendanceEngine
             'accuracy_meters' => $data->accuracy,
             'source' => $data->source,
             'device_metadata' => [],
-        ]);
+        ];
+
+        if ($subject instanceof Employee) {
+            $attributes['employee_id'] = $subject->getId();
+        } else {
+            $attributes['outsource_id'] = $subject->getId();
+        }
+
+        return AttendanceEvent::create($attributes);
     }
 }

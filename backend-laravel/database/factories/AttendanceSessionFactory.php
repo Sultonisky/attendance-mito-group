@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Enums\AttendanceSessionStatus;
 use App\Models\AttendanceRecord;
+use App\Models\AttendanceSession;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
