@@ -245,6 +245,7 @@ class FaceVerificationTest extends TestCase
         $user = $this->adminUser();
         $employee = Employee::factory()->create();
 
+        /** @var \Illuminate\Http\Client\Request|null $capturedRequest */
         $capturedRequest = null;
 
         Http::fake([
