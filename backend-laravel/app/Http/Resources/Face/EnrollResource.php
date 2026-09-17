@@ -10,6 +10,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *
  * Exposes only the safe, necessary AI facts to the SPA — never raw embeddings,
  * never internal processing details beyond what's needed for UX.
+ * Employee identity is never returned by this resource; Laravel handles
+ * identity internally and FastAPI receives only image + idempotency key.
  */
 class EnrollResource extends JsonResource
 {
@@ -26,12 +28,13 @@ class EnrollResource extends JsonResource
         return [
             'success' => $data['enrolled'] ?? false,
             'data' => [
-                'employee_id' => $data['employee_id'] ?? null,
+                'enrolled' => $data['enrolled'] ?? false,
                 'model_version' => $data['model_version'] ?? null,
                 'embedding_reference' => $data['embedding_reference'] ?? null,
                 'face_detected' => $data['face_detected'] ?? false,
-                'quality_score' => $data['quality_score'] ?? null,
-                'message' => $data['message'] ?? null,
+                'quality' => $data['quality'] ?? [],
+                'liveness' => $data['liveness'] ?? [],
+                'processing_time_ms' => $data['processing_time_ms'] ?? null,
             ],
         ];
     }

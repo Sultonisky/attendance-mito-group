@@ -16,7 +16,9 @@ readonly class EnrollResult
         public string $modelVersion,
         public string $embeddingReference,
         public bool $faceDetected,
-        public float $qualityScore,
+        public array $quality,
+        public array $liveness,
+        public float $processingTimeMs,
     ) {}
 
     /**
@@ -31,7 +33,9 @@ readonly class EnrollResult
             modelVersion: (string) ($data['model_version'] ?? ''),
             embeddingReference: (string) ($data['embedding_reference'] ?? ''),
             faceDetected: (bool) ($data['face_detected'] ?? false),
-            qualityScore: (float) ($data['quality_score'] ?? 0.0),
+            quality: is_array($data['quality'] ?? null) ? $data['quality'] : [],
+            liveness: is_array($data['liveness'] ?? null) ? $data['liveness'] : [],
+            processingTimeMs: (float) ($data['processing_time_ms'] ?? 0.0),
         );
     }
 }

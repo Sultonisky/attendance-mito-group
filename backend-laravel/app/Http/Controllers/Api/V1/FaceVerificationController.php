@@ -29,29 +29,34 @@ class FaceVerificationController extends Controller
     {
         $employee = Employee::findOrFail($request->integer('employee_id'));
 
-        $path = $request->file('image')->store('face-enrollment-temp');
-        $tempPath = Storage::path($path);
+        $tempPath = $request->file('image')->getRealPath();
 
         $result = $action->execute($employee, $tempPath);
 
-        $action->cleanup($path);
+        if ($result['status'] !== FastApiStatus::Available) {
+            $statusCode = match ($result['status']) {
+                FastApiStatus::Unavailable,
+                FastApiStatus::Timeout => 503,
+                FastApiStatus::Conflict => 409,
+                default => 422,
+            };
 
-        if (! $result['enrolled']) {
             return response()->json([
                 'success' => false,
                 'error' => $result['error'] ?? 'Enrollment failed.',
-            ], 422);
+            ], $statusCode);
         }
 
         return response()->json([
             'success' => true,
             'data' => [
-                'employee_id' => $employee->id,
-                'employee_code' => $employee->employee_code,
+                'enrolled' => $result['result']->enrolled,
                 'model_version' => $result['result']->modelVersion,
                 'embedding_reference' => $result['result']->embeddingReference,
                 'face_detected' => $result['result']->faceDetected,
-                'quality_score' => $result['result']->qualityScore,
+                'quality' => $result['result']->quality,
+                'liveness' => $result['result']->liveness,
+                'processing_time_ms' => $result['result']->processingTimeMs,
             ],
         ]);
     }

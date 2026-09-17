@@ -18,4 +18,6 @@ enum FastApiStatus: string
     case Timeout = 'timeout';
 
     case InvalidResponse = 'invalid_response';
+
+    case Conflict = 'conflict';
 }

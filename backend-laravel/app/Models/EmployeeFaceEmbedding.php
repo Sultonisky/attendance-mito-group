@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'embedding_reference',
     'provider',
     'status',
+    'idempotency_key',
 ])]
 class EmployeeFaceEmbedding extends Model
 {

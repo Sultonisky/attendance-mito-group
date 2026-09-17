@@ -8,8 +8,7 @@ Endpoints:
 
     POST /face/enroll  — enroll a face embedding (admin action via Laravel)
     POST /face/verify  — verify a probe face against the enrolled embedding
-
-FastAPI returns AI facts only. Laravel makes the final attendance decision.
+    DELETE /face/embeddings/{embedding_reference} — delete an embedding by opaque reference
 """
 
 import hashlib
@@ -330,3 +329,24 @@ async def verify_face(
         processing_time_ms=result.processing_time_ms,
         quality_score=round(result.quality_score, 4),
     )
+
+
+@router.delete("/embeddings/{embedding_reference}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_embedding(
+    embedding_reference: str,
+    settings: Settings = Depends(require_api_key),
+) -> None:
+    """Delete a stored embedding by its opaque reference.
+
+    This endpoint is used by Laravel for compensation when an enrollment
+    operation could not be persisted after FastAPI successfully stored the
+    embedding. No employee identity is accepted or stored.
+    """
+    storage = _get_storage()
+    deleted = storage.delete_by_reference(embedding_reference)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Embedding reference not found.",
+        )
