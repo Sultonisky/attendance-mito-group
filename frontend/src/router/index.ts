@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/auth'
 import HomePage from '../pages/HomePage.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import DashboardPage from '../pages/DashboardPage.vue'
+import AttendancePage from '../pages/AttendancePage.vue'
 import ReportsPage from '../pages/reports/ReportsPage.vue'
 import AttendanceReportPage from '../pages/reports/AttendanceReportPage.vue'
 import LeaveReportPage from '../pages/reports/LeaveReportPage.vue'
@@ -23,6 +24,12 @@ const router = createRouter({
       path: '/dashboard',
       name: 'dashboard',
       component: DashboardPage,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/attendance',
+      name: 'attendance',
+      component: AttendancePage,
       meta: { requiresAuth: true },
     },
     {
