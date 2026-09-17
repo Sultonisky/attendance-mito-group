@@ -21,8 +21,10 @@ defineProps<{
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 1.25rem;
-  background: var(--bg);
+  background: var(--surface);
   text-align: left;
+  box-shadow: var(--shadow);
+  border-top: 3px solid var(--accent);
 }
 
 .kpi-label {
@@ -37,7 +39,7 @@ defineProps<{
   margin: 0;
   font-size: 2rem;
   font-weight: 600;
-  color: var(--text-h);
+  color: var(--accent);
   line-height: 1.2;
 }
 

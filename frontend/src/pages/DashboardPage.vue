@@ -109,7 +109,7 @@ onMounted(() => {
 .dashboard {
   max-width: 1126px;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: 1.25rem clamp(1rem, 3vw, 2rem) 3rem;
   text-align: left;
 }
 
@@ -118,8 +118,8 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 1rem;
-  margin-bottom: 1.5rem;
+  padding-bottom: 1.1rem;
+  margin-bottom: 2.25rem;
   flex-wrap: wrap;
   gap: 0.75rem;
 }
@@ -136,7 +136,7 @@ onMounted(() => {
 }
 
 .header-link:hover {
-  color: var(--text-h);
+  color: var(--accent);
 }
 
 .header-separator {
@@ -144,8 +144,8 @@ onMounted(() => {
 }
 
 .header-active {
-  color: var(--text-h);
-  font-weight: 500;
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .header-right {
@@ -169,7 +169,8 @@ onMounted(() => {
 
 .dashboard-content h1 {
   margin: 0 0 0.25rem;
-  font-size: 1.5rem;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 700;
   color: var(--text-h);
 }
 
@@ -183,6 +184,15 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(1, 1fr);
   gap: 1rem;
+}
+
+.dashboard-error button {
+  margin-top: 0;
+  padding: 0.65rem 1rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
 }
 
 @media (min-width: 768px) {
