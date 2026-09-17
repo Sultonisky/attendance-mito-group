@@ -147,6 +147,7 @@ Route::prefix('v1')->group(function () {
         // Reports (Phase 13.1)
         Route::prefix('reports')->name('reports.')->group(function () {
             Route::get('/attendance', [ReportController::class, 'attendance'])->middleware('can:attendance.view')->name('attendance');
+            Route::get('/outsource-attendance', [ReportController::class, 'outsourceAttendance'])->middleware('can:outsource_attendance.view')->name('outsource-attendance');
             Route::get('/leave', [ReportController::class, 'leave'])->middleware('can:leave.view')->name('leave');
             Route::get('/overtime', [ReportController::class, 'overtime'])->middleware('can:overtime.view')->name('overtime');
             Route::get('/penalties', [ReportController::class, 'penalty'])->middleware('can:penalty.view')->name('penalty');
