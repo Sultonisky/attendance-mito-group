@@ -93,6 +93,7 @@ onMounted(() => {
   <main class="report-page">
     <header class="report-header">
       <div class="header-left">
+        <img class="report-brand-logo" src="/images/mito.png" alt="MITO electronic" />
         <RouterLink to="/reports" class="header-link">Reports</RouterLink>
         <span class="header-separator" aria-hidden="true">/</span>
         <span class="header-active">Attendance</span>
@@ -178,6 +179,13 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.report-brand-logo {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 5px;
+  object-fit: cover;
 }
 
 .header-link {

@@ -5,11 +5,13 @@ import { RouterLink } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { fetchDashboardKpis } from '../services/dashboardApi'
 import { ApiError } from '../services/apiClient'
+import { usePermission } from '../features/auth/composables/usePermission'
 import DashboardKpiCard from '../components/DashboardKpiCard.vue'
 import type { DashboardKpiData } from '../types/dashboard'
 
 const auth = useAuthStore()
 const router = useRouter()
+const { canAny } = usePermission()
 
 const loading = ref(true)
 const error = ref('')
@@ -35,7 +37,9 @@ async function load(): Promise<void> {
       }
     }
 
-    error.value = 'Unable to load dashboard data. Please try again.'
+    error.value = err instanceof TypeError
+      ? 'Unable to connect to the API. Check that Laravel is running and try again.'
+      : 'Unable to load dashboard data. Please try again.'
   } finally {
     loading.value = false
   }
@@ -62,90 +66,219 @@ onMounted(() => {
 
 <template>
   <main class="dashboard">
-    <header class="dashboard-header">
-      <div class="header-left">
-        <RouterLink to="/" class="header-link">Home</RouterLink>
-        <span class="header-separator" aria-hidden="true">/</span>
-        <span class="header-active">Dashboard</span>
-      </div>
-      <div v-if="auth.isAuthenticated" class="header-right">
-        <span>{{ auth.user?.name }} ({{ auth.user?.email }})</span>
-        <button type="button" :disabled="auth.isLoading" @click="logout">
-          Logout
-        </button>
-      </div>
-    </header>
+    <aside class="dashboard-sidebar">
+      <RouterLink to="/dashboard" class="sidebar-brand">
+        <img src="/images/mito.png" alt="MITO electronic" />
+        <span>Attendance</span>
+      </RouterLink>
 
-    <section v-if="error" class="dashboard-error" role="alert">
-      <p>{{ error }}</p>
-      <button type="button" @click="load">Retry</button>
-    </section>
+      <div class="sidebar-section-label">Workspace</div>
+      <nav class="sidebar-nav" aria-label="Main navigation">
+        <RouterLink to="/dashboard" class="sidebar-link active">
+          <span class="nav-icon">▦</span>
+          <span>Dashboard</span>
+        </RouterLink>
+        <RouterLink to="/attendance" class="sidebar-link">
+          <span class="nav-icon">◷</span>
+          <span>Attendance</span>
+        </RouterLink>
+        <RouterLink v-if="canAny(['attendance.view', 'leave.view', 'overtime.view', 'penalty.view', 'monthly_recap.view'])" to="/reports" class="sidebar-link">
+          <span class="nav-icon">▤</span>
+          <span>Reports</span>
+        </RouterLink>
+      </nav>
 
-    <section v-else-if="kpis" class="dashboard-content">
-      <h1>Attendance Summary</h1>
-      <p class="dashboard-date">{{ formatDate(kpis.date) }}</p>
-
-      <div class="kpi-grid">
-        <DashboardKpiCard label="Present" :value="kpis.present" />
-        <DashboardKpiCard label="Absent" :value="kpis.absent" />
-        <DashboardKpiCard label="Late" :value="kpis.late" />
-        <DashboardKpiCard label="On Leave" :value="kpis.on_leave" />
+      <div class="sidebar-footer">
+        <div class="system-status"><span /> API connected</div>
+        <button type="button" :disabled="auth.isLoading" @click="logout">Sign out</button>
       </div>
-    </section>
+    </aside>
 
-    <section v-else class="dashboard-loading" aria-label="Loading dashboard data">
-      <h1>Attendance Summary</h1>
-      <div class="kpi-grid">
-        <DashboardKpiCard label="Present" :value="0" loading />
-        <DashboardKpiCard label="Absent" :value="0" loading />
-        <DashboardKpiCard label="Late" :value="0" loading />
-        <DashboardKpiCard label="On Leave" :value="0" loading />
-      </div>
+    <section class="dashboard-main">
+      <header class="dashboard-header">
+        <div>
+          <p class="header-kicker">MITO GROUP / PEOPLE OPERATIONS</p>
+          <div class="header-title-row">
+            <h2>Dashboard</h2>
+            <span class="header-active">Live overview</span>
+          </div>
+        </div>
+        <div v-if="auth.isAuthenticated" class="header-right">
+          <div class="user-avatar">{{ auth.user?.name?.charAt(0).toUpperCase() }}</div>
+          <div class="user-copy">
+            <strong>{{ auth.user?.name }}</strong>
+            <span>{{ auth.roles.join(', ') || 'User' }}</span>
+          </div>
+        </div>
+      </header>
+
+      <section v-if="error" class="dashboard-error" role="alert">
+        <p>{{ error }}</p>
+        <button type="button" @click="load">Retry</button>
+      </section>
+
+      <section v-else-if="kpis" class="dashboard-content">
+        <div class="dashboard-intro">
+          <div>
+            <p class="dashboard-eyebrow">OPERATIONS OVERVIEW</p>
+            <h1>Good morning, {{ auth.user?.name?.split(' ')[0] || 'there' }}.</h1>
+            <p class="dashboard-date">{{ formatDate(kpis.date) }} <span>•</span> Today&rsquo;s attendance pulse</p>
+          </div>
+          <RouterLink to="/attendance" class="dashboard-action">Open attendance <span aria-hidden="true">→</span></RouterLink>
+        </div>
+
+        <div class="kpi-grid">
+          <DashboardKpiCard label="Present" :value="kpis.present" />
+          <DashboardKpiCard label="Absent" :value="kpis.absent" />
+          <DashboardKpiCard label="Late" :value="kpis.late" />
+          <DashboardKpiCard label="On Leave" :value="kpis.on_leave" />
+        </div>
+      </section>
+
+      <section v-else class="dashboard-loading" aria-label="Loading dashboard data">
+        <h1>Loading your overview</h1>
+        <div class="kpi-grid">
+          <DashboardKpiCard label="Present" :value="0" loading />
+          <DashboardKpiCard label="Absent" :value="0" loading />
+          <DashboardKpiCard label="Late" :value="0" loading />
+          <DashboardKpiCard label="On Leave" :value="0" loading />
+        </div>
+      </section>
     </section>
   </main>
 </template>
 
 <style scoped>
 .dashboard {
-  max-width: 1126px;
-  margin: 0 auto;
-  padding: 1.5rem;
+  min-height: 100svh;
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  background: #fafafa;
   text-align: left;
+}
+
+.dashboard-sidebar {
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 1rem;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0 0.5rem 2.25rem;
+  color: var(--text-h);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.sidebar-brand img {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.sidebar-section-label,
+.header-kicker {
+  color: #9a9aa1;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.sidebar-section-label {
+  padding: 0 0.75rem 0.65rem;
+}
+
+.sidebar-nav {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.75rem;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sidebar-link:hover,
+.sidebar-link.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.nav-icon {
+  width: 1.25rem;
+  color: currentColor;
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.sidebar-footer {
+  display: grid;
+  gap: 1rem;
+  margin-top: auto;
+  padding: 1rem 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.system-status {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--text);
+  font-size: 0.72rem;
+}
+
+.system-status span {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #2c9c5b;
+}
+
+.sidebar-footer button {
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.dashboard-main {
+  min-width: 0;
+  padding: 1.5rem clamp(1rem, 3vw, 3rem) 3rem;
 }
 
 .dashboard-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding-bottom: 1.25rem;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 2.5rem;
   flex-wrap: wrap;
   gap: 0.75rem;
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.header-link {
-  color: var(--text);
-  text-decoration: none;
-}
-
-.header-link:hover {
-  color: var(--text-h);
-}
-
-.header-separator {
-  color: var(--text);
-}
-
 .header-active {
-  color: var(--text-h);
-  font-weight: 500;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  font-size: 0.7rem;
 }
 
 .header-right {
@@ -153,6 +286,43 @@ onMounted(() => {
   align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
+}
+
+.header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.header-title-row h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.user-avatar {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.user-copy {
+  display: grid;
+  gap: 0.1rem;
+  color: var(--text-h);
+  font-size: 0.8rem;
+}
+
+.user-copy span {
+  color: var(--text);
+  font-size: 0.7rem;
+  text-transform: uppercase;
 }
 
 .dashboard-error {
@@ -169,7 +339,8 @@ onMounted(() => {
 
 .dashboard-content h1 {
   margin: 0 0 0.25rem;
-  font-size: 1.5rem;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 700;
   color: var(--text-h);
 }
 
@@ -179,10 +350,58 @@ onMounted(() => {
   font-size: 0.95rem;
 }
 
+.dashboard-date span {
+  margin: 0 0.4rem;
+  color: var(--accent);
+}
+
+.dashboard-intro {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-bottom: 1.75rem;
+}
+
+.dashboard-eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.dashboard-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.dashboard-action:hover {
+  background: #c9151c;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(1, 1fr);
   gap: 1rem;
+}
+
+.dashboard-error button {
+  margin-top: 0;
+  padding: 0.65rem 1rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
 }
 
 @media (min-width: 768px) {
@@ -201,5 +420,52 @@ onMounted(() => {
   margin: 0 0 0.25rem;
   font-size: 1.5rem;
   color: var(--text-h);
+}
+
+@media (max-width: 640px) {
+  .dashboard {
+    display: block;
+  }
+
+  .dashboard-sidebar {
+    min-height: auto;
+    padding: 1rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-brand {
+    padding-bottom: 1rem;
+  }
+
+  .sidebar-nav {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .sidebar-link {
+    justify-content: center;
+    padding: 0.6rem 0.35rem;
+    font-size: 0.72rem;
+  }
+
+  .sidebar-section-label,
+  .sidebar-footer {
+    display: none;
+  }
+
+  .dashboard-main {
+    padding-top: 1rem;
+  }
+
+  .dashboard-intro {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-action {
+    width: 100%;
+    justify-content: space-between;
+    box-sizing: border-box;
+  }
 }
 </style>

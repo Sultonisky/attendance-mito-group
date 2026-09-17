@@ -8,7 +8,13 @@ const { can } = usePermission()
 <template>
   <main class="reports-page">
     <header class="reports-header">
-      <h1>Reports</h1>
+      <div class="reports-title">
+        <img src="/images/mito.png" alt="MITO electronic" />
+        <div>
+          <p class="reports-eyebrow">MITO GROUP / INSIGHTS</p>
+          <h1>Reports</h1>
+        </div>
+      </div>
       <p class="reports-subtitle">Attendance and HR reports</p>
     </header>
 
@@ -72,7 +78,32 @@ const { can } = usePermission()
 }
 
 .reports-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 1.5rem;
+}
+
+.reports-title {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.reports-title img {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.reports-eyebrow {
+  margin: 0 0 0.15rem;
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
 }
 
 .reports-header h1 {
@@ -113,10 +144,15 @@ const { can } = usePermission()
   text-decoration: none;
   color: inherit;
   display: block;
+  min-height: 8rem;
+  border-top: 3px solid transparent;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .report-card:hover {
+  border-top-color: var(--accent);
   box-shadow: var(--shadow);
+  transform: translateY(-2px);
 }
 
 .report-card h2 {
@@ -129,5 +165,12 @@ const { can } = usePermission()
   margin: 0;
   font-size: 0.9rem;
   color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .reports-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

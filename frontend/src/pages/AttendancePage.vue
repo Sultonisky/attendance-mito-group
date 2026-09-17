@@ -209,8 +209,20 @@ onUnmounted(() => {
 <template>
   <main class="attendance-page">
     <header class="attendance-header">
-      <h1>Attendance</h1>
-      <p class="attendance-date">{{ formatDate(now) }}</p>
+      <button type="button" class="back-button" aria-label="Back to employee app" @click="router.push({ name: 'employee-app' })">
+        <span aria-hidden="true">←</span>
+      </button>
+      <div class="attendance-title">
+        <img src="/images/mito.png" alt="MITO electronic" />
+        <div>
+          <p class="attendance-eyebrow">MITO GROUP</p>
+          <h1>Attendance</h1>
+        </div>
+      </div>
+      <div class="attendance-header-meta">
+        <span class="secure-pill"><span /> Secure</span>
+        <p class="attendance-date">{{ formatDate(now) }}</p>
+      </div>
     </header>
 
     <section v-if="isLoading" class="attendance-loading" aria-label="Loading attendance">
@@ -228,8 +240,13 @@ onUnmounted(() => {
 
     <section v-else class="attendance-body">
       <section class="status-card" aria-live="polite">
-        <h2>Today&rsquo;s Status</h2>
-        <p class="status-label">{{ statusLabel }}</p>
+        <div class="status-card-heading">
+          <div>
+            <p class="status-kicker">YOUR ATTENDANCE</p>
+            <h2>{{ statusLabel }}</h2>
+          </div>
+          <span class="status-orb" :class="{ active: hasOpenSession }" />
+        </div>
 
         <div v-if="todayRecord && todayRecord.sessions.length" class="sessions">
           <div
@@ -253,6 +270,10 @@ onUnmounted(() => {
 
         <p v-else class="no-sessions">No attendance sessions recorded today.</p>
 
+        <p class="status-helper">
+          {{ hasOpenSession ? 'You are currently checked in. Complete your day when you leave.' : 'Ready to record your presence with Face ID and location.' }}
+        </p>
+
         <button
           v-if="!hasOpenSession || todayRecord"
           type="button"
@@ -269,6 +290,20 @@ onUnmounted(() => {
         class="camera-workflow"
         aria-live="polite"
       >
+        <div class="workflow-heading">
+          <div>
+            <p class="status-kicker">VERIFICATION</p>
+            <h2>Ready when you are</h2>
+          </div>
+          <span class="workflow-lock" aria-hidden="true">⌁</span>
+        </div>
+        <div class="verification-steps" aria-label="Verification progress">
+          <span :class="{ complete: cameraState === 'ready' }"><b>1</b> Face</span>
+          <i />
+          <span :class="{ complete: locationState === 'ready' }"><b>2</b> Location</span>
+          <i />
+          <span :class="{ complete: isSubmitting }"><b>3</b> Submit</span>
+        </div>
         <div class="workflow-status">
           <div class="status-item">
             <span class="status-label-sm">Camera</span>
@@ -306,15 +341,17 @@ onUnmounted(() => {
         </p>
 
         <div v-if="cameraState === 'ready'" class="camera-preview">
-          <video
-            ref="videoRef"
-            autoplay
-            playsinline
-            muted
-            class="camera-video"
-          >
+          <video ref="videoRef" autoplay playsinline muted class="camera-video">
             Your browser does not support the video element.
           </video>
+          <div class="face-guide" aria-hidden="true">
+            <div class="face-outline">
+              <span class="eye-line" />
+              <span class="scan-line" />
+            </div>
+            <div class="shoulder-outline" />
+            <p>Position your face inside the frame</p>
+          </div>
         </div>
 
         <div class="workflow-actions">
@@ -381,28 +418,100 @@ onUnmounted(() => {
 
 <style scoped>
 .attendance-page {
-  max-width: 1126px;
+  box-sizing: border-box;
+  width: min(100%, 34rem);
+  min-height: 100svh;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: 1rem 1rem 2rem;
+  background: #f8f8f8;
   text-align: left;
 }
 
 .attendance-header {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 1rem;
-  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1rem;
+  padding: 0.35rem 0 1.5rem;
+  border-bottom: 0;
+  margin-bottom: 0.5rem;
+}
+
+.back-button {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--text-h);
+  font-size: 1.1rem;
+}
+
+.back-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.attendance-title {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.attendance-title img {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.attendance-eyebrow {
+  margin: 0 0 0.15rem;
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
 }
 
 .attendance-header h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1.5rem;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--text-h);
+}
+
+.attendance-header-meta {
+  display: grid;
+  gap: 0.15rem;
+  margin-left: auto;
+  justify-items: end;
+}
+
+.secure-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #25834a;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.secure-pill span {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: #2c9c5b;
 }
 
 .attendance-date {
   margin: 0;
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 0.7rem;
 }
 
 .attendance-loading,
@@ -419,22 +528,53 @@ onUnmounted(() => {
 }
 
 .status-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.25rem;
-  background: var(--bg);
+  padding: 1.35rem;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 16px 32px rgba(235, 28, 36, 0.2);
 }
 
-.status-card h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1.25rem;
-  color: var(--text-h);
+.status-card-heading,
+.workflow-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.status-kicker {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+
+.status-card .status-kicker {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.status-card h2,
+.workflow-heading h2 {
+  margin: 0.35rem 0 0;
+  color: #fff;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.status-orb {
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 4px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+}
+
+.status-orb.active {
+  background: #fff;
 }
 
 .status-label {
-  margin: 0 0 1rem;
-  font-size: 1rem;
-  color: var(--text);
+  display: none;
 }
 
 .sessions {
@@ -449,7 +589,10 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
-  font-size: 0.95rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.8rem;
 }
 
 .session-badge {
@@ -467,15 +610,22 @@ onUnmounted(() => {
 }
 
 .badge-closed {
-  background: var(--code-bg);
-  color: var(--text-h);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
 }
 
 .no-sessions {
-  margin: 0 0 1rem;
-  color: var(--text);
-  font-size: 0.95rem;
+  margin: 1.2rem 0 0;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.8rem;
+}
+
+.status-helper {
+  margin: 1.1rem 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 .primary-action {
@@ -483,13 +633,14 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  border-radius: 8px;
+  width: 100%;
+  padding: 0.85rem 1.5rem;
+  border-radius: 7px;
   border: none;
   background: var(--accent);
   color: #fff;
-  font-size: 1rem;
-  font-weight: 500;
+  font-size: 0.9rem;
+  font-weight: 700;
   cursor: pointer;
   transition: opacity 0.2s;
 }
@@ -508,7 +659,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
+  padding: 0.75rem 1rem;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -527,11 +678,70 @@ onUnmounted(() => {
 }
 
 .camera-workflow {
-  margin-top: 1.25rem;
+  margin-top: 1rem;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.25rem;
-  background: var(--bg);
+  border-radius: 14px;
+  padding: 1.2rem;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.workflow-heading h2 {
+  color: var(--text-h);
+  font-size: 1.15rem;
+}
+
+.workflow-lock {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.verification-steps {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 1rem 0 1.25rem;
+  color: #9999a0;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.verification-steps span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.verification-steps b {
+  display: grid;
+  width: 1.15rem;
+  height: 1.15rem;
+  place-items: center;
+  border-radius: 50%;
+  background: #eeeeef;
+  color: #88888f;
+  font-size: 0.62rem;
+}
+
+.verification-steps .complete {
+  color: var(--accent);
+}
+
+.verification-steps .complete b {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.verification-steps i {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 
 .workflow-status {
@@ -575,17 +785,119 @@ onUnmounted(() => {
 }
 
 .camera-preview {
+  position: relative;
   margin: 0.75rem 0;
-  border-radius: 8px;
+  width: min(100%, 22rem);
+  aspect-ratio: 4 / 5;
+  margin-inline: auto;
+  border-radius: 14px;
   overflow: hidden;
-  background: #000;
+  background: #151519;
+  box-shadow: 0 8px 20px rgba(20, 20, 25, 0.15);
 }
 
 .camera-video {
   display: block;
   width: 100%;
-  max-height: 360px;
+  height: 100%;
   object-fit: cover;
+}
+
+.face-guide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.12), transparent 35%, rgba(0, 0, 0, 0.28));
+}
+
+.face-outline {
+  position: relative;
+  width: 54%;
+  height: 58%;
+  transform: translateY(-5%);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50% 50% 47% 47% / 43% 43% 57% 57%;
+  box-shadow: 0 0 0 5px rgba(235, 28, 36, 0.25), 0 0 25px rgba(0, 0, 0, 0.18);
+}
+
+.face-outline::before,
+.face-outline::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-top: 3px solid var(--accent);
+}
+
+.face-outline::before {
+  left: -2px;
+  border-left: 3px solid var(--accent);
+  border-radius: 10px 0 0;
+}
+
+.face-outline::after {
+  right: -2px;
+  border-right: 3px solid var(--accent);
+  border-radius: 0 10px 0 0;
+}
+
+.shoulder-outline {
+  width: 78%;
+  height: 23%;
+  margin-top: -8%;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-bottom: 0;
+  border-radius: 50% 50% 0 0;
+  opacity: 0.65;
+}
+
+.eye-line {
+  position: absolute;
+  top: 31%;
+  right: 10%;
+  left: 10%;
+  border-top: 1px dashed rgba(255, 255, 255, 0.7);
+}
+
+.face-guide p {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  left: 0.75rem;
+  margin: 0;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.scan-line {
+  position: absolute;
+  top: 24%;
+  right: 8%;
+  left: 8%;
+  height: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(235, 28, 36, 0.9);
+  animation: face-scan 2.6s ease-in-out infinite;
+}
+
+@keyframes face-scan {
+  0%,
+  100% {
+    top: 24%;
+    opacity: 0.35;
+  }
+  50% {
+    top: 68%;
+    opacity: 1;
+  }
 }
 
 .workflow-actions {
@@ -633,6 +945,15 @@ onUnmounted(() => {
   .primary-action,
   .secondary-action {
     width: 100%;
+  }
+}
+
+@media (min-width: 700px) {
+  .attendance-page {
+    margin-top: 2rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
   }
 }
 </style>
