@@ -51,6 +51,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'monthly_recap.finalize',
         'monthly_recap.export',
         'attendance.view',
+        'outsource_attendance.view',
     ];
 
     /**
@@ -87,6 +88,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'monthly_recap.finalize',
             'monthly_recap.export',
             'attendance.view',
+            'outsource_attendance.view',
         ],
         'USER' => [
             'dashboard.view',

@@ -64,5 +64,9 @@ class DatabaseSeeder extends Seeder
                 ],
             );
         }
+
+        // Factory-driven demo data (cities, stores, schedules, policies,
+        // employees, outsource workers, attendance history). Dev only.
+        $this->call(DevelopmentDataSeeder::class);
     }
 }
