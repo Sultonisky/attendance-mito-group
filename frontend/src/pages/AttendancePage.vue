@@ -209,7 +209,13 @@ onUnmounted(() => {
 <template>
   <main class="attendance-page">
     <header class="attendance-header">
-      <h1>Attendance</h1>
+      <div class="attendance-title">
+        <img src="/images/mito.png" alt="MITO electronic" />
+        <div>
+          <p class="attendance-eyebrow">MITO GROUP</p>
+          <h1>Attendance</h1>
+        </div>
+      </div>
       <p class="attendance-date">{{ formatDate(now) }}</p>
     </header>
 
@@ -388,9 +394,34 @@ onUnmounted(() => {
 }
 
 .attendance-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   border-bottom: 1px solid var(--border);
   padding-bottom: 1rem;
   margin-bottom: 1.5rem;
+}
+
+.attendance-title {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.attendance-title img {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.attendance-eyebrow {
+  margin: 0 0 0.15rem;
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
 }
 
 .attendance-header h1 {

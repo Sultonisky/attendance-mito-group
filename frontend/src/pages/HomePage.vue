@@ -48,7 +48,7 @@ async function logout(): Promise<void> {
     <header class="home-header">
       <div class="header-left">
         <div class="brand-lockup">
-          <span class="brand-mark">M</span>
+          <img class="brand-logo" src="/images/mito.png" alt="MITO electronic" />
           <div>
             <p class="brand-eyebrow">MITO GROUP</p>
             <h1>Attendance</h1>
@@ -117,15 +117,11 @@ async function logout(): Promise<void> {
   margin-right: 0.5rem;
 }
 
-.brand-mark {
-  display: grid;
+.brand-logo {
   width: 2.25rem;
   height: 2.25rem;
-  place-items: center;
   border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
-  font-weight: 700;
+  object-fit: cover;
 }
 
 .brand-eyebrow {

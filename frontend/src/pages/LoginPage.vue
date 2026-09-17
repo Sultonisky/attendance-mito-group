@@ -26,7 +26,7 @@ async function submit(): Promise<void> {
     await auth.login(email.value, password.value)
 
     const redirect = route.query.redirect
-    await router.push(typeof redirect === 'string' ? redirect : { name: 'home' })
+    await router.push(typeof redirect === 'string' ? redirect : { name: 'dashboard' })
   } catch (error) {
     if (error instanceof ApiError) {
       errorMessage.value = error.message
