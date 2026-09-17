@@ -50,7 +50,7 @@ class OutsourceAttendanceController
 
         $query = WorkLocation::query()
             ->where('status', 'active')
-            ->select('id', 'name', 'city_id');
+            ->select('id', 'name', 'city_id', 'latitude', 'longitude');
 
         if ($cityId > 0) {
             $query->where('city_id', $cityId);
