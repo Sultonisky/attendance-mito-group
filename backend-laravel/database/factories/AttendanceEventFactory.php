@@ -3,7 +3,9 @@
 namespace Database\Factories;
 
 use App\Enums\AttendanceEventType;
+use App\Models\AttendanceEvent;
 use App\Models\AttendanceRecord;
+use App\Models\Employee;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -16,7 +18,7 @@ class AttendanceEventFactory extends Factory
     public function definition(): array
     {
         return [
-            'employee_id' => AttendanceRecord::factory()->employeeId(),
+            'employee_id' => Employee::factory(),
             'attendance_id' => AttendanceRecord::factory(),
             'attendance_session_id' => null,
             'event_type' => AttendanceEventType::CheckIn->value,
