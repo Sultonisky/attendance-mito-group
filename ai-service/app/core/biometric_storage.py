@@ -8,6 +8,7 @@ Raw embeddings are persisted as ``BYTEA`` and never returned to Laravel.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -33,6 +34,8 @@ CREATE TABLE IF NOT EXISTS biometric.embeddings (
     model_version VARCHAR(100) NOT NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'active',
     idempotency_key VARCHAR(255) NOT NULL UNIQUE,
+    request_fingerprint VARCHAR(255) NOT NULL,
+    ai_facts JSONB NOT NULL,
     enrolled_at TIMESTAMP NOT NULL DEFAULT NOW(),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -54,6 +57,8 @@ class BiometricEmbedding:
     model_version: str
     status: str
     idempotency_key: str
+    request_fingerprint: str
+    ai_facts: str
     enrolled_at: str
     created_at: str
     updated_at: str
@@ -74,6 +79,8 @@ class BiometricStorage(Protocol):
         dimension: int,
         model_version: str,
         idempotency_key: str,
+        request_fingerprint: str,
+        ai_facts: str,
     ) -> None:
         """Persist a new embedding."""
         ...
@@ -154,10 +161,13 @@ class PostgreSQLBiometricStorage:
             model_version,
             status,
             idempotency_key,
+            request_fingerprint,
+            ai_facts,
             enrolled_at,
             created_at,
             updated_at,
         ) = row
+        ai_facts_str = ai_facts if isinstance(ai_facts, str) else json.dumps(ai_facts)
         return BiometricEmbedding(
             reference=reference,
             vector=vector.tobytes() if hasattr(vector, "tobytes") else bytes(vector),
@@ -165,6 +175,8 @@ class PostgreSQLBiometricStorage:
             model_version=str(model_version),
             status=str(status),
             idempotency_key=str(idempotency_key),
+            request_fingerprint=str(request_fingerprint),
+            ai_facts=ai_facts_str,
             enrolled_at=enrolled_at.isoformat() if enrolled_at else "",
             created_at=created_at.isoformat() if created_at else "",
             updated_at=updated_at.isoformat() if updated_at else "",
@@ -181,6 +193,8 @@ class PostgreSQLBiometricStorage:
         dimension: int,
         model_version: str,
         idempotency_key: str,
+        request_fingerprint: str,
+        ai_facts: str,
     ) -> None:
         """Persist a new embedding.
 
@@ -189,7 +203,7 @@ class PostgreSQLBiometricStorage:
         """
         import psycopg2
 
-        self._validate_store_inputs(reference, vector, dimension, model_version, idempotency_key)
+        self._validate_store_inputs(reference, vector, dimension, model_version, idempotency_key, request_fingerprint, ai_facts)
 
         conn = self._connection()
         try:
@@ -197,10 +211,10 @@ class PostgreSQLBiometricStorage:
                 cur.execute(
                     """
                     INSERT INTO biometric.embeddings
-                        (reference, vector, dimension, model_version, status, idempotency_key)
-                    VALUES (%s, %s, %s, %s, 'active', %s)
+                        (reference, vector, dimension, model_version, status, idempotency_key, request_fingerprint, ai_facts)
+                    VALUES (%s, %s, %s, %s, 'active', %s, %s, %s)
                     """,
-                    (reference, psycopg2.Binary(vector), dimension, model_version, idempotency_key),
+                    (reference, psycopg2.Binary(vector), dimension, model_version, idempotency_key, request_fingerprint, ai_facts),
                 )
             conn.commit()
         except Exception:
@@ -216,6 +230,8 @@ class PostgreSQLBiometricStorage:
         dimension: int,
         model_version: str,
         idempotency_key: str,
+        request_fingerprint: str,
+        ai_facts: str,
     ) -> None:
         if not reference:
             raise ValueError("reference must not be empty.")
@@ -223,6 +239,10 @@ class PostgreSQLBiometricStorage:
             raise ValueError("model_version must not be empty.")
         if not idempotency_key:
             raise ValueError("idempotency_key must not be empty.")
+        if not request_fingerprint:
+            raise ValueError("request_fingerprint must not be empty.")
+        if not ai_facts:
+            raise ValueError("ai_facts must not be empty.")
         if dimension <= 0:
             raise ValueError(f"dimension must be positive, got {dimension}.")
         expected_len = dimension * 4  # float32 = 4 bytes
@@ -239,7 +259,8 @@ class PostgreSQLBiometricStorage:
                 cur.execute(
                     """
                     SELECT reference, vector, dimension, model_version, status,
-                           idempotency_key, enrolled_at, created_at, updated_at
+                           idempotency_key, request_fingerprint, ai_facts,
+                           enrolled_at, created_at, updated_at
                     FROM biometric.embeddings
                     WHERE reference = %s
                     """,
@@ -259,7 +280,8 @@ class PostgreSQLBiometricStorage:
                 cur.execute(
                     """
                     SELECT reference, vector, dimension, model_version, status,
-                           idempotency_key, enrolled_at, created_at, updated_at
+                           idempotency_key, request_fingerprint, ai_facts,
+                           enrolled_at, created_at, updated_at
                     FROM biometric.embeddings
                     WHERE idempotency_key = %s
                     """,
@@ -333,6 +355,8 @@ class InMemoryBiometricStorage:
         dimension: int,
         model_version: str,
         idempotency_key: str,
+        request_fingerprint: str,
+        ai_facts: str,
     ) -> None:
         if reference in self._store:
             raise ValueError(f"Reference already exists: {reference}")
@@ -344,6 +368,10 @@ class InMemoryBiometricStorage:
             raise ValueError("model_version must not be empty.")
         if not idempotency_key:
             raise ValueError("idempotency_key must not be empty.")
+        if not request_fingerprint:
+            raise ValueError("request_fingerprint must not be empty.")
+        if not ai_facts:
+            raise ValueError("ai_facts must not be empty.")
         if dimension <= 0:
             raise ValueError(f"dimension must be positive, got {dimension}.")
         expected_len = dimension * 4  # float32 = 4 bytes
@@ -359,6 +387,8 @@ class InMemoryBiometricStorage:
             model_version=model_version,
             status="active",
             idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            ai_facts=ai_facts,
             enrolled_at="",
             created_at="",
             updated_at="",
@@ -393,6 +423,8 @@ class InMemoryBiometricStorage:
             model_version=embedding.model_version,
             status=status,
             idempotency_key=embedding.idempotency_key,
+            request_fingerprint=embedding.request_fingerprint,
+            ai_facts=embedding.ai_facts,
             enrolled_at=embedding.enrolled_at,
             created_at=embedding.created_at,
             updated_at=embedding.updated_at,
