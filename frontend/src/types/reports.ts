@@ -81,11 +81,6 @@ export type MonthlyRecapRow = {
   updated_at: string | null
 }
 
-export type ReportSortOption = {
-  label: string
-  value: string
-}
-
 export type OutsourceAttendanceReportRow = {
   attendance_id: number
   outsource: {

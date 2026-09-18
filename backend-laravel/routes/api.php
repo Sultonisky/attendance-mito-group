@@ -69,10 +69,16 @@ Route::prefix('v1')->group(function () {
             ]);
         })->middleware('can:dashboard.view');
 
-        // Dashboard KPI (Phase 13.2)
+        // Dashboard (Phase 13.2)
         Route::get('/dashboard/kpis', [DashboardController::class, 'kpis'])
             ->middleware('can:dashboard.view')
             ->name('dashboard.kpis');
+        Route::get('/dashboard/staff-today', [DashboardController::class, 'staffToday'])
+            ->middleware('can:dashboard.view')
+            ->name('dashboard.staff-today');
+        Route::get('/dashboard/attendance-trend', [DashboardController::class, 'attendanceTrend'])
+            ->middleware('can:dashboard.view')
+            ->name('dashboard.attendance-trend');
 
         // Penalty (Phase 11)
         Route::prefix('penalties')->middleware('auth:sanctum')->group(function () {

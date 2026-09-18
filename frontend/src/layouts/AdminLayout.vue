@@ -10,32 +10,29 @@ const { can, canAny } = usePermission()
 const links = computed<NavigationMenuItem[][]>(() => [
   // Primary nav
   [
-    { label: 'Overview',          icon: 'i-lucide-layout-grid',       to: '/dashboard'                           },
-    can('attendance.view')    && { label: 'Attendance',        icon: 'i-lucide-calendar-check-2',  to: '/dashboard/reports/attendance'        },
-    can('leave.view')         && { label: 'Leave',             icon: 'i-lucide-calendar-off',      to: '/dashboard/reports/leave'             },
-    can('overtime.view')      && { label: 'Overtime',          icon: 'i-lucide-bar-chart-3',       to: '/dashboard/reports/overtime'          },
-    can('penalty.view')       && { label: 'Penalties',         icon: 'i-lucide-triangle-alert',    to: '/dashboard/reports/penalties'         },
+    { label: 'Overview',          icon: 'i-lucide-layout-grid',       to: '/dashboard', exact: true               },
+    can('attendance.view')    && { label: 'Attendance',        icon: 'i-lucide-calendar-check-2',  to: '/dashboard/reports/attendance', exact: true },
+    can('leave.view')         && { label: 'Leave',             icon: 'i-lucide-calendar-off',      to: '/dashboard/reports/leave', exact: true },
+    can('overtime.view')      && { label: 'Overtime',          icon: 'i-lucide-bar-chart-3',       to: '/dashboard/reports/overtime', exact: true },
+    can('penalty.view')       && { label: 'Penalties',         icon: 'i-lucide-triangle-alert',    to: '/dashboard/reports/penalties', exact: true },
     canAny(['monthly_recap.view','monthly_recap.generate','monthly_recap.review','monthly_recap.finalize','monthly_recap.export'])
-      && { label: 'Monthly recap', icon: 'i-lucide-file-text',        to: '/dashboard/reports/monthly-recaps'    },
-    can('outsource_attendance.view') && { label: 'Outsource',  icon: 'i-lucide-briefcase-business', to: '/dashboard/outsource-attendance' },
+      && { label: 'Monthly recap', icon: 'i-lucide-file-text',        to: '/dashboard/reports/monthly-recaps', exact: true },
+    can('outsource_attendance.view') && { label: 'Outsource',  icon: 'i-lucide-briefcase-business', to: '/dashboard/outsource-attendance', exact: true },
   ].filter(Boolean) as NavigationMenuItem[],
 
-  // Bottom links
-  [
-    { label: 'Documentation',    icon: 'i-lucide-book-open',          to: 'https://ui.nuxt.com', target: '_blank' },
-    { label: 'Help & Support',   icon: 'i-lucide-info',               to: 'https://github.com/nuxt/ui', target: '_blank' },
-  ],
 ])
 </script>
 
 <template>
-  <UDashboardGroup unit="rem" storage="local" storage-key="mito-sidebar">
+  <UDashboardGroup unit="rem" storage="local" storage-key="mito-sidebar" class="min-h-dvh">
     <!-- ── SIDEBAR ──────────────────────────────────────────────────── -->
     <UDashboardSidebar
       id="mito-admin"
       collapsible
       resizable
+      class="min-h-0"
       :ui="{
+        root: 'min-h-0',
         footer: 'lg:border-t lg:border-[var(--ui-border)]',
       }"
     >
@@ -58,16 +55,15 @@ const links = computed<NavigationMenuItem[][]>(() => [
           orientation="vertical"
           tooltip
           popover
+          class="space-y-1.5"
+          :ui="{
+            item: 'rounded-lg',
+            link: 'gap-3 px-2.5 py-2.5',
+            linkLeadingIcon: 'size-5 shrink-0',
+            linkLabel: 'text-[13px] font-semibold tracking-[-0.01em]'
+          }"
         />
 
-        <!-- Bottom utility nav -->
-        <UNavigationMenu
-          :collapsed="collapsed"
-          :items="links[1]"
-          orientation="vertical"
-          tooltip
-          class="mt-auto"
-        />
       </template>
 
       <!-- User menu footer -->

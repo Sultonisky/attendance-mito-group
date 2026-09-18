@@ -1,12 +1,10 @@
 /**
  * useReportPage — shared logic untuk semua report pages
- * Handles: error state, meta pagination, sort, goToPage
+ * Handles: error state, meta pagination, goToPage
  */
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ApiError } from '../services/apiClient'
-
-export type SortDirection = 'asc' | 'desc'
 
 export interface ReportMeta {
   current_page: number
@@ -59,17 +57,5 @@ export function useReportPage() {
     load()
   }
 
-  function sortColumn(
-    field: string,
-    direction: SortDirection,
-    filters: { sort: string; direction: SortDirection },
-    load: () => void,
-  ) {
-    filters.sort = field
-    filters.direction = direction
-    meta.current_page = 1
-    load()
-  }
-
-  return { loading, error, meta, handleApiError, applyMeta, goToPage, sortColumn }
+  return { loading, error, meta, handleApiError, applyMeta, goToPage }
 }

@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref, resolveComponent } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { TableColumn } from '@nuxt/ui'
+import type { ColumnFiltersState, VisibilityState } from '@tanstack/vue-table'
 import { useReportPage } from '../../composables/useReportPage'
+import { useDataTableSort } from '../../composables/useDataTableSort'
+import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
 import { usePermission } from '../../features/auth/composables/usePermission'
 import { fetchMonthlyRecaps } from '../../services/reports/monthlyRecapApi'
 import {
@@ -13,66 +16,106 @@ import {
   reviewMonthlyRecap,
 } from '../../services/adminCrudApi'
 import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
+import DataTableToolbar from '../../components/DataTableToolbar.vue'
+import DataTable from '../../components/DataTable.vue'
 import AdminRowActions, { type AdminRowAction } from '../../components/AdminRowActions.vue'
+import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
 import type { MonthlyRecapRow } from '../../types/reports'
 
-const route  = useRoute()
+const route = useRoute()
 const { can } = usePermission()
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 
-const data         = ref<MonthlyRecapRow[]>([])
+const data = ref<MonthlyRecapRow[]>([])
 const actionBusyId = ref<number | null>(null)
-const generating   = ref(false)
+const generating = ref(false)
+const columnFilters = ref<ColumnFiltersState>([])
+const columnVisibility = ref<VisibilityState>()
+const statusFilter = ref('all')
+const search = ref('')
 
-// Filters
 const employeeId = ref('')
-const year  = ref(new Date().getFullYear())
+const year = ref(new Date().getFullYear())
 const month = ref(new Date().getMonth() + 1)
-const sortField     = ref('period')
-const sortDirection = ref<'asc' | 'desc'>('desc')
+
+const sortState = reactive({
+  sort: 'period',
+  direction: 'desc' as 'asc' | 'desc',
+})
+
+const { sorting } = useDataTableSort(sortState, () => {
+  meta.current_page = 1
+  load()
+})
+
+const statusOptions = [
+  { label: 'All', value: 'all' },
+  { label: 'Draft', value: 'draft' },
+  { label: 'Generated', value: 'generated' },
+  { label: 'Reviewed', value: 'reviewed' },
+  { label: 'Finalized', value: 'finalized' },
+  { label: 'Exported', value: 'exported' },
+]
+
+const hideableColumns = [
+  { id: 'period', label: 'Period' },
+  { id: 'status', label: 'Status' },
+  { id: 'finalized_at', label: 'Finalized At' },
+  { id: 'exported_at', label: 'Exported At' },
+]
+
+const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
 const rowActions: AdminRowAction[] = [
-  { key: 'review',   label: 'Review',   permission: 'monthly_recap.review',   icon: 'Eye',       variant: 'secondary' },
-  { key: 'finalize', label: 'Finalize', permission: 'monthly_recap.finalize', icon: 'Check',     variant: 'primary'   },
-  { key: 'export',   label: 'Export',   permission: 'monthly_recap.export',   icon: 'Download',  variant: 'secondary' },
-  { key: 'reopen',   label: 'Reopen',   permission: 'monthly_recap.finalize', icon: 'ArrowLeft', variant: 'ghost'     },
+  { key: 'review', label: 'Review', permission: 'monthly_recap.review', icon: 'Eye', variant: 'secondary' },
+  { key: 'finalize', label: 'Finalize', permission: 'monthly_recap.finalize', icon: 'Check', variant: 'primary' },
+  { key: 'export', label: 'Export', permission: 'monthly_recap.export', icon: 'Download', variant: 'secondary' },
+  { key: 'reopen', label: 'Reopen', permission: 'monthly_recap.finalize', icon: 'ArrowLeft', variant: 'ghost' },
 ]
 
 const statusColor: Record<string, 'success' | 'warning' | 'info' | 'neutral' | 'error'> = {
   finalized: 'success',
-  reviewed:  'info',
+  reviewed: 'info',
   generated: 'warning',
-  draft:     'neutral',
-  exported:  'success',
+  draft: 'neutral',
+  exported: 'success',
 }
 
-const UBadge = resolveComponent('UBadge')
-
 const columns = computed<TableColumn<MonthlyRecapRow>[]>(() => [
-  { accessorKey: 'period', header: 'Period' },
   {
-    accessorKey: 'status', header: 'Status',
+    accessorKey: 'period',
+    header: ({ column }) => createSortableHeader(column, 'Period'),
+  },
+  {
+    accessorKey: 'status',
+    header: ({ column }) => createSortableHeader(column, 'Status'),
+    filterFn: 'equals',
     cell: ({ row }) => {
       const s = row.getValue<string>('status')
-      return h(UBadge, { color: statusColor[s] ?? 'neutral', variant: 'subtle', class: 'capitalize' }, () => s)
+      return createStatusBadge(s, statusColor[s] ?? 'neutral')
     },
   },
   {
-    accessorKey: 'finalized_at', header: 'Finalized At',
+    accessorKey: 'finalized_at',
+    header: ({ column }) => createSortableHeader(column, 'Finalized At'),
     cell: ({ row }) => {
       const v = row.getValue<string | null>('finalized_at')
       return v ? new Date(v + 'Z').toLocaleString() : '—'
     },
   },
   {
-    accessorKey: 'exported_at', header: 'Exported At',
+    accessorKey: 'exported_at',
+    header: ({ column }) => createSortableHeader(column, 'Exported At'),
     cell: ({ row }) => {
       const v = row.getValue<string | null>('exported_at')
       return v ? new Date(v + 'Z').toLocaleString() : '—'
     },
   },
   {
-    id: 'actions', header: 'Actions',
+    id: 'actions',
+    header: 'Actions',
+    enableSorting: false,
+    enableHiding: false,
     cell: ({ row }) => h(AdminRowActions, {
       actions: rowActions,
       busy: actionBusyId.value === row.original.id,
@@ -81,13 +124,29 @@ const columns = computed<TableColumn<MonthlyRecapRow>[]>(() => [
   },
 ])
 
+watch([search, statusFilter], () => {
+  const next: ColumnFiltersState = []
+  if (search.value.trim()) next.push({ id: 'period', value: search.value.trim() })
+  if (statusFilter.value !== 'all') next.push({ id: 'status', value: statusFilter.value })
+  columnFilters.value = next
+})
+
+watch(employeeId, () => {
+  if (!ready.value) return
+  meta.current_page = 1
+  load()
+})
+
+const ready = ref(false)
+
 async function load(): Promise<void> {
-  loading.value = true; error.value = ''
+  loading.value = true
+  error.value = ''
   try {
     const params: Record<string, string | number | null | undefined> = {
-      page:      meta.current_page,
-      sort:      sortField.value,
-      direction: sortDirection.value,
+      page: meta.current_page,
+      sort: sortState.sort,
+      direction: sortState.direction,
     }
     if (employeeId.value) params.employee_id = employeeId.value
 
@@ -97,54 +156,68 @@ async function load(): Promise<void> {
     if (res.meta) {
       applyMeta({
         current_page: Number(res.meta.current_page ?? 1),
-        per_page:     Number(res.meta.per_page     ?? 30),
-        total:        Number(res.meta.total        ?? res.data.length),
-        last_page:    Number(res.meta.last_page    ?? 1),
+        per_page: Number(res.meta.per_page ?? 30),
+        total: Number(res.meta.total ?? res.data.length),
+        last_page: Number(res.meta.last_page ?? 1),
       })
-    } else {
+    }
+    else {
       applyMeta({ current_page: 1, per_page: 30, total: res.data.length, last_page: 1 })
     }
-  } catch (err) {
+  }
+  catch (err) {
     await handleApiError(err, 'Unable to load monthly recaps. Please try again.')
-  } finally { loading.value = false }
+  }
+  finally {
+    loading.value = false
+  }
 }
 
 async function generate(): Promise<void> {
-  if (!employeeId.value) { error.value = 'Employee ID is required to generate a recap.'; return }
-  generating.value = true; error.value = ''
+  if (!employeeId.value) {
+    error.value = 'Employee ID is required to generate a recap.'
+    return
+  }
+  generating.value = true
+  error.value = ''
   try {
     await generateMonthlyRecap({
       employee_id: Number(employeeId.value),
-      year:  year.value,
+      year: year.value,
       month: month.value,
     })
     await load()
-  } catch { error.value = 'Unable to generate the monthly recap. Please try again.'
-  } finally { generating.value = false }
+  }
+  catch {
+    error.value = 'Unable to generate the monthly recap. Please try again.'
+  }
+  finally {
+    generating.value = false
+  }
 }
 
 async function handleRowAction(action: string, id: number): Promise<void> {
-  actionBusyId.value = id; error.value = ''
+  actionBusyId.value = id
+  error.value = ''
   try {
-    if (action === 'review')   await reviewMonthlyRecap(id)
+    if (action === 'review') await reviewMonthlyRecap(id)
     if (action === 'finalize') await finalizeMonthlyRecap(id)
-    if (action === 'export')   await exportMonthlyRecap(id)
-    if (action === 'reopen')   await reopenMonthlyRecap(id)
+    if (action === 'export') await exportMonthlyRecap(id)
+    if (action === 'reopen') await reopenMonthlyRecap(id)
     await load()
-  } catch { error.value = 'Unable to update this monthly recap. Please try again.'
-  } finally { actionBusyId.value = null }
+  }
+  catch {
+    error.value = 'Unable to update this monthly recap. Please try again.'
+  }
+  finally {
+    actionBusyId.value = null
+  }
 }
 
-function applySort(field: string, direction: 'asc' | 'desc') {
-  sortField.value = field
-  sortDirection.value = direction
-  meta.current_page = 1
-  load()
-}
-
-onMounted(() => {
+onMounted(async () => {
   if (typeof route.query.employee_id === 'string') employeeId.value = route.query.employee_id
-  load()
+  await load()
+  ready.value = true
 })
 </script>
 
@@ -156,8 +229,11 @@ onMounted(() => {
         <template #right>
           <UButton
             v-if="can('monthly_recap.generate')"
-            color="primary" size="sm" icon="i-lucide-zap"
-            :loading="generating" :disabled="!employeeId"
+            color="primary"
+            size="sm"
+            icon="i-lucide-zap"
+            :loading="generating"
+            :disabled="!employeeId"
             @click="generate"
           >
             Generate recap
@@ -167,53 +243,6 @@ onMounted(() => {
           </UButton>
         </template>
       </UDashboardNavbar>
-
-      <!-- Filter toolbar -->
-      <UDashboardToolbar>
-        <template #left>
-          <form class="flex flex-wrap items-end gap-3" @submit.prevent="() => { meta.current_page = 1; load() }">
-            <UFormField label="Employee ID">
-              <UInput
-                v-model="employeeId"
-                type="number" min="1" placeholder="All employees"
-                class="w-36"
-              />
-            </UFormField>
-            <UFormField label="Year">
-              <UInput v-model.number="year" type="number" min="2000" max="2200" class="w-24" />
-            </UFormField>
-            <UFormField label="Month">
-              <UInput v-model.number="month" type="number" min="1" max="12" class="w-20" />
-            </UFormField>
-            <UFormField label="Sort">
-              <USelect
-                :model-value="sortField"
-                :items="[
-                  { label: 'Period',       value: 'period'       },
-                  { label: 'Status',       value: 'status'       },
-                  { label: 'Finalized At', value: 'finalized_at' },
-                  { label: 'Exported At',  value: 'exported_at'  },
-                ]"
-                value-key="value"
-                class="w-36"
-                @update:model-value="applySort(String($event), sortDirection)"
-              />
-            </UFormField>
-            <UFormField label="Direction">
-              <USelect
-                :model-value="sortDirection"
-                :items="[{ label: 'Descending', value: 'desc' }, { label: 'Ascending', value: 'asc' }]"
-                value-key="value"
-                class="w-32"
-                @update:model-value="applySort(sortField, ($event as 'asc' | 'desc'))"
-              />
-            </UFormField>
-            <UButton type="submit" color="primary" icon="i-lucide-search" :loading="loading">
-              Apply
-            </UButton>
-          </form>
-        </template>
-      </UDashboardToolbar>
     </template>
 
     <template #body>
@@ -226,34 +255,39 @@ onMounted(() => {
 
         <template v-else>
           <ReportDataToolbar :total="meta.total" :rows="data" filename="monthly-recaps" :loading="loading" />
-
-          <UTable
-            :data="data" :columns="columns" :loading="loading"
-            :ui="{
-              base: 'table-fixed border-separate border-spacing-0 w-full text-sm',
-              thead: '[&>tr]:bg-[var(--ui-bg-elevated)]/60 [&>tr]:after:content-none',
-              tbody: '[&>tr]:last:[&>td]:border-b-0',
-              th: 'first:rounded-l-lg last:rounded-r-lg border-y border-[var(--ui-border)] first:border-l last:border-r px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--ui-text-muted)]',
-              td: 'border-b border-[var(--ui-border)] px-3 py-2.5',
-            }"
-          />
-
-          <div v-if="!loading && !data.length" class="py-16 text-center">
-            <UIcon name="i-lucide-file-text" class="mx-auto mb-3 size-10 text-[var(--ui-text-dimmed)]" />
-            <p class="text-sm text-[var(--ui-text-muted)]">No monthly recap records found.</p>
-            <p v-if="can('monthly_recap.generate')" class="mt-1 text-xs text-[var(--ui-text-dimmed)]">
-              Enter an Employee ID and click Generate recap to create one.
-            </p>
-          </div>
-
-          <div v-if="meta.last_page > 1" class="flex items-center justify-between gap-4 border-t border-[var(--ui-border)] pt-4">
-            <p class="text-xs text-[var(--ui-text-muted)]">Page {{ meta.current_page }} of {{ meta.last_page }}</p>
-            <UPagination
-              :page="meta.current_page" :total="meta.last_page" :items-per-page="1"
-              show-edges :disabled="loading"
-              @update:page="goToPage($event, load)"
-            />
-          </div>
+          <DataTableToolbar
+            v-model:search="search"
+            v-model:status="statusFilter"
+            v-model:employee-id="employeeId"
+            search-placeholder="Filter period..."
+            :status-options="statusOptions"
+            :display-items="displayItems"
+            show-employee-id
+          >
+            <template #filters>
+              <UInput v-model.number="year" type="number" min="2000" max="2200" placeholder="Year" class="w-24" />
+              <UInput v-model.number="month" type="number" min="1" max="12" placeholder="Month" class="w-20" />
+            </template>
+          </DataTableToolbar>
+          <DataTable
+            v-model:sorting="sorting"
+            v-model:column-filters="columnFilters"
+            v-model:column-visibility="columnVisibility"
+            :data="data"
+            :columns="columns"
+            :loading="loading"
+            :meta="meta"
+            manual-sorting
+            empty-icon="i-lucide-file-text"
+            empty-message="No monthly recap records found."
+            @update:page="goToPage($event, load)"
+          >
+            <template #empty-extra>
+              <p v-if="can('monthly_recap.generate')" class="mt-1 text-xs text-[var(--ui-text-dimmed)]">
+                Enter an Employee ID and click Generate recap to create one.
+              </p>
+            </template>
+          </DataTable>
         </template>
       </div>
     </template>
