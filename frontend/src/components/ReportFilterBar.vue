@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import AppButton from './AppButton.vue'
 import type { ReportSortOption } from '../types/reports'
 
 defineProps<{
@@ -16,149 +15,90 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'update:from': [value: string]
-  'update:to': [value: string]
+  'update:from':        [value: string]
+  'update:to':          [value: string]
   'update:employee_id': [value: string]
-  'update:per_page': [value: number]
-  'update:sort': [value: string]
-  'update:direction': [value: 'asc' | 'desc']
+  'update:per_page':    [value: number]
+  'update:sort':        [value: string]
+  'update:direction':   [value: 'asc' | 'desc']
   search: []
 }>()
 </script>
 
 <template>
-  <form class="report-filters" @submit.prevent="emit('search')">
-    <div class="filter-grid">
-      <label class="filter-field">
-        <span>From</span>
-        <input
+  <form @submit.prevent="emit('search')">
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      <UFormField label="From">
+        <UInput
           type="date"
-          :value="filters.from"
-          @input="emit('update:from', ($event.target as HTMLInputElement).value)"
+          :model-value="filters.from"
+          class="w-full"
+          @update:model-value="emit('update:from', String($event ?? ''))"
         />
-      </label>
+      </UFormField>
 
-      <label class="filter-field">
-        <span>To</span>
-        <input
+      <UFormField label="To">
+        <UInput
           type="date"
-          :value="filters.to"
-          @input="emit('update:to', ($event.target as HTMLInputElement).value)"
+          :model-value="filters.to"
+          class="w-full"
+          @update:model-value="emit('update:to', String($event ?? ''))"
         />
-      </label>
+      </UFormField>
 
-      <label class="filter-field">
-        <span>Employee ID</span>
-        <input
+      <UFormField label="Employee ID">
+        <UInput
           type="number"
           min="1"
-          placeholder="Employee ID"
-          :value="filters.employee_id"
-          @input="emit('update:employee_id', ($event.target as HTMLInputElement).value)"
+          placeholder="All employees"
+          :model-value="filters.employee_id"
+          class="w-full"
+          @update:model-value="emit('update:employee_id', String($event ?? ''))"
         />
-      </label>
+      </UFormField>
 
-      <label class="filter-field">
-        <span>Per Page</span>
-        <select
-          :value="filters.per_page"
-          @change="emit('update:per_page', Number(($event.target as HTMLSelectElement).value))"
-        >
-          <option :value="10">10</option>
-          <option :value="25">25</option>
-          <option :value="50">50</option>
-          <option :value="100">100</option>
-        </select>
-      </label>
+      <UFormField label="Per page">
+        <USelect
+          :model-value="filters.per_page"
+          :items="[10, 25, 50, 100]"
+          class="w-full"
+          @update:model-value="emit('update:per_page', Number($event))"
+        />
+      </UFormField>
 
-      <label class="filter-field">
-        <span>Sort By</span>
-        <select
-          :value="filters.sort"
-          @change="emit('update:sort', ($event.target as HTMLSelectElement).value)"
-        >
-          <option value="">Default</option>
-          <option v-for="option in sortOptions" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-      </label>
+      <UFormField label="Sort by">
+        <USelect
+          :model-value="filters.sort === '' ? '__all__' : filters.sort"
+          :items="[{ label: 'Default', value: '__all__' }, ...sortOptions]"
+          value-key="value"
+          class="w-full"
+          @update:model-value="emit('update:sort', $event === '__all__' ? '' : String($event ?? ''))"
+        />
+      </UFormField>
 
-      <label class="filter-field">
-        <span>Direction</span>
-        <select
-          :value="filters.direction"
-          @change="emit('update:direction', ($event.target as HTMLSelectElement).value as 'asc' | 'desc')"
-        >
-          <option value="asc">Ascending</option>
-          <option value="desc">Descending</option>
-        </select>
-      </label>
+      <UFormField label="Direction">
+        <USelect
+          :model-value="filters.direction"
+          :items="[
+            { label: 'Ascending',  value: 'asc'  },
+            { label: 'Descending', value: 'desc' },
+          ]"
+          value-key="value"
+          class="w-full"
+          @update:model-value="emit('update:direction', ($event ?? 'asc') as 'asc' | 'desc')"
+        />
+      </UFormField>
     </div>
 
-    <div class="filter-actions">
-      <AppButton type="submit" :disabled="loading">Apply Filters</AppButton>
+    <div class="mt-3 flex justify-end">
+      <UButton
+        type="submit"
+        color="primary"
+        icon="i-lucide-search"
+        :loading="loading"
+      >
+        Apply filters
+      </UButton>
     </div>
   </form>
 </template>
-
-<style scoped>
-.report-filters {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem;
-  background: var(--bg);
-  margin-bottom: 1rem;
-}
-
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(1, 1fr);
-  gap: 0.75rem;
-}
-
-@media (min-width: 768px) {
-  .filter-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-.filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.875rem;
-  color: var(--text);
-}
-
-.filter-field span {
-  font-weight: 500;
-}
-
-.filter-field input,
-.filter-field select {
-  padding: 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text-h);
-}
-
-.filter-actions {
-  margin-top: 0.75rem;
-}
-
-.filter-actions button {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text-h);
-  cursor: pointer;
-}
-
-.filter-actions button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-</style>
