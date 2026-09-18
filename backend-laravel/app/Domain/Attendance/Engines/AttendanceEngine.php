@@ -70,7 +70,12 @@ class AttendanceEngine
             throw new InactiveSubjectException('Subject has ended.');
         }
 
-        $this->gpsValidationRule->validate($data->latitude, $data->longitude, $data->accuracy);
+        $this->gpsValidationRule->validate(
+            $data->latitude,
+            $data->longitude,
+            $data->accuracy,
+            (float) config('attendance.gps_max_accuracy_meters', 100)
+        );
 
         $date = $this->resolveWorkDate($data->occurredAt, $subject);
 
@@ -147,7 +152,12 @@ class AttendanceEngine
             throw new InactiveSubjectException('Subject has ended.');
         }
 
-        $this->gpsValidationRule->validate($data->latitude, $data->longitude, $data->accuracy);
+        $this->gpsValidationRule->validate(
+            $data->latitude,
+            $data->longitude,
+            $data->accuracy,
+            (float) config('attendance.gps_max_accuracy_meters', 100)
+        );
 
         $openSession = AttendanceSession::whereHas('attendanceRecord', function ($query) use ($subject) {
             if ($subject instanceof Employee) {
