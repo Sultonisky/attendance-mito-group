@@ -1,17 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import LoginPage from '../pages/LoginPage.vue'
-import OutsourcePage from '../pages/OutsourcePage.vue'
-import DashboardPage from '../pages/DashboardPage.vue'
-import EmployeeAppPage from '../pages/EmployeeAppPage.vue'
-import AttendancePage from '../pages/AttendancePage.vue'
-import ReportsPage from '../pages/reports/ReportsPage.vue'
-import AttendanceReportPage from '../pages/reports/AttendanceReportPage.vue'
-import LeaveReportPage from '../pages/reports/LeaveReportPage.vue'
-import OvertimeReportPage from '../pages/reports/OvertimeReportPage.vue'
-import PenaltyReportPage from '../pages/reports/PenaltyReportPage.vue'
-import MonthlyRecapsReportPage from '../pages/reports/MonthlyRecapsReportPage.vue'
-import OutsourceAttendanceReportPage from '../pages/reports/OutsourceAttendanceReportPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -22,66 +10,40 @@ const router = createRouter({
       redirect: { name: 'dashboard' },
       meta: { requiresAuth: true },
     },
+    { path: '/reports', redirect: { name: 'reports' } },
+    { path: '/reports/attendance', redirect: { name: 'reports.attendance' } },
+    { path: '/reports/leave', redirect: { name: 'reports.leave' } },
+    { path: '/reports/overtime', redirect: { name: 'reports.overtime' } },
+    { path: '/reports/penalties', redirect: { name: 'reports.penalties' } },
+    { path: '/reports/monthly-recaps', redirect: { name: 'reports.monthly-recaps' } },
+    { path: '/outsource-attendance', redirect: { name: 'outsource-attendance' } },
     {
       path: '/dashboard',
-      name: 'dashboard',
-      component: DashboardPage,
+      component: () => import('../layouts/AdminLayout.vue'),
       meta: { requiresAuth: true, adminOnly: true },
+      children: [
+        { path: '', name: 'dashboard', component: () => import('../pages/DashboardPage.vue'), meta: { title: 'Dashboard', permission: 'dashboard.view' } },
+        { path: 'reports', name: 'reports', component: () => import('../pages/reports/ReportsPage.vue'), meta: { title: 'Admin menu' } },
+        { path: 'reports/attendance', name: 'reports.attendance', component: () => import('../pages/reports/AttendanceReportPage.vue'), meta: { title: 'Attendance', permission: 'attendance.view' } },
+        { path: 'reports/leave', name: 'reports.leave', component: () => import('../pages/reports/LeaveReportPage.vue'), meta: { title: 'Leave', permission: 'leave.view' } },
+        { path: 'reports/overtime', name: 'reports.overtime', component: () => import('../pages/reports/OvertimeReportPage.vue'), meta: { title: 'Overtime', permission: 'overtime.view' } },
+        { path: 'reports/penalties', name: 'reports.penalties', component: () => import('../pages/reports/PenaltyReportPage.vue'), meta: { title: 'Penalties', permission: 'penalty.view' } },
+        { path: 'outsource-attendance', name: 'outsource-attendance', component: () => import('../pages/reports/OutsourceAttendanceReportPage.vue'), meta: { title: 'Outsource attendance', permission: 'outsource_attendance.view' } },
+        { path: 'reports/monthly-recaps', name: 'reports.monthly-recaps', component: () => import('../pages/reports/MonthlyRecapsReportPage.vue'), meta: { title: 'Monthly recap', permissionAny: ['monthly_recap.view', 'monthly_recap.generate', 'monthly_recap.review', 'monthly_recap.finalize', 'monthly_recap.export'] } },
+      ],
     },
     {
       path: '/employee',
       name: 'employee-app',
-      component: EmployeeAppPage,
+      component: () => import('../pages/EmployeeAppPage.vue'),
       meta: { requiresAuth: true, employeeOnly: true },
     },
     {
       path: '/attendance',
       name: 'attendance',
-      component: AttendancePage,
+      component: () => import('../pages/AttendancePage.vue'),
       meta: { requiresAuth: true, employeeOnly: true },
     },
-    {
-      path: '/reports',
-      name: 'reports',
-      component: ReportsPage,
-      meta: { requiresAuth: true, adminOnly: true },
-    },
-    {
-      path: '/reports/attendance',
-      name: 'reports.attendance',
-      component: AttendanceReportPage,
-      meta: { requiresAuth: true, adminOnly: true },
-    },
-    {
-      path: '/reports/leave',
-      name: 'reports.leave',
-      component: LeaveReportPage,
-      meta: { requiresAuth: true, adminOnly: true },
-    },
-    {
-      path: '/reports/overtime',
-      name: 'reports.overtime',
-      component: OvertimeReportPage,
-      meta: { requiresAuth: true, adminOnly: true },
-    },
-    {
-      path: '/reports/penalties',
-      name: 'reports.penalties',
-      component: PenaltyReportPage,
-      meta: { requiresAuth: true, adminOnly: true },
-    },
-      {
-        path: '/outsource-attendance',
-        name: 'outsource-attendance',
-        component: OutsourceAttendanceReportPage,
-        meta: { requiresAuth: true, adminOnly: true },
-      },
-      {
-        path: '/reports/monthly-recaps',
-        name: 'reports.monthly-recaps',
-        component: MonthlyRecapsReportPage,
-        meta: { requiresAuth: true, adminOnly: true },
-      },
     {
       path: '/login',
       name: 'login',
@@ -90,21 +52,21 @@ const router = createRouter({
     {
       path: '/login/admin',
       name: 'login.admin',
-      component: LoginPage,
+      component: () => import('../pages/LoginPage.vue'),
       props: { audience: 'admin' },
       meta: { loginAudience: 'admin' },
     },
     {
       path: '/login/employee',
       name: 'login.employee',
-      component: LoginPage,
+      component: () => import('../pages/LoginPage.vue'),
       props: { audience: 'employee' },
       meta: { loginAudience: 'employee' },
     },
     {
       path: '/outsource',
       name: 'outsource',
-      component: OutsourcePage,
+      component: () => import('../pages/OutsourcePage.vue'),
       meta: { requiresAuth: false },
     },
   ],
@@ -140,6 +102,15 @@ router.beforeEach(async (to) => {
     return { name: 'employee-app' }
   }
 
+  const requiredPermission = to.meta.permission
+  const requiredPermissions = to.meta.permissionAny
+  if (isAdmin && typeof requiredPermission === 'string' && !auth.can(requiredPermission)) {
+    return { name: 'dashboard' }
+  }
+  if (isAdmin && Array.isArray(requiredPermissions) && !requiredPermissions.some((permission) => auth.can(String(permission)))) {
+    return { name: 'dashboard' }
+  }
+
   if (to.meta.employeeOnly && isAdmin) {
     return { name: 'dashboard' }
   }
@@ -149,6 +120,15 @@ router.beforeEach(async (to) => {
   }
 
   return true
+})
+
+/**
+ * Surface lazy-chunk load failures as router errors instead of an unhandled
+ * rejection — Nuxt UI lazy pages pull heavy deps (Unovis, MapLibre) that may
+ * fail on flaky networks. The caller logs via console only; no PII.
+ */
+router.onError((error) => {
+  console.error('[router] navigation failed:', error)
 })
 
 export default router
