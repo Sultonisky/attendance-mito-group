@@ -17,7 +17,9 @@ return new class extends Migration
             $table->unsignedBigInteger('outsource_id')->nullable()->after('employee_id');
         });
 
-        DB::statement('ALTER TABLE attendance_events ADD CONSTRAINT chk_event_subject CHECK ((employee_id IS NOT NULL AND outsource_id IS NULL) OR (employee_id IS NULL AND outsource_id IS NOT NULL))');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE attendance_events ADD CONSTRAINT chk_event_subject CHECK ((employee_id IS NOT NULL AND outsource_id IS NULL) OR (employee_id IS NULL AND outsource_id IS NOT NULL))');
+        }
     }
 
     public function down(): void
@@ -30,6 +32,8 @@ return new class extends Migration
             $table->dropColumn('outsource_id');
         });
 
-        DB::statement('ALTER TABLE attendance_events DROP CONSTRAINT IF EXISTS chk_event_subject');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE attendance_events DROP CONSTRAINT IF EXISTS chk_event_subject');
+        }
     }
 };
