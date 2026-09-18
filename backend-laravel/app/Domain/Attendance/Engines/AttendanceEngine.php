@@ -95,7 +95,9 @@ class AttendanceEngine
             $this->validateOutsourceAssignment($subject, $workLocation);
         }
 
-        $geofenceRadius = $subject instanceof Outsource ? 150.0 : null;
+        $geofenceRadius = $subject instanceof Outsource
+            ? (float) config('attendance.outsource_geofence_radius_meters', 150)
+            : null;
         $geofenceResult = $this->evaluateGeofence($workLocation, $data->latitude, $data->longitude, $geofenceRadius);
         if (! $geofenceResult['passed']) {
             throw new OutsideGeofenceException('Subject is outside the approved work location geofence.');
@@ -182,7 +184,9 @@ class AttendanceEngine
             $this->validateOutsourceAssignment($subject, $workLocation);
         }
 
-        $geofenceRadius = $subject instanceof Outsource ? 150.0 : null;
+        $geofenceRadius = $subject instanceof Outsource
+            ? (float) config('attendance.outsource_geofence_radius_meters', 150)
+            : null;
         $geofenceResult = $this->evaluateGeofence($workLocation, $data->latitude, $data->longitude, $geofenceRadius);
         if (! $geofenceResult['passed']) {
             throw new OutsideGeofenceException('Subject is outside the approved work location geofence.');
