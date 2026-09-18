@@ -14,6 +14,7 @@ declare module 'vue' {
     AdminRowActions: typeof import('./src/components/AdminRowActions.vue')['default']
     AppButton: typeof import('./src/components/AppButton.vue')['default']
     AppIcon: typeof import('./src/components/AppIcon.vue')['default']
+    DashboardDataTable: typeof import('./src/components/DashboardDataTable.vue')['default']
     DashboardKpiCard: typeof import('./src/components/DashboardKpiCard.vue')['default']
     MitoTeamsMenu: typeof import('./src/components/MitoTeamsMenu.vue')['default']
     MitoUserMenu: typeof import('./src/components/MitoUserMenu.vue')['default']
@@ -51,6 +52,7 @@ declare module 'vue' {
     USelect: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Select.vue')['default']
     USlideover: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Slideover.vue')['default']
     UTable: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Table.vue')['default']
+    UTabs: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Tabs.vue')['default']
     UTooltip: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Tooltip.vue')['default']
   }
 }

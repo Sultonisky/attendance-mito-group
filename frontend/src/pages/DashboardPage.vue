@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { sub, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, format } from 'date-fns'
 import { VisXYContainer, VisLine, VisArea, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
@@ -115,6 +115,100 @@ const xTicks = (i: number): string => {
 
 const crosshairTemplate = (d: ChartPoint): string =>
   `${format(d.date, period.value === 'monthly' ? 'MMM yyyy' : 'd MMM')}: ${d.value}%`
+
+// ── dashboard table ─────────────────────────────────────────────────
+type TableStatus = 'all' | 'present' | 'late' | 'on_leave'
+type DashboardTableRow = {
+  id: number
+  name: string
+  email: string
+  location: string
+  status: 'Present' | 'Late' | 'On leave'
+}
+
+const tableRows = ref<DashboardTableRow[]>([
+  { id: 1101, name: 'Ayu Dewi', email: 'ayu.dewi@mitogroup.com', location: 'Jakarta', status: 'Present' },
+  { id: 1102, name: 'Budi Santoso', email: 'budi.santoso@mitogroup.com', location: 'Bandung', status: 'Late' },
+  { id: 1103, name: 'Citra Maharani', email: 'citra.maharani@mitogroup.com', location: 'Surabaya', status: 'On leave' },
+  { id: 1104, name: 'Dimas Pratama', email: 'dimas.pratama@mitogroup.com', location: 'Semarang', status: 'Present' },
+  { id: 1105, name: 'Eka Putri', email: 'eka.putri@mitogroup.com', location: 'Medan', status: 'Late' },
+  { id: 1106, name: 'Fajar Nugroho', email: 'fajar.nugroho@mitogroup.com', location: 'Yogyakarta', status: 'Present' },
+])
+
+const tableSearch = ref('')
+const tableStatusFilter = ref<TableStatus>('all')
+const tableSort = reactive<{ key: keyof DashboardTableRow; direction: 'asc' | 'desc' }>({
+  key: 'id',
+  direction: 'asc',
+})
+
+const tableFilterOptions = [
+  { label: 'All', value: 'all' },
+  { label: 'Present', value: 'present' },
+  { label: 'Late', value: 'late' },
+  { label: 'On leave', value: 'on_leave' },
+]
+
+const tableColumns = [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'email', label: 'Email' },
+  { key: 'location', label: 'Location' },
+  { key: 'status', label: 'Status' },
+] as const
+
+const visibleTableRows = computed(() => {
+  const query = tableSearch.value.trim().toLowerCase()
+
+  const filtered = tableRows.value.filter((row) => {
+    const matchesQuery = !query || [row.id, row.name, row.email, row.location, row.status]
+      .join(' ')
+      .toLowerCase()
+      .includes(query)
+
+    const matchesStatus =
+      tableStatusFilter.value === 'all' ||
+      (tableStatusFilter.value === 'present' && row.status === 'Present') ||
+      (tableStatusFilter.value === 'late' && row.status === 'Late') ||
+      (tableStatusFilter.value === 'on_leave' && row.status === 'On leave')
+
+    return matchesQuery && matchesStatus
+  })
+
+  const sorted = [...filtered].sort((a, b) => {
+    const left = a[tableSort.key]
+    const right = b[tableSort.key]
+    const direction = tableSort.direction === 'asc' ? 1 : -1
+
+    if (typeof left === 'number' && typeof right === 'number') {
+      return (left - right) * direction
+    }
+
+    return String(left).localeCompare(String(right)) * direction
+  })
+
+  return sorted
+})
+
+function sortTable(key: keyof DashboardTableRow): void {
+  if (tableSort.key === key) {
+    tableSort.direction = tableSort.direction === 'asc' ? 'desc' : 'asc'
+    return
+  }
+
+  tableSort.key = key
+  tableSort.direction = 'asc'
+}
+
+function getStatusColor(status: DashboardTableRow['status']): 'success' | 'warning' | 'neutral' {
+  if (status === 'Present') return 'success'
+  if (status === 'Late') return 'warning'
+  return 'neutral'
+}
+
+function getStatusText(status: DashboardTableRow['status']): string {
+  return status === 'On leave' ? 'On leave' : status
+}
 </script>
 
 <template>
@@ -354,37 +448,116 @@ const crosshairTemplate = (d: ChartPoint): string =>
           </UCard>
 
           <!-- ── BOTTOM ROW ─────────────────────────────────────── -->
-          <div class="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
+          <div class="grid gap-4 xl:grid-cols-[1.45fr_0.55fr]">
 
-            <!-- People ops quick links -->
-            <UCard :ui="{ body: 'p-5 sm:p-6' }">
-              <div class="flex items-start justify-between gap-4">
-                <div class="flex-1">
-                  <p class="text-xs text-muted uppercase tracking-wide">People Operations</p>
-                  <h3 class="mt-1.5 text-lg font-semibold text-highlighted">Keep the day moving</h3>
-                  <p class="mt-2 text-sm text-muted leading-relaxed">
-                    Open a workspace to manage requests, approvals, and attendance records.
-                  </p>
-                  <div class="mt-4 grid gap-2 sm:grid-cols-2">
-                    <RouterLink
-                      v-for="link in [
-                        { label: 'Attendance',    to: '/dashboard/reports/attendance',     icon: 'i-lucide-calendar-check-2'  },
-                        { label: 'Leave',         to: '/dashboard/reports/leave',          icon: 'i-lucide-calendar-off'      },
-                        { label: 'Overtime',      to: '/dashboard/reports/overtime',       icon: 'i-lucide-bar-chart-3'       },
-                        { label: 'Monthly recap', to: '/dashboard/reports/monthly-recaps', icon: 'i-lucide-file-text'         },
-                      ]"
-                      :key="link.to"
-                      :to="link.to"
-                      class="flex items-center gap-2.5 rounded-xl border border-[var(--ui-border)] px-3.5 py-2.5 text-sm font-medium text-muted transition hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+            <!-- Staff table -->
+            <UCard :ui="{ root: 'overflow-hidden', body: 'p-0!' }">
+              <div class="border-b border-[var(--ui-border)] px-4 py-3 sm:px-5">
+                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                  <UInput
+                    v-model="tableSearch"
+                    placeholder="Filter emails..."
+                    icon="i-lucide-search"
+                    size="lg"
+                    class="max-w-md"
+                  />
+
+                  <div class="flex items-center gap-2 self-end xl:self-auto">
+                    <UButton
+                      color="error"
+                      variant="outline"
+                      :ui="{ base: 'border-red-500/60 text-red-500 hover:bg-red-500/5' }"
+                      class="rounded-xl"
                     >
-                      <UIcon :name="link.icon" class="size-4 shrink-0" />
-                      {{ link.label }}
-                    </RouterLink>
+                      <template #leading>
+                        <UIcon name="i-lucide-trash-2" class="size-4" />
+                      </template>
+                      Delete
+                      <UBadge color="error" size="xs" class="min-w-5 justify-center rounded-full">1</UBadge>
+                    </UButton>
+
+                    <USelect
+                      v-model="tableStatusFilter"
+                      :items="tableFilterOptions"
+                      value-key="value"
+                      label-key="label"
+                      size="lg"
+                      class="min-w-[110px]"
+                    />
+
+                    <UButton color="neutral" variant="outline" class="rounded-xl">
+                      Display
+                      <template #trailing>
+                        <UIcon name="i-lucide-sliders-horizontal" class="size-4" />
+                      </template>
+                    </UButton>
                   </div>
                 </div>
-                <div class="hidden sm:flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
-                  <UIcon name="i-lucide-users" class="size-5 text-primary" />
+
+                <div class="mt-4">
+                  <UTabs
+                    v-model="tableStatusFilter"
+                    :items="tableFilterOptions"
+                    :ui="{ list: 'gap-2', trigger: 'rounded-lg px-3 py-2 text-sm font-medium', indicator: 'rounded-lg shadow-sm' }"
+                  />
                 </div>
+              </div>
+
+              <div class="overflow-x-auto">
+                <table class="min-w-full border-separate border-spacing-0 text-sm">
+                  <thead class="bg-[var(--ui-bg-elevated)]/90 text-left">
+                    <tr>
+                      <th class="w-16 border-y border-[var(--ui-border)] px-4 py-3 text-left">
+                        <div class="flex items-center gap-2">
+                          <span class="h-3.5 w-3.5 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" />
+                        </div>
+                      </th>
+                      <th
+                        v-for="column in tableColumns"
+                        :key="column.key"
+                        class="border-y border-[var(--ui-border)] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ui-text-muted)]"
+                      >
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-1.5 transition hover:text-[var(--ui-text)]"
+                          :class="tableSort.key === column.key ? 'text-[var(--ui-text)]' : 'text-[var(--ui-text-muted)]'"
+                          @click="sortTable(column.key)"
+                        >
+                          {{ column.label }}
+                          <UIcon
+                            v-if="tableSort.key === column.key"
+                            :name="tableSort.direction === 'asc' ? 'i-lucide-arrow-up' : 'i-lucide-arrow-down'"
+                            class="size-3.5"
+                          />
+                          <UIcon
+                            v-else
+                            name="i-lucide-arrow-up-down"
+                            class="size-3.5 opacity-60"
+                          />
+                        </button>
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    <tr v-for="row in visibleTableRows" :key="row.id" class="group hover:bg-[var(--ui-bg-muted)]/80">
+                      <td class="border-b border-[var(--ui-border)] px-4 py-3">
+                        <div class="flex items-center justify-center">
+                          <input type="checkbox" class="h-4 w-4 rounded border-[var(--ui-border)] bg-transparent text-primary focus:ring-primary" />
+                        </div>
+                      </td>
+                      <td class="border-b border-[var(--ui-border)] px-4 py-3 font-medium text-[var(--ui-text)]">{{ row.id }}</td>
+                      <td class="border-b border-[var(--ui-border)] px-4 py-3 text-[var(--ui-text)]">{{ row.name }}</td>
+                      <td class="border-b border-[var(--ui-border)] px-4 py-3 text-[var(--ui-text-muted)]">{{ row.email }}</td>
+                      <td class="border-b border-[var(--ui-border)] px-4 py-3 text-[var(--ui-text-muted)]">{{ row.location }}</td>
+                      <td class="border-b border-[var(--ui-border)] px-4 py-3">
+                        <UBadge :color="getStatusColor(row.status)" variant="subtle" class="capitalize">
+                          {{ getStatusText(row.status) }}
+                        </UBadge>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </UCard>
 
