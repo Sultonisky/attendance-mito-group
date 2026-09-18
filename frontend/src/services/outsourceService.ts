@@ -12,6 +12,7 @@ export interface Store {
   city_id: number
   latitude?: number | null
   longitude?: number | null
+  radius_meters?: number | null
 }
 
 export interface Outsource {
