@@ -113,17 +113,17 @@ class OutsourceMasterDataImportService
                 }
             }
 
-            $summary['cities']['created'] = count(array_filter($citySeen, fn ($created) => $created === true));
-            $summary['cities']['existing'] = count(array_filter($citySeen, fn ($created) => $created === false));
+            $summary['cities']['created'] = count(array_filter($citySeen, fn($created) => $created === true));
+            $summary['cities']['existing'] = count(array_filter($citySeen, fn($created) => $created === false));
 
-            $summary['stores']['created'] = count(array_filter($storeSeen, fn ($created) => $created === true));
-            $summary['stores']['existing'] = count(array_filter($storeSeen, fn ($created) => $created === false));
+            $summary['stores']['created'] = count(array_filter($storeSeen, fn($created) => $created === true));
+            $summary['stores']['existing'] = count(array_filter($storeSeen, fn($created) => $created === false));
 
-            $summary['outsources']['created'] = count(array_filter($outsourceSeen, fn ($created) => $created === true));
-            $summary['outsources']['existing'] = count(array_filter($outsourceSeen, fn ($created) => $created === false));
+            $summary['outsources']['created'] = count(array_filter($outsourceSeen, fn($created) => $created === true));
+            $summary['outsources']['existing'] = count(array_filter($outsourceSeen, fn($created) => $created === false));
 
-            $summary['assignments']['created'] = count(array_filter($assignmentSeen, fn ($created) => $created === true));
-            $summary['assignments']['existing'] = count(array_filter($assignmentSeen, fn ($created) => $created === false));
+            $summary['assignments']['created'] = count(array_filter($assignmentSeen, fn($created) => $created === true));
+            $summary['assignments']['existing'] = count(array_filter($assignmentSeen, fn($created) => $created === false));
         });
 
         return $summary;
@@ -138,10 +138,12 @@ class OutsourceMasterDataImportService
         }
 
         $absolutePath = $path;
-        if (! str_starts_with($absolutePath, DIRECTORY_SEPARATOR)
+        if (
+            ! str_starts_with($absolutePath, DIRECTORY_SEPARATOR)
             && ! str_contains($absolutePath, ':\\')
-            && ! str_contains($absolutePath, ':/')) {
-            $absolutePath = getcwd().DIRECTORY_SEPARATOR.$absolutePath;
+            && ! str_contains($absolutePath, ':/')
+        ) {
+            $absolutePath = getcwd() . DIRECTORY_SEPARATOR . $absolutePath;
         }
 
         if (! file_exists($absolutePath)) {
@@ -174,7 +176,7 @@ class OutsourceMasterDataImportService
                 }
 
                 if ($header === null) {
-                    $header = array_map(fn ($value) => $this->normalizeHeader($value), $row);
+                    $header = array_map(fn($value) => $this->normalizeHeader($value), $row);
                     continue;
                 }
 
@@ -195,7 +197,7 @@ class OutsourceMasterDataImportService
             throw new RuntimeException('The Excel file does not contain any data rows.');
         }
 
-        $header = array_map(fn ($value) => $this->normalizeHeader($value), $rows[0]);
+        $header = array_map(fn($value) => $this->normalizeHeader($value), $rows[0]);
         $expectedHeaders = ['LIST CABANG', 'NAMA TOKO', 'NAMA SPG'];
         if (! empty(array_diff($expectedHeaders, $header))) {
             throw new RuntimeException('The worksheet is missing one or more required headers: LIST CABANG, NAMA TOKO, NAMA SPG.');
@@ -378,7 +380,7 @@ class OutsourceMasterDataImportService
     {
         $base = sprintf('%s|%s', $cityName, $storeName);
 
-        return 'LOC-'.substr(md5($base), 0, 12);
+        return 'LOC-' . substr(md5($base), 0, 12);
     }
 
     protected function generateOutsourceCode(string $name): string
@@ -397,7 +399,7 @@ class OutsourceMasterDataImportService
 
     protected function makeKey(string $type, mixed ...$parts): string
     {
-        return implode(':', [$type, ...array_map(fn ($part) => (string) $part, $parts)]);
+        return implode(':', [$type, ...array_map(fn($part) => (string) $part, $parts)]);
     }
 
     protected function resetState(): void
