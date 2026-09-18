@@ -447,57 +447,6 @@ const healthServices = computed(() => [
 
         <template v-else>
 
-          <!-- ── HERO BANNER ──────────────────────────────────────── -->
-          <section
-            class="relative overflow-hidden rounded-xl sm:rounded-2xl p-4 text-white sm:p-6 md:p-8"
-            style="background: linear-gradient(135deg, #eb1c24 0%, #c5151d 42%, #1a2845 100%);"
-            aria-label="Dashboard overview"
-          >
-            <!-- Decorative rings -->
-            <span class="pointer-events-none absolute -right-8 -top-8 h-32 w-32 sm:h-44 sm:w-44 rounded-full bg-white/[0.04]" aria-hidden="true" />
-            <span class="pointer-events-none absolute -bottom-10 right-8 sm:right-16 h-40 w-40 sm:h-56 sm:w-56 rounded-full bg-white/[0.03]" aria-hidden="true" />
-
-            <div class="relative flex flex-col gap-4 sm:gap-5 md:flex-row md:items-end md:justify-between">
-              <div class="min-w-0">
-                <div class="mito-badge mb-2 sm:mb-3 w-fit">
-                  <span class="mito-pulse-dot" aria-hidden="true" />
-                  Live Operations
-                </div>
-                <h2 class="text-xl font-extrabold tracking-tight sm:text-2xl md:text-3xl break-words">
-                  {{ greeting }}, {{ firstName }}.
-                </h2>
-                <p v-if="kpis" class="mt-1.5 text-xs sm:text-sm text-white/75">
-                  <span class="sm:hidden">{{ format(new Date(`${kpis.date}T00:00:00`), 'd MMM yyyy') }}</span>
-                  <span class="hidden sm:inline">{{ formatDate(kpis.date) }}</span>
-                </p>
-                <!-- Attendance rate -->
-                <div
-                  v-if="kpis && !loading"
-                  class="mt-3 sm:mt-4 inline-flex max-w-full items-center gap-2.5 sm:gap-3 rounded-xl border border-white/20 bg-white/10 px-3 py-2 sm:px-4 sm:py-2.5 backdrop-blur-sm"
-                >
-                  <div class="shrink-0">
-                    <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Attendance rate</div>
-                    <div class="text-xl sm:text-2xl font-extrabold leading-none">{{ attendanceRate }}%</div>
-                  </div>
-                  <div class="h-8 sm:h-9 w-px shrink-0 bg-white/15" aria-hidden="true" />
-                  <div class="text-xs text-white/70 leading-relaxed">
-                    <div><span class="font-semibold text-white">{{ kpis.present }}</span> present</div>
-                    <div><span class="font-semibold text-white">{{ kpis.late }}</span> late</div>
-                  </div>
-                </div>
-              </div>
-
-              <RouterLink
-                to="/dashboard/reports/attendance"
-                class="inline-flex w-full sm:w-auto items-center justify-center gap-2 self-stretch sm:self-start rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-semibold backdrop-blur-sm transition hover:bg-white/20 active:scale-95"
-              >
-                <UIcon name="i-lucide-calendar-check-2" class="size-4 shrink-0" />
-                Review attendance
-                <UIcon name="i-lucide-arrow-right" class="size-4 shrink-0" />
-              </RouterLink>
-            </div>
-          </section>
-
           <!-- ── KPI STATS ────────────────────────────────────────── -->
           <UPageGrid class="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-px">
             <template v-if="loading">
