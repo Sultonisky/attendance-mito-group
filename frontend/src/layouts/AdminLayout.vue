@@ -29,13 +29,15 @@ const links = computed<NavigationMenuItem[][]>(() => [
 </script>
 
 <template>
-  <UDashboardGroup unit="rem" storage="local" storage-key="mito-sidebar">
+  <UDashboardGroup unit="rem" storage="local" storage-key="mito-sidebar" class="min-h-dvh">
     <!-- ── SIDEBAR ──────────────────────────────────────────────────── -->
     <UDashboardSidebar
       id="mito-admin"
       collapsible
       resizable
+      class="min-h-0"
       :ui="{
+        root: 'min-h-0',
         footer: 'lg:border-t lg:border-[var(--ui-border)]',
       }"
     >

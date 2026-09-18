@@ -1,49 +1,63 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, h, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { sub, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, format } from 'date-fns'
 import { VisXYContainer, VisLine, VisArea, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
-import { useElementSize } from '@vueuse/core'
-import type { DropdownMenuItem } from '@nuxt/ui'
+import { useElementSize, useMediaQuery } from '@vueuse/core'
+import type { ColumnFiltersState, RowSelectionState, SortingState, VisibilityState } from '@tanstack/vue-table'
+import type { DropdownMenuItem, TableColumn } from '@nuxt/ui'
 import { useDashboard } from '../composables/useDashboard'
 import { useAuthStore } from '../stores/auth'
 import { ApiError } from '../services/apiClient'
-import { fetchDashboardKpis } from '../services/dashboardApi'
-import type { DashboardKpiData } from '../types/dashboard'
+import {
+  fetchDashboardAttendanceTrend,
+  fetchDashboardKpis,
+  fetchDashboardStaffToday,
+  fetchSystemHealth,
+} from '../services/dashboardApi'
+import type {
+  DashboardKpiData,
+  DashboardStaffRow,
+  DashboardTrendPoint,
+  SystemHealthSnapshot,
+} from '../types/dashboard'
 import DashboardKpiCard from '../components/DashboardKpiCard.vue'
+import DataTableToolbar from '../components/DataTableToolbar.vue'
+import { createSortableHeader, createStatusBadge, UCheckbox, DATA_TABLE_UI } from '../utils/dataTable'
+import { useDataTableDisplay } from '../composables/useDataTableDisplay'
 
-const router  = useRouter()
-const auth    = useAuthStore()
+const router = useRouter()
+const auth = useAuthStore()
 const { isNotificationsSlideoverOpen } = useDashboard()
 
-// ── date range + period ──────────────────────────────────────────────
 type Period = 'daily' | 'weekly' | 'monthly'
-type Range  = { start: Date; end: Date }
+type Range = { start: Date; end: Date }
 
-const range  = shallowRef<Range>({ start: sub(new Date(), { days: 14 }), end: new Date() })
+const range = shallowRef<Range>({ start: sub(new Date(), { days: 14 }), end: new Date() })
 const period = ref<Period>('daily')
 
 const periodOptions = [
-  { label: 'Daily',   value: 'daily'   as Period },
-  { label: 'Weekly',  value: 'weekly'  as Period },
+  { label: 'Daily', value: 'daily' as Period },
+  { label: 'Weekly', value: 'weekly' as Period },
   { label: 'Monthly', value: 'monthly' as Period },
 ]
 
-// ── quick-add dropdown ───────────────────────────────────────────────
 const addItems: DropdownMenuItem[][] = [[
-  { label: 'View attendance',  icon: 'i-lucide-calendar-check-2', to: '/dashboard/reports/attendance' },
-  { label: 'View leave',       icon: 'i-lucide-calendar-off',     to: '/dashboard/reports/leave'      },
-  { label: 'View overtime',    icon: 'i-lucide-bar-chart-3',      to: '/dashboard/reports/overtime'   },
+  { label: 'View attendance', icon: 'i-lucide-calendar-check-2', to: '/dashboard/reports/attendance' },
+  { label: 'View leave', icon: 'i-lucide-calendar-off', to: '/dashboard/reports/leave' },
+  { label: 'View overtime', icon: 'i-lucide-bar-chart-3', to: '/dashboard/reports/overtime' },
 ]]
 
-// ── KPI data ─────────────────────────────────────────────────────────
 const loading = ref(true)
-const error   = ref('')
-const kpis    = ref<DashboardKpiData | null>(null)
+const error = ref('')
+const kpis = ref<DashboardKpiData | null>(null)
+const trendPoints = ref<DashboardTrendPoint[]>([])
+const tableRows = ref<DashboardStaffRow[]>([])
+const systemHealth = ref<SystemHealthSnapshot | null>(null)
 
 const greeting = computed(() => {
-  const h = new Date().getHours()
-  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
+  const hour = new Date().getHours()
+  return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 })
 
 const firstName = computed(() => auth.user?.name?.split(' ')[0] ?? 'Admin')
@@ -54,18 +68,37 @@ const attendanceRate = computed(() => {
   return total === 0 ? 0 : Math.round(((kpis.value.present + kpis.value.late) / total) * 100)
 })
 
+const periodAverageRate = computed(() => {
+  if (!chartData.value.length) return attendanceRate.value
+  const sum = chartData.value.reduce((acc, point) => acc + point.value, 0)
+  return Math.round(sum / chartData.value.length)
+})
+
 function formatDate(dateStr: string): string {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString(undefined, {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
 }
 
+function formatRefreshedAt(iso: string | undefined): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
 async function load(): Promise<void> {
   loading.value = true
-  error.value   = ''
+  error.value = ''
   try {
-    const response = await fetchDashboardKpis()
-    kpis.value = response.data
+    const [kpiResponse, staffResponse, health] = await Promise.all([
+      fetchDashboardKpis(),
+      fetchDashboardStaffToday(),
+      fetchSystemHealth(),
+    ])
+    kpis.value = kpiResponse.data
+    tableRows.value = staffResponse.data
+    systemHealth.value = health
+    rowSelection.value = {}
+    await loadTrend()
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 401) { await router.push({ name: 'login.admin' }); return }
@@ -79,28 +112,78 @@ async function load(): Promise<void> {
   }
 }
 
+async function loadTrend(): Promise<void> {
+  const from = format(range.value.start, 'yyyy-MM-dd')
+  const to = format(range.value.end, 'yyyy-MM-dd')
+  const response = await fetchDashboardAttendanceTrend(from, to)
+  trendPoints.value = response.data
+  rebuildChart()
+}
+
+function rebuildChart(): void {
+  const byDate = new Map(trendPoints.value.map(point => [point.date, point.rate]))
+
+  if (period.value === 'daily') {
+    chartData.value = eachDayOfInterval(range.value).map(date => ({
+      date,
+      value: byDate.get(format(date, 'yyyy-MM-dd')) ?? 0,
+    }))
+    return
+  }
+
+  if (period.value === 'weekly') {
+    chartData.value = eachWeekOfInterval(range.value).map(weekStart => {
+      const weekEnd = new Date(Math.min(
+        weekStart.getTime() + 6 * 24 * 60 * 60 * 1000,
+        range.value.end.getTime(),
+      ))
+      const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
+        .filter(day => day >= range.value.start && day <= range.value.end)
+
+      const rates = weekDays
+        .map(day => byDate.get(format(day, 'yyyy-MM-dd')))
+        .filter((rate): rate is number => rate !== undefined)
+
+      return {
+        date: weekStart,
+        value: rates.length ? Math.round(rates.reduce((a, b) => a + b, 0) / rates.length) : 0,
+      }
+    })
+    return
+  }
+
+  chartData.value = eachMonthOfInterval(range.value).map(monthStart => {
+    const monthRates = trendPoints.value
+      .filter(point => {
+        const d = new Date(`${point.date}T00:00:00`)
+        return d.getFullYear() === monthStart.getFullYear() && d.getMonth() === monthStart.getMonth()
+      })
+      .map(point => point.rate)
+
+    return {
+      date: monthStart,
+      value: monthRates.length
+        ? Math.round(monthRates.reduce((a, b) => a + b, 0) / monthRates.length)
+        : 0,
+    }
+  })
+}
+
 onMounted(load)
 
-// ── chart ─────────────────────────────────────────────────────────────
+watch(range, () => {
+  void loadTrend().catch(() => {
+    /* trend errors are non-blocking once KPIs loaded */
+  })
+})
+
+watch(period, rebuildChart)
+
 type ChartPoint = { date: Date; value: number }
 
-const chartRef  = useTemplateRef<HTMLElement>('chartRef')
+const chartRef = useTemplateRef<HTMLElement>('chartRef')
 const chartData = ref<ChartPoint[]>([])
 const { width: chartWidth } = useElementSize(chartRef)
-
-watch([period, range], () => {
-  const intervals = {
-    daily:   eachDayOfInterval,
-    weekly:  eachWeekOfInterval,
-    monthly: eachMonthOfInterval,
-  } as Record<Period, typeof eachDayOfInterval>
-
-  const dates = intervals[period.value](range.value)
-  chartData.value = dates.map(date => ({
-    date,
-    value: Math.floor(Math.random() * 50) + 50, // mock attendance %
-  }))
-}, { immediate: true })
 
 const chartX = (_: ChartPoint, i: number) => i
 const chartY = (d: ChartPoint) => d.value
@@ -116,103 +199,140 @@ const xTicks = (i: number): string => {
 const crosshairTemplate = (d: ChartPoint): string =>
   `${format(d.date, period.value === 'monthly' ? 'MMM yyyy' : 'd MMM')}: ${d.value}%`
 
-// ── dashboard table ─────────────────────────────────────────────────
-type TableStatus = 'all' | 'present' | 'late' | 'on_leave'
-type DashboardTableRow = {
-  id: number
-  name: string
-  email: string
-  location: string
-  status: 'Present' | 'Late' | 'On leave'
-}
-
-const tableRows = ref<DashboardTableRow[]>([
-  { id: 1101, name: 'Ayu Dewi', email: 'ayu.dewi@mitogroup.com', location: 'Jakarta', status: 'Present' },
-  { id: 1102, name: 'Budi Santoso', email: 'budi.santoso@mitogroup.com', location: 'Bandung', status: 'Late' },
-  { id: 1103, name: 'Citra Maharani', email: 'citra.maharani@mitogroup.com', location: 'Surabaya', status: 'On leave' },
-  { id: 1104, name: 'Dimas Pratama', email: 'dimas.pratama@mitogroup.com', location: 'Semarang', status: 'Present' },
-  { id: 1105, name: 'Eka Putri', email: 'eka.putri@mitogroup.com', location: 'Medan', status: 'Late' },
-  { id: 1106, name: 'Fajar Nugroho', email: 'fajar.nugroho@mitogroup.com', location: 'Yogyakarta', status: 'Present' },
-])
-
+const tableStatusFilter = ref('all')
 const tableSearch = ref('')
-const tableStatusFilter = ref<TableStatus>('all')
-const tableSort = reactive<{ key: keyof DashboardTableRow; direction: 'asc' | 'desc' }>({
-  key: 'id',
-  direction: 'asc',
-})
+const columnFilters = ref<ColumnFiltersState>([])
+const columnVisibility = ref<VisibilityState>({})
+const rowSelection = ref<RowSelectionState>({})
+const sorting = ref<SortingState>([{ id: 'name', desc: false }])
+
+/** Compact phones/tablets: hide secondary columns so the staff table stays readable. */
+const isCompactViewport = useMediaQuery('(max-width: 767px)')
+watch(isCompactViewport, (compact) => {
+  columnVisibility.value = {
+    ...columnVisibility.value,
+    id: !compact,
+    email: !compact,
+    location: !compact,
+  }
+}, { immediate: true })
 
 const tableFilterOptions = [
   { label: 'All', value: 'all' },
-  { label: 'Present', value: 'present' },
-  { label: 'Late', value: 'late' },
-  { label: 'On leave', value: 'on_leave' },
+  { label: 'Present', value: 'Present' },
+  { label: 'Late', value: 'Late' },
+  { label: 'On leave', value: 'On leave' },
+  { label: 'Absent', value: 'Absent' },
 ]
 
-const tableColumns = [
-  { key: 'id', label: 'ID' },
-  { key: 'name', label: 'Name' },
-  { key: 'email', label: 'Email' },
-  { key: 'location', label: 'Location' },
-  { key: 'status', label: 'Status' },
-] as const
+const hideableColumns = [
+  { id: 'id', label: 'ID' },
+  { id: 'name', label: 'Name' },
+  { id: 'email', label: 'Email' },
+  { id: 'location', label: 'Location' },
+  { id: 'status', label: 'Status' },
+]
 
-const visibleTableRows = computed(() => {
-  const query = tableSearch.value.trim().toLowerCase()
+const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
-  const filtered = tableRows.value.filter((row) => {
-    const matchesQuery = !query || [row.id, row.name, row.email, row.location, row.status]
-      .join(' ')
-      .toLowerCase()
-      .includes(query)
+const tableUi = computed(() => ({
+  ...DATA_TABLE_UI,
+  base: isCompactViewport.value
+    ? 'table-auto border-separate border-spacing-0 w-full text-sm'
+    : DATA_TABLE_UI.base,
+  th: isCompactViewport.value
+    ? 'first:rounded-l-lg last:rounded-r-lg border-y border-[var(--ui-border)] first:border-l last:border-r px-2.5 py-2 text-xs font-semibold tracking-wide text-[var(--ui-text-muted)] whitespace-nowrap'
+    : DATA_TABLE_UI.th,
+  td: isCompactViewport.value
+    ? 'border-b border-[var(--ui-border)] px-2.5 py-2 whitespace-nowrap'
+    : DATA_TABLE_UI.td,
+}))
 
-    const matchesStatus =
-      tableStatusFilter.value === 'all' ||
-      (tableStatusFilter.value === 'present' && row.status === 'Present') ||
-      (tableStatusFilter.value === 'late' && row.status === 'Late') ||
-      (tableStatusFilter.value === 'on_leave' && row.status === 'On leave')
-
-    return matchesQuery && matchesStatus
-  })
-
-  const sorted = [...filtered].sort((a, b) => {
-    const left = a[tableSort.key]
-    const right = b[tableSort.key]
-    const direction = tableSort.direction === 'asc' ? 1 : -1
-
-    if (typeof left === 'number' && typeof right === 'number') {
-      return (left - right) * direction
-    }
-
-    return String(left).localeCompare(String(right)) * direction
-  })
-
-  return sorted
-})
-
-function sortTable(key: keyof DashboardTableRow): void {
-  if (tableSort.key === key) {
-    tableSort.direction = tableSort.direction === 'asc' ? 'desc' : 'asc'
-    return
-  }
-
-  tableSort.key = key
-  tableSort.direction = 'asc'
-}
-
-function getStatusColor(status: DashboardTableRow['status']): 'success' | 'warning' | 'neutral' {
+function getStatusColor(status: DashboardStaffRow['status']): 'success' | 'warning' | 'neutral' | 'error' {
   if (status === 'Present') return 'success'
   if (status === 'Late') return 'warning'
+  if (status === 'Absent') return 'error'
   return 'neutral'
 }
 
-function getStatusText(status: DashboardTableRow['status']): string {
-  return status === 'On leave' ? 'On leave' : status
+const tableColumns: TableColumn<DashboardStaffRow>[] = [
+  {
+    id: 'select',
+    header: ({ table: tableApi }) => h(UCheckbox, {
+      'modelValue': tableApi.getIsSomePageRowsSelected()
+        ? 'indeterminate'
+        : tableApi.getIsAllPageRowsSelected(),
+      'onUpdate:modelValue': (value: unknown) => tableApi.toggleAllPageRowsSelected(!!value),
+      'aria-label': 'Select all',
+    }),
+    cell: ({ row }) => h(UCheckbox, {
+      'modelValue': row.getIsSelected(),
+      'onUpdate:modelValue': (value: unknown) => row.toggleSelected(!!value),
+      'aria-label': 'Select row',
+    }),
+    enableSorting: false,
+    enableHiding: false,
+  },
+  {
+    accessorKey: 'id',
+    header: ({ column }) => createSortableHeader(column, 'ID'),
+  },
+  {
+    accessorKey: 'name',
+    header: ({ column }) => createSortableHeader(column, 'Name'),
+  },
+  {
+    accessorKey: 'email',
+    header: ({ column }) => createSortableHeader(column, 'Email'),
+  },
+  {
+    accessorKey: 'location',
+    header: ({ column }) => createSortableHeader(column, 'Location'),
+  },
+  {
+    accessorKey: 'status',
+    header: ({ column }) => createSortableHeader(column, 'Status'),
+    filterFn: 'equals',
+    cell: ({ row }) => {
+      const status = row.getValue<DashboardStaffRow['status']>('status')
+      return createStatusBadge(status, getStatusColor(status))
+    },
+  },
+]
+
+const selectedCount = computed(() => Object.values(rowSelection.value).filter(Boolean).length)
+
+watch([tableSearch, tableStatusFilter], () => {
+  const next: ColumnFiltersState = []
+  if (tableSearch.value.trim()) next.push({ id: 'email', value: tableSearch.value.trim() })
+  if (tableStatusFilter.value !== 'all') next.push({ id: 'status', value: tableStatusFilter.value })
+  columnFilters.value = next
+})
+
+function deleteSelectedRows(): void {
+  const ids = new Set(
+    Object.entries(rowSelection.value)
+      .filter(([, selected]) => selected)
+      .map(([id]) => Number(id)),
+  )
+  if (!ids.size) return
+  tableRows.value = tableRows.value.filter(row => !ids.has(row.id))
+  rowSelection.value = {}
 }
+
+function getTableRowId(row: DashboardStaffRow): string {
+  return String(row.id)
+}
+
+const healthServices = computed(() => [
+  { label: 'Attendance API', ok: systemHealth.value?.app_ok ?? false },
+  { label: 'AI Face Service', ok: systemHealth.value?.ai_ok ?? false },
+  { label: 'Biometric storage', ok: systemHealth.value?.app_ok ?? false },
+])
 </script>
 
 <template>
-  <UDashboardPanel id="dashboard-home">
+  <UDashboardPanel id="dashboard-home" class="min-w-0">
 
     <!-- ── NAVBAR ─────────────────────────────────────────────────── -->
     <template #header>
@@ -251,55 +371,62 @@ function getStatusText(status: DashboardTableRow['status']): string {
       </UDashboardNavbar>
 
       <!-- ── TOOLBAR ────────────────────────────────────────────── -->
-      <UDashboardToolbar>
+      <UDashboardToolbar :ui="{ root: 'flex-wrap gap-2 py-2 sm:py-0' }">
         <template #left>
-          <!-- Date range: start -->
-          <UPopover>
-            <UButton
-              color="neutral"
-              variant="outline"
-              :icon="'i-lucide-calendar'"
-              class="-ms-1"
-            >
-              {{ format(range.start, 'd MMM') }} – {{ format(range.end, 'd MMM yyyy') }}
-            </UButton>
-            <template #content>
-              <div class="p-3 space-y-2 text-sm">
-                <p class="text-muted font-medium">Quick ranges</p>
-                <div class="space-y-1">
-                  <button
-                    v-for="opt in [
-                      { label: 'Last 7 days',  days: 7  },
-                      { label: 'Last 14 days', days: 14 },
-                      { label: 'Last 30 days', days: 30 },
-                      { label: 'Last 90 days', days: 90 },
-                    ]"
-                    :key="opt.days"
-                    class="block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-elevated transition-colors"
-                    @click="range = { start: sub(new Date(), { days: opt.days }), end: new Date() }"
-                  >
-                    {{ opt.label }}
-                  </button>
+          <div class="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto">
+            <UPopover>
+              <UButton
+                color="neutral"
+                variant="outline"
+                icon="i-lucide-calendar"
+                class="min-w-0 max-w-full"
+                size="sm"
+              >
+                <span class="truncate sm:hidden">
+                  {{ format(range.start, 'd/M') }}–{{ format(range.end, 'd/M/yy') }}
+                </span>
+                <span class="hidden sm:inline">
+                  {{ format(range.start, 'd MMM') }} – {{ format(range.end, 'd MMM yyyy') }}
+                </span>
+              </UButton>
+              <template #content>
+                <div class="p-3 space-y-2 text-sm w-[min(100vw-2rem,16rem)]">
+                  <p class="text-muted font-medium">Quick ranges</p>
+                  <div class="space-y-1">
+                    <button
+                      v-for="opt in [
+                        { label: 'Last 7 days',  days: 7  },
+                        { label: 'Last 14 days', days: 14 },
+                        { label: 'Last 30 days', days: 30 },
+                        { label: 'Last 90 days', days: 90 },
+                      ]"
+                      :key="opt.days"
+                      class="block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-elevated transition-colors"
+                      @click="range = { start: sub(new Date(), { days: opt.days }), end: new Date() }"
+                    >
+                      {{ opt.label }}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </template>
-          </UPopover>
+              </template>
+            </UPopover>
 
-          <!-- Period select -->
-          <USelect
-            v-model="period"
-            :items="periodOptions"
-            value-key="value"
-            label-key="label"
-            size="sm"
-          />
+            <USelect
+              v-model="period"
+              :items="periodOptions"
+              value-key="value"
+              label-key="label"
+              size="sm"
+              class="w-[7.5rem] shrink-0"
+            />
+          </div>
         </template>
       </UDashboardToolbar>
     </template>
 
     <!-- ── PAGE BODY ──────────────────────────────────────────────── -->
     <template #body>
-      <div class="p-4 sm:p-6 space-y-6">
+      <div class="p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-5 md:space-y-6 min-w-0">
 
         <!-- Error alert -->
         <UAlert
@@ -322,33 +449,37 @@ function getStatusText(status: DashboardTableRow['status']): string {
 
           <!-- ── HERO BANNER ──────────────────────────────────────── -->
           <section
-            class="relative overflow-hidden rounded-2xl p-6 text-white sm:p-8"
+            class="relative overflow-hidden rounded-xl sm:rounded-2xl p-4 text-white sm:p-6 md:p-8"
             style="background: linear-gradient(135deg, #eb1c24 0%, #c5151d 42%, #1a2845 100%);"
             aria-label="Dashboard overview"
           >
             <!-- Decorative rings -->
-            <span class="pointer-events-none absolute -right-8 -top-8 h-44 w-44 rounded-full bg-white/[0.04]" aria-hidden="true" />
-            <span class="pointer-events-none absolute -bottom-10 right-16 h-56 w-56 rounded-full bg-white/[0.03]" aria-hidden="true" />
+            <span class="pointer-events-none absolute -right-8 -top-8 h-32 w-32 sm:h-44 sm:w-44 rounded-full bg-white/[0.04]" aria-hidden="true" />
+            <span class="pointer-events-none absolute -bottom-10 right-8 sm:right-16 h-40 w-40 sm:h-56 sm:w-56 rounded-full bg-white/[0.03]" aria-hidden="true" />
 
-            <div class="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <div class="mito-badge mb-3 w-fit">
+            <div class="relative flex flex-col gap-4 sm:gap-5 md:flex-row md:items-end md:justify-between">
+              <div class="min-w-0">
+                <div class="mito-badge mb-2 sm:mb-3 w-fit">
                   <span class="mito-pulse-dot" aria-hidden="true" />
                   Live Operations
                 </div>
-                <h2 class="text-2xl font-extrabold tracking-tight sm:text-3xl">
+                <h2 class="text-xl font-extrabold tracking-tight sm:text-2xl md:text-3xl break-words">
                   {{ greeting }}, {{ firstName }}.
                 </h2>
-                <p v-if="kpis" class="mt-1.5 text-sm text-white/75">
-                  {{ formatDate(kpis.date) }}
+                <p v-if="kpis" class="mt-1.5 text-xs sm:text-sm text-white/75">
+                  <span class="sm:hidden">{{ format(new Date(`${kpis.date}T00:00:00`), 'd MMM yyyy') }}</span>
+                  <span class="hidden sm:inline">{{ formatDate(kpis.date) }}</span>
                 </p>
                 <!-- Attendance rate -->
-                <div v-if="kpis && !loading" class="mt-4 inline-flex items-center gap-3 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 backdrop-blur-sm">
-                  <div>
+                <div
+                  v-if="kpis && !loading"
+                  class="mt-3 sm:mt-4 inline-flex max-w-full items-center gap-2.5 sm:gap-3 rounded-xl border border-white/20 bg-white/10 px-3 py-2 sm:px-4 sm:py-2.5 backdrop-blur-sm"
+                >
+                  <div class="shrink-0">
                     <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Attendance rate</div>
-                    <div class="text-2xl font-extrabold leading-none">{{ attendanceRate }}%</div>
+                    <div class="text-xl sm:text-2xl font-extrabold leading-none">{{ attendanceRate }}%</div>
                   </div>
-                  <div class="h-9 w-px bg-white/15" aria-hidden="true" />
+                  <div class="h-8 sm:h-9 w-px shrink-0 bg-white/15" aria-hidden="true" />
                   <div class="text-xs text-white/70 leading-relaxed">
                     <div><span class="font-semibold text-white">{{ kpis.present }}</span> present</div>
                     <div><span class="font-semibold text-white">{{ kpis.late }}</span> late</div>
@@ -358,17 +489,17 @@ function getStatusText(status: DashboardTableRow['status']): string {
 
               <RouterLink
                 to="/dashboard/reports/attendance"
-                class="inline-flex items-center gap-2 self-start rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-semibold backdrop-blur-sm transition hover:bg-white/20 active:scale-95"
+                class="inline-flex w-full sm:w-auto items-center justify-center gap-2 self-stretch sm:self-start rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-semibold backdrop-blur-sm transition hover:bg-white/20 active:scale-95"
               >
-                <UIcon name="i-lucide-calendar-check-2" class="size-4" />
+                <UIcon name="i-lucide-calendar-check-2" class="size-4 shrink-0" />
                 Review attendance
-                <UIcon name="i-lucide-arrow-right" class="size-4" />
+                <UIcon name="i-lucide-arrow-right" class="size-4 shrink-0" />
               </RouterLink>
             </div>
           </section>
 
           <!-- ── KPI STATS ────────────────────────────────────────── -->
-          <UPageGrid class="lg:grid-cols-4 gap-4 sm:gap-5 lg:gap-px">
+          <UPageGrid class="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-px">
             <template v-if="loading">
               <DashboardKpiCard
                 v-for="lbl in ['Present', 'Absent', 'Late', 'On leave']"
@@ -376,7 +507,7 @@ function getStatusText(status: DashboardTableRow['status']): string {
                 :label="lbl"
                 :value="0"
                 loading
-                class="lg:rounded-none first:rounded-l-xl last:rounded-r-xl"
+                class="rounded-xl lg:rounded-none lg:first:rounded-l-xl lg:last:rounded-r-xl"
               />
             </template>
             <template v-else-if="kpis">
@@ -385,28 +516,28 @@ function getStatusText(status: DashboardTableRow['status']): string {
                 :value="kpis.present"
                 icon="i-lucide-circle-check-big"
                 caption="Checked in today"
-                class="lg:rounded-none first:rounded-l-xl last:rounded-r-xl hover:z-1"
+                class="rounded-xl lg:rounded-none lg:first:rounded-l-xl lg:last:rounded-r-xl hover:z-1"
               />
               <DashboardKpiCard
                 label="Absent"
                 :value="kpis.absent"
                 icon="i-lucide-triangle-alert"
                 caption="Needs follow-up"
-                class="lg:rounded-none first:rounded-l-xl last:rounded-r-xl hover:z-1"
+                class="rounded-xl lg:rounded-none lg:first:rounded-l-xl lg:last:rounded-r-xl hover:z-1"
               />
               <DashboardKpiCard
                 label="Late"
                 :value="kpis.late"
                 icon="i-lucide-clock"
                 caption="After schedule"
-                class="lg:rounded-none first:rounded-l-xl last:rounded-r-xl hover:z-1"
+                class="rounded-xl lg:rounded-none lg:first:rounded-l-xl lg:last:rounded-r-xl hover:z-1"
               />
               <DashboardKpiCard
                 label="On leave"
                 :value="kpis.on_leave"
                 icon="i-lucide-calendar-off"
                 caption="Approved leave"
-                class="lg:rounded-none first:rounded-l-xl last:rounded-r-xl hover:z-1"
+                class="rounded-xl lg:rounded-none lg:first:rounded-l-xl lg:last:rounded-r-xl hover:z-1"
               />
             </template>
           </UPageGrid>
@@ -414,188 +545,118 @@ function getStatusText(status: DashboardTableRow['status']): string {
           <!-- ── CHART ────────────────────────────────────────────── -->
           <UCard
             ref="chartRef"
-            :ui="{ root: 'overflow-visible', body: 'px-0! pt-0! pb-3!' }"
+            class="min-w-0"
+            :ui="{ root: 'overflow-hidden sm:overflow-visible', body: 'px-0! pt-0! pb-3!' }"
           >
             <template #header>
-              <div class="flex items-start justify-between gap-4">
-                <div>
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                <div class="min-w-0">
                   <p class="text-xs text-muted uppercase tracking-wide mb-1">
                     Attendance trend
                   </p>
-                  <p class="text-2xl font-semibold text-highlighted">
-                    {{ attendanceRate }}% <span class="text-base font-normal text-muted">avg this period</span>
+                  <p class="text-xl sm:text-2xl font-semibold text-highlighted">
+                    {{ periodAverageRate }}%
+                    <span class="text-sm sm:text-base font-normal text-muted">avg this period</span>
                   </p>
                 </div>
-                <UBadge color="primary" variant="subtle">
+                <UBadge color="primary" variant="subtle" class="self-start shrink-0">
                   {{ period.charAt(0).toUpperCase() + period.slice(1) }}
                 </UBadge>
               </div>
             </template>
 
-            <VisXYContainer
-              :data="chartData"
-              :padding="{ top: 40 }"
-              :margin="{ left: -5, right: -5 }"
-              class="h-64 unovis-xy-container"
-              :width="chartWidth"
-            >
-              <VisLine  :x="chartX" :y="chartY" color="var(--ui-primary)" />
-              <VisArea  :x="chartX" :y="chartY" color="var(--ui-primary)" :opacity="0.1" />
-              <VisAxis  type="x" :x="chartX" :tick-format="xTicks" />
-              <VisCrosshair :x="chartX" :y="chartY" color="var(--ui-primary)" :template="crosshairTemplate" />
-              <VisTooltip />
-            </VisXYContainer>
+            <div class="w-full min-w-0 overflow-x-auto">
+              <VisXYContainer
+                :data="chartData"
+                :padding="{ top: 40 }"
+                :margin="{ left: -5, right: -5 }"
+                class="h-48 sm:h-56 md:h-64 unovis-xy-container min-w-[280px]"
+                :width="Math.max(chartWidth || 0, 280)"
+              >
+                <VisLine  :x="chartX" :y="chartY" color="var(--ui-primary)" />
+                <VisArea  :x="chartX" :y="chartY" color="var(--ui-primary)" :opacity="0.1" />
+                <VisAxis  type="x" :x="chartX" :tick-format="xTicks" />
+                <VisCrosshair :x="chartX" :y="chartY" color="var(--ui-primary)" :template="crosshairTemplate" />
+                <VisTooltip />
+              </VisXYContainer>
+            </div>
           </UCard>
 
           <!-- ── BOTTOM ROW ─────────────────────────────────────── -->
-          <div class="grid gap-4 xl:grid-cols-[1.45fr_0.55fr]">
+          <div class="grid gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(16rem,0.55fr)]">
 
             <!-- Staff table -->
-            <UCard :ui="{ root: 'overflow-hidden', body: 'p-0!' }">
-              <div class="border-b border-[var(--ui-border)] px-4 py-3 sm:px-5">
-                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                  <UInput
-                    v-model="tableSearch"
-                    placeholder="Filter emails..."
-                    icon="i-lucide-search"
-                    size="lg"
-                    class="max-w-md"
-                  />
-
-                  <div class="flex items-center gap-2 self-end xl:self-auto">
-                    <UButton
-                      color="error"
-                      variant="outline"
-                      :ui="{ base: 'border-red-500/60 text-red-500 hover:bg-red-500/5' }"
-                      class="rounded-xl"
-                    >
-                      <template #leading>
-                        <UIcon name="i-lucide-trash-2" class="size-4" />
-                      </template>
-                      Delete
-                      <UBadge color="error" size="xs" class="min-w-5 justify-center rounded-full">1</UBadge>
-                    </UButton>
-
-                    <USelect
-                      v-model="tableStatusFilter"
-                      :items="tableFilterOptions"
-                      value-key="value"
-                      label-key="label"
-                      size="lg"
-                      class="min-w-[110px]"
-                    />
-
-                    <UButton color="neutral" variant="outline" class="rounded-xl">
-                      Display
-                      <template #trailing>
-                        <UIcon name="i-lucide-sliders-horizontal" class="size-4" />
-                      </template>
-                    </UButton>
-                  </div>
-                </div>
-
-                <div class="mt-4">
-                  <UTabs
-                    v-model="tableStatusFilter"
-                    :items="tableFilterOptions"
-                    :ui="{ list: 'gap-2', trigger: 'rounded-lg px-3 py-2 text-sm font-medium', indicator: 'rounded-lg shadow-sm' }"
-                  />
-                </div>
+            <UCard class="min-w-0" :ui="{ root: 'overflow-hidden', body: 'p-0!' }">
+              <div class="border-b border-[var(--ui-border)] px-3 py-3 sm:px-5">
+                <DataTableToolbar
+                  v-model:search="tableSearch"
+                  v-model:status="tableStatusFilter"
+                  search-placeholder="Filter emails..."
+                  :status-options="tableFilterOptions"
+                  :display-items="displayItems"
+                  :selected-count="selectedCount"
+                  show-delete
+                  @delete="deleteSelectedRows"
+                />
               </div>
 
               <div class="overflow-x-auto">
-                <table class="min-w-full border-separate border-spacing-0 text-sm">
-                  <thead class="bg-[var(--ui-bg-elevated)]/90 text-left">
-                    <tr>
-                      <th class="w-16 border-y border-[var(--ui-border)] px-4 py-3 text-left">
-                        <div class="flex items-center gap-2">
-                          <span class="h-3.5 w-3.5 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" />
-                        </div>
-                      </th>
-                      <th
-                        v-for="column in tableColumns"
-                        :key="column.key"
-                        class="border-y border-[var(--ui-border)] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ui-text-muted)]"
-                      >
-                        <button
-                          type="button"
-                          class="inline-flex items-center gap-1.5 transition hover:text-[var(--ui-text)]"
-                          :class="tableSort.key === column.key ? 'text-[var(--ui-text)]' : 'text-[var(--ui-text-muted)]'"
-                          @click="sortTable(column.key)"
-                        >
-                          {{ column.label }}
-                          <UIcon
-                            v-if="tableSort.key === column.key"
-                            :name="tableSort.direction === 'asc' ? 'i-lucide-arrow-up' : 'i-lucide-arrow-down'"
-                            class="size-3.5"
-                          />
-                          <UIcon
-                            v-else
-                            name="i-lucide-arrow-up-down"
-                            class="size-3.5 opacity-60"
-                          />
-                        </button>
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    <tr v-for="row in visibleTableRows" :key="row.id" class="group hover:bg-[var(--ui-bg-muted)]/80">
-                      <td class="border-b border-[var(--ui-border)] px-4 py-3">
-                        <div class="flex items-center justify-center">
-                          <input type="checkbox" class="h-4 w-4 rounded border-[var(--ui-border)] bg-transparent text-primary focus:ring-primary" />
-                        </div>
-                      </td>
-                      <td class="border-b border-[var(--ui-border)] px-4 py-3 font-medium text-[var(--ui-text)]">{{ row.id }}</td>
-                      <td class="border-b border-[var(--ui-border)] px-4 py-3 text-[var(--ui-text)]">{{ row.name }}</td>
-                      <td class="border-b border-[var(--ui-border)] px-4 py-3 text-[var(--ui-text-muted)]">{{ row.email }}</td>
-                      <td class="border-b border-[var(--ui-border)] px-4 py-3 text-[var(--ui-text-muted)]">{{ row.location }}</td>
-                      <td class="border-b border-[var(--ui-border)] px-4 py-3">
-                        <UBadge :color="getStatusColor(row.status)" variant="subtle" class="capitalize">
-                          {{ getStatusText(row.status) }}
-                        </UBadge>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                <UTable
+                  v-model:column-filters="columnFilters"
+                  v-model:column-visibility="columnVisibility"
+                  v-model:row-selection="rowSelection"
+                  v-model:sorting="sorting"
+                  :data="tableRows"
+                  :columns="tableColumns"
+                  :get-row-id="getTableRowId"
+                  class="shrink-0 min-w-[20rem] sm:min-w-0"
+                  :ui="tableUi"
+                />
               </div>
             </UCard>
 
             <!-- System status -->
-            <UCard :ui="{ body: 'p-5 sm:p-6' }">
+            <UCard class="min-w-0" :ui="{ body: 'p-4 sm:p-5 md:p-6' }">
               <div class="flex items-center justify-between gap-3">
                 <p class="text-xs text-muted uppercase tracking-wide">System status</p>
-                <UBadge color="success" variant="subtle" class="text-xs">
+                <UBadge
+                  :color="systemHealth?.overall_ok ? 'success' : 'error'"
+                  variant="subtle"
+                  class="text-xs shrink-0"
+                >
                   <template #leading>
-                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <span
+                      class="h-1.5 w-1.5 rounded-full"
+                      :class="systemHealth?.overall_ok ? 'bg-emerald-500' : 'bg-red-500'"
+                    />
                   </template>
-                  Operational
+                  {{ systemHealth?.overall_ok ? 'Operational' : 'Degraded' }}
                 </UBadge>
               </div>
 
-              <h3 class="mt-2 text-base font-semibold text-highlighted">Everything is up</h3>
+              <h3 class="mt-2 text-base font-semibold text-highlighted">
+                {{ systemHealth?.overall_ok ? 'Everything is up' : 'Service issues detected' }}
+              </h3>
 
               <ul class="mt-4 space-y-2.5">
                 <li
-                  v-for="svc in [
-                    { label: 'Attendance API',    ok: true },
-                    { label: 'AI Face Service',   ok: true },
-                    { label: 'Biometric storage', ok: true },
-                  ]"
+                  v-for="svc in healthServices"
                   :key="svc.label"
-                  class="flex items-center justify-between text-sm"
+                  class="flex items-center justify-between gap-3 text-sm"
                 >
-                  <span class="text-muted">{{ svc.label }}</span>
-                  <span class="flex items-center gap-1.5 text-xs font-semibold" :class="svc.ok ? 'text-success' : 'text-error'">
+                  <span class="text-muted truncate">{{ svc.label }}</span>
+                  <span class="flex items-center gap-1.5 text-xs font-semibold shrink-0" :class="svc.ok ? 'text-success' : 'text-error'">
                     <span class="h-1.5 w-1.5 rounded-full" :class="svc.ok ? 'bg-emerald-500' : 'bg-red-500'" />
                     {{ svc.ok ? 'Online' : 'Degraded' }}
                   </span>
                 </li>
               </ul>
 
-              <div class="mt-5 flex items-center justify-between border-t border-[var(--ui-border)] pt-4 text-xs">
+              <div class="mt-5 flex items-center justify-between gap-3 border-t border-[var(--ui-border)] pt-4 text-xs">
                 <span class="text-muted">Last refreshed</span>
-                <strong class="font-semibold text-highlighted">Just now</strong>
+                <strong class="font-semibold text-highlighted tabular-nums">
+                  {{ formatRefreshedAt(systemHealth?.refreshed_at) }}
+                </strong>
               </div>
             </UCard>
           </div>
