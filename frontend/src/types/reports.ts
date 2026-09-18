@@ -117,6 +117,7 @@ export type OutsourceAttendanceReportFilters = {
   status: string
   search: string
   per_page: number
+  page?: number
   sort: string
   direction: 'asc' | 'desc'
 }
