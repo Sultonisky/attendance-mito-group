@@ -47,7 +47,7 @@ class GeofenceRule
     private function validateScalar(WorkLocation $workLocation, float $latitude, float $longitude, ?float $radiusMeters = null): void
     {
         if ($workLocation->latitude === null || $workLocation->longitude === null) {
-            return;
+            throw new OutsideGeofenceException('Work location coordinates are not configured.');
         }
 
         $distance = $this->haversineDistance(
