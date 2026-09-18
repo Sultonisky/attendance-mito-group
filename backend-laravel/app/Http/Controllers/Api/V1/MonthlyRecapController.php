@@ -28,16 +28,22 @@ class MonthlyRecapController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $employee = $this->employeeFor($request);
-        if ($employee === null) {
-            return response()->json(['success' => false, 'error' => 'Employee record not found.'], 404);
-        }
+        $user = $request->user();
+        $privileged = $user->can('monthly_recap.generate')
+            || $user->can('monthly_recap.review')
+            || $user->can('monthly_recap.finalize')
+            || $user->can('monthly_recap.export');
 
-        $privileged = $request->user()->can('monthly_recap.generate')
-            || $request->user()->can('monthly_recap.review')
-            || $request->user()->can('monthly_recap.finalize')
-            || $request->user()->can('monthly_recap.export');
-        $query = $privileged ? MonthlyRecap::query() : MonthlyRecap::where('employee_id', $employee->id);
+        if (! $privileged) {
+            $employee = $this->employeeFor($request);
+            if ($employee === null) {
+                return response()->json(['success' => false, 'error' => 'Employee record not found.'], 404);
+            }
+
+            $query = MonthlyRecap::where('employee_id', $employee->id);
+        } else {
+            $query = MonthlyRecap::query();
+        }
 
         if ($privileged && $request->filled('employee_id')) {
             $query->where('employee_id', (int) $request->integer('employee_id'));
@@ -50,17 +56,21 @@ class MonthlyRecapController extends Controller
 
     public function show(Request $request, MonthlyRecap $monthlyRecap): JsonResponse
     {
-        $employee = $this->employeeFor($request);
-        if ($employee === null) {
-            return response()->json(['success' => false, 'error' => 'Employee record not found.'], 404);
-        }
+        $user = $request->user();
+        $privileged = $user->can('monthly_recap.generate')
+            || $user->can('monthly_recap.review')
+            || $user->can('monthly_recap.finalize')
+            || $user->can('monthly_recap.export');
 
-        $privileged = $request->user()->can('monthly_recap.generate')
-            || $request->user()->can('monthly_recap.review')
-            || $request->user()->can('monthly_recap.finalize')
-            || $request->user()->can('monthly_recap.export');
-        if (! $privileged && (int) $monthlyRecap->employee_id !== (int) $employee->id) {
-            return response()->json(['success' => false, 'error' => 'Monthly recap not found.'], 404);
+        if (! $privileged) {
+            $employee = $this->employeeFor($request);
+            if ($employee === null) {
+                return response()->json(['success' => false, 'error' => 'Employee record not found.'], 404);
+            }
+
+            if ((int) $monthlyRecap->employee_id !== (int) $employee->id) {
+                return response()->json(['success' => false, 'error' => 'Monthly recap not found.'], 404);
+            }
         }
 
         return (new MonthlyRecapResource($monthlyRecap))->response();

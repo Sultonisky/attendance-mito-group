@@ -78,6 +78,19 @@ class MonthlyRecapApiTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_admin_without_employee_profile_can_list_recaps(): void
+    {
+        [$userA, $employeeA] = $this->makeActiveUserAndEmployee();
+        MonthlyRecap::create(['employee_id' => $employeeA->id, 'period' => '2026-09', 'status' => 'draft']);
+
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo('monthly_recap.view');
+
+        $this->actingAs($admin, 'sanctum')->getJson('/api/v1/monthly-recaps')
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
+
     public function test_show_ownership_check(): void
     {
         [$userA, $employeeA] = $this->makeActiveUserAndEmployee();
