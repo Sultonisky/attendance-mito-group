@@ -7,6 +7,7 @@ use App\Domain\Attendance\DTOs\AttendanceOperationData;
 use App\Domain\Attendance\Engines\AttendanceEngine;
 use App\Domain\Attendance\Exceptions\AttendanceAlreadyCheckedInException;
 use App\Domain\Attendance\Exceptions\AttendanceBlockedByPolicyException;
+use App\Domain\Attendance\Exceptions\InvalidLocationException;
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
 use App\Enums\AttendanceEventType;
 use App\Exceptions\Domain\InactiveSubjectException;
@@ -50,6 +51,13 @@ class OutsourceCheckIn
                 'success' => false,
                 'error' => 'OUTSIDE_GEOFENCE',
                 'message' => 'You are outside the attendance location.',
+                'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
+            ];
+        } catch (InvalidLocationException $e) {
+            return [
+                'success' => false,
+                'error' => 'INVALID_LOCATION',
+                'message' => $e->getMessage(),
                 'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
             ];
         } catch (InactiveSubjectException $e) {

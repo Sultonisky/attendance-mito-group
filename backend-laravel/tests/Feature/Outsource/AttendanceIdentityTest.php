@@ -15,6 +15,7 @@ use App\Models\WorkLocation;
 use App\Models\WorkSchedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class AttendanceIdentityTest extends TestCase
@@ -113,6 +114,10 @@ class AttendanceIdentityTest extends TestCase
 
     public function test_attendance_record_cannot_have_two_subjects(): void
     {
+        if (Schema::getConnection()->getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('Database CHECK constraint enforcement is PostgreSQL-specific.');
+        }
+
         $employee = Employee::factory()->create();
         $outsource = Outsource::factory()->create();
 
@@ -129,6 +134,10 @@ class AttendanceIdentityTest extends TestCase
 
     public function test_attendance_record_cannot_have_no_subject(): void
     {
+        if (Schema::getConnection()->getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('Database CHECK constraint enforcement is PostgreSQL-specific.');
+        }
+
         $this->expectException(\Illuminate\Database\QueryException::class);
 
         AttendanceRecord::create([

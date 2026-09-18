@@ -9,8 +9,16 @@ use App\Domain\Attendance\Exceptions\InvalidLocationException;
  */
 class GpsValidationRule
 {
-    public function validate(float $latitude, float $longitude, ?float $accuracyMeters): void
+    public function validate(float $latitude, float $longitude, ?float $accuracyMeters, ?float $maxAccuracyMeters = null): void
     {
+        if (! is_finite($latitude)) {
+            throw new InvalidLocationException('Invalid latitude.');
+        }
+
+        if (! is_finite($longitude)) {
+            throw new InvalidLocationException('Invalid longitude.');
+        }
+
         if ($latitude < -90 || $latitude > 90) {
             throw new InvalidLocationException('Invalid latitude.');
         }
@@ -19,8 +27,12 @@ class GpsValidationRule
             throw new InvalidLocationException('Invalid longitude.');
         }
 
-        if ($accuracyMeters !== null && $accuracyMeters < 0) {
+        if ($accuracyMeters !== null && (! is_finite($accuracyMeters) || $accuracyMeters < 0)) {
             throw new InvalidLocationException('Invalid accuracy.');
+        }
+
+        if ($accuracyMeters !== null && $maxAccuracyMeters !== null && $accuracyMeters > $maxAccuracyMeters) {
+            throw new InvalidLocationException('GPS accuracy is insufficient for attendance.');
         }
     }
 }

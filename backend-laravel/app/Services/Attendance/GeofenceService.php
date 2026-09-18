@@ -65,9 +65,9 @@ class GeofenceService
     {
         if ($location->latitude === null || $location->longitude === null || $location->radius_meters === null) {
             return [
-                'passed' => true,
+                'passed' => false,
                 'distance_meters' => null,
-                'method' => 'scalar_unverified',
+                'method' => 'scalar_unverified_rejected',
             ];
         }
 

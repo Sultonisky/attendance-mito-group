@@ -1,7 +1,23 @@
-const API_BASE_URL =
+const configuredApiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
+function resolveApiBaseUrl(): string {
+  const apiUrl = new URL(configuredApiBaseUrl);
+  const browserHost = window.location.hostname;
+  const isLocalHost = (host: string) => host === "localhost" || host === "127.0.0.1";
+
+  // Cookies are host-scoped, so localhost and 127.0.0.1 must not be mixed.
+  if (isLocalHost(browserHost) && isLocalHost(apiUrl.hostname)) {
+    apiUrl.hostname = browserHost;
+  }
+
+  return apiUrl.toString().replace(/\/$/, "");
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
+
 const API_ORIGIN = new URL(API_BASE_URL).origin;
+let csrfCookiePromise: Promise<void> | null = null;
 
 /**
  * Structured API error preserving the HTTP status and Laravel validation
@@ -36,10 +52,20 @@ function readXsrfToken(): string | null {
  * Must be called before the first mutating request of a session.
  */
 export async function fetchCsrfCookie(): Promise<void> {
-  await fetch(`${API_ORIGIN}/sanctum/csrf-cookie`, {
-    method: "GET",
-    credentials: "include",
-  });
+  if (!csrfCookiePromise) {
+    csrfCookiePromise = fetch(`${API_ORIGIN}/sanctum/csrf-cookie`, {
+      method: "GET",
+      credentials: "include",
+    }).then((response) => {
+      if (!response.ok) {
+        throw new ApiError(response.status, "Unable to initialize CSRF protection.");
+      }
+    }).finally(() => {
+      csrfCookiePromise = null;
+    });
+  }
+
+  await csrfCookiePromise;
 }
 
 export async function apiFetch<T>(
@@ -47,6 +73,10 @@ export async function apiFetch<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const method = (options.method ?? "GET").toUpperCase();
+
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method) && !readXsrfToken()) {
+    await fetchCsrfCookie();
+  }
 
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -107,6 +137,10 @@ export async function apiFetchFormData<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const method = (options.method ?? "GET").toUpperCase();
+
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method) && !readXsrfToken()) {
+    await fetchCsrfCookie();
+  }
 
   const headers: Record<string, string> = {
     Accept: "application/json",

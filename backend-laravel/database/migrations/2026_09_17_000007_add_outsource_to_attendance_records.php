@@ -20,10 +20,12 @@ return new class extends Migration
             $table->index(['attendable_type', 'attendance_date']);
         });
 
-        DB::statement('ALTER TABLE attendance_records ADD CONSTRAINT chk_attendance_subject CHECK ((employee_id IS NOT NULL AND outsource_id IS NULL) OR (employee_id IS NULL AND outsource_id IS NOT NULL))');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE attendance_records ADD CONSTRAINT chk_attendance_subject CHECK ((employee_id IS NOT NULL AND outsource_id IS NULL) OR (employee_id IS NULL AND outsource_id IS NOT NULL))');
+        }
 
-        DB::statement('CREATE UNIQUE INDEX attendance_records_employee_date_unique ON attendance_records (employee_id, attendance_date) WHERE employee_id IS NOT NULL');
-        DB::statement('CREATE UNIQUE INDEX attendance_records_outsource_date_unique ON attendance_records (outsource_id, attendance_date) WHERE outsource_id IS NOT NULL');
+        DB::statement('CREATE UNIQUE INDEX IF NOT EXISTS attendance_records_employee_date_unique ON attendance_records (employee_id, attendance_date) WHERE employee_id IS NOT NULL');
+        DB::statement('CREATE UNIQUE INDEX IF NOT EXISTS attendance_records_outsource_date_unique ON attendance_records (outsource_id, attendance_date) WHERE outsource_id IS NOT NULL');
     }
 
     public function down(): void
@@ -37,7 +39,10 @@ return new class extends Migration
             $table->dropColumn(['outsource_id', 'attendable_type']);
         });
 
-        DB::statement('ALTER TABLE attendance_records DROP CONSTRAINT IF EXISTS chk_attendance_subject');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE attendance_records DROP CONSTRAINT IF EXISTS chk_attendance_subject');
+        }
+
         DB::statement('DROP INDEX IF EXISTS attendance_records_employee_date_unique');
         DB::statement('DROP INDEX IF EXISTS attendance_records_outsource_date_unique');
     }

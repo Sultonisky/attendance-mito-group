@@ -43,4 +43,16 @@ class GeofenceRuleTest extends TestCase
         $this->expectException(OutsideGeofenceException::class);
         $this->rule->validate($location, -6.3, 106.9);
     }
+
+    public function test_missing_work_location_coordinates_fail_closed(): void
+    {
+        $location = WorkLocation::factory()->create([
+            'latitude' => null,
+            'longitude' => null,
+            'radius_meters' => 150,
+        ]);
+
+        $this->expectException(OutsideGeofenceException::class);
+        $this->rule->validate($location, -6.2, 106.8);
+    }
 }
