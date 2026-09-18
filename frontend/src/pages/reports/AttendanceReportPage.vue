@@ -1,31 +1,21 @@
 <script setup lang="ts">
-import { onMounted, ref, reactive } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import AppButton from '../../components/AppButton.vue'
-import { useAuthStore } from '../../stores/auth'
+import { computed, h, onMounted, reactive, ref, resolveComponent } from 'vue'
+import { useRoute } from 'vue-router'
+import type { TableColumn } from '@nuxt/ui'
+import { useReportPage } from '../../composables/useReportPage'
 import { fetchAttendanceReport } from '../../services/reports/attendanceReportApi'
-import { ApiError } from '../../services/apiClient'
 import ReportFilterBar from '../../components/ReportFilterBar.vue'
-import ReportPagination from '../../components/ReportPagination.vue'
+import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
 import type { AttendanceReportRow, ReportSortOption } from '../../types/reports'
+import { defaultReportDates } from '../../types/reportDates'
 
-const auth = useAuthStore()
-const route = useRoute()
-const router = useRouter()
+const route  = useRoute()
+const { loading, error, meta, handleApiError, applyMeta, goToPage, sortColumn } = useReportPage()
 
-const loading = ref(false)
-const error = ref('')
 const data = ref<AttendanceReportRow[]>([])
-const meta = reactive({
-  current_page: 1,
-  per_page: 25,
-  total: 0,
-  last_page: 1,
-})
 
 const filters = reactive({
-  from: '',
-  to: '',
+  ...defaultReportDates(),
   employee_id: '',
   per_page: 25,
   sort: 'attendance_date',
@@ -34,129 +24,140 @@ const filters = reactive({
 
 const sortOptions: ReportSortOption[] = [
   { label: 'Attendance Date', value: 'attendance_date' },
-  { label: 'Employee Name', value: 'employee_name' },
-  { label: 'Status', value: 'status' },
-  { label: 'Created At', value: 'created_at' },
+  { label: 'Employee Name',   value: 'employee_name'   },
+  { label: 'Status',          value: 'status'          },
+  { label: 'Created At',      value: 'created_at'      },
 ]
+
+const statusColor: Record<string, 'success' | 'warning' | 'error' | 'neutral'> = {
+  present:    'success',
+  late:       'warning',
+  absent:     'error',
+  on_leave:   'neutral',
+}
+
+const columns = computed<TableColumn<AttendanceReportRow>[]>(() => [
+  { accessorKey: 'employee_name', header: 'Employee' },
+  { accessorKey: 'attendance_date', header: 'Date' },
+  {
+    accessorKey: 'status',
+    header: 'Status',
+    cell: ({ row }) => {
+      const status = row.getValue<string>('status')
+      return h(resolveComponent('UBadge'), {
+        color: statusColor[status] ?? 'neutral',
+        variant: 'subtle',
+        class: 'capitalize',
+      }, () => status?.replace('_', ' ') ?? '-')
+    },
+  },
+  {
+    accessorKey: 'created_at',
+    header: 'Created At',
+    cell: ({ row }) => new Date(row.getValue<string>('created_at') + 'Z').toLocaleString(),
+  },
+])
 
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
-
+  error.value   = ''
   try {
-    const response = await fetchAttendanceReport({
-      from: filters.from,
-      to: filters.to,
+    const res = await fetchAttendanceReport({
+      from: filters.from, to: filters.to,
       employee_id: filters.employee_id || null,
-      per_page: filters.per_page,
-      sort: filters.sort,
-      direction: filters.direction,
+      per_page: filters.per_page, sort: filters.sort,
+      direction: filters.direction, page: meta.current_page,
     })
-    data.value = response.data
-    meta.current_page = response.meta.current_page
-    meta.per_page = response.meta.per_page
-    meta.total = response.meta.total
-    meta.last_page = response.meta.last_page
+    data.value = res.data
+    applyMeta(res.meta)
   } catch (err) {
-    if (err instanceof ApiError) {
-      if (err.status === 401) {
-        await router.push({ name: 'login.admin' })
-        return
-      }
-
-      if (err.status === 403) {
-        error.value = 'You do not have permission to view this report.'
-        return
-      }
-    }
-
-    error.value = 'Unable to load attendance report. Please try again.'
+    await handleApiError(err, 'Unable to load attendance report. Please try again.')
   } finally {
     loading.value = false
   }
 }
 
-function goToPage(page: number): void {
-  if (page < 1 || page > meta.last_page) return
-  load()
-}
-
 onMounted(() => {
-  const queryFrom = route.query.from
-  const queryTo = route.query.to
-  if (typeof queryFrom === 'string') filters.from = queryFrom
-  if (typeof queryTo === 'string') filters.to = queryTo
+  if (typeof route.query.from === 'string') filters.from = route.query.from
+  if (typeof route.query.to   === 'string') filters.to   = route.query.to
   load()
 })
 </script>
 
 <template>
-  <main class="report-page">
-    <header class="report-header">
-      <div class="header-left">
-        <img class="report-brand-logo" src="/images/mito.png" alt="MITO electronic" />
-        <RouterLink to="/reports" class="header-link">Reports</RouterLink>
-        <span class="header-separator" aria-hidden="true">/</span>
-        <span class="header-active">Attendance</span>
+  <UDashboardPanel id="attendance-report">
+    <template #header>
+      <UDashboardNavbar title="Attendance">
+        <template #leading>
+          <UDashboardSidebarCollapse />
+        </template>
+        <template #right>
+          <UButton
+            color="neutral" variant="outline" size="sm"
+            icon="i-lucide-refresh-cw" :loading="loading"
+            @click="load"
+          >Refresh</UButton>
+        </template>
+      </UDashboardNavbar>
+      <UDashboardToolbar>
+        <template #left>
+          <ReportFilterBar
+            :filters="filters" :loading="loading" :sort-options="sortOptions"
+            @update:from="filters.from = $event"
+            @update:to="filters.to = $event"
+            @update:employee_id="filters.employee_id = $event"
+            @update:per_page="filters.per_page = $event"
+            @update:sort="v => sortColumn(v, filters.direction, filters, load)"
+            @update:direction="v => sortColumn(filters.sort, v, filters, load)"
+            @search="() => { meta.current_page = 1; load() }"
+          />
+        </template>
+      </UDashboardToolbar>
+    </template>
+
+    <template #body>
+      <div class="p-4 sm:p-6 space-y-4">
+
+        <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-triangle-alert"
+          title="Failed to load" :description="error">
+          <template #actions>
+            <UButton color="primary" variant="subtle" size="sm" icon="i-lucide-refresh-cw" @click="load">Retry</UButton>
+          </template>
+        </UAlert>
+
+        <template v-else>
+          <ReportDataToolbar :total="meta.total" :rows="data" filename="attendance-report" :loading="loading" />
+
+          <UTable
+            :data="data"
+            :columns="columns"
+            :loading="loading"
+            :ui="{
+              base: 'table-fixed border-separate border-spacing-0 w-full text-sm',
+              thead: '[&>tr]:bg-[var(--ui-bg-elevated)]/60 [&>tr]:after:content-none',
+              tbody: '[&>tr]:last:[&>td]:border-b-0',
+              th: 'first:rounded-l-lg last:rounded-r-lg border-y border-[var(--ui-border)] first:border-l last:border-r px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--ui-text-muted)]',
+              td: 'border-b border-[var(--ui-border)] px-3 py-2.5',
+            }"
+          />
+
+          <div v-if="!loading && !data.length" class="py-16 text-center">
+            <UIcon name="i-lucide-calendar-x" class="mx-auto mb-3 size-10 text-[var(--ui-text-dimmed)]" />
+            <p class="text-sm text-[var(--ui-text-muted)]">No attendance records found for the selected filters.</p>
+          </div>
+
+          <div v-if="meta.last_page > 1" class="flex items-center justify-between gap-4 border-t border-[var(--ui-border)] pt-4">
+            <p class="text-xs text-[var(--ui-text-muted)]">
+              Page {{ meta.current_page }} of {{ meta.last_page }}
+            </p>
+            <UPagination
+              :page="meta.current_page" :total="meta.last_page" :items-per-page="1"
+              show-edges :disabled="loading"
+              @update:page="goToPage($event, load)"
+            />
+          </div>
+        </template>
       </div>
-      <div v-if="auth.isAuthenticated" class="header-right">
-        <span>{{ auth.user?.name }} ({{ auth.user?.email }})</span>
-      </div>
-    </header>
-
-    <section class="report-body">
-      <ReportFilterBar
-        :filters="filters"
-        :loading="loading"
-        :sort-options="sortOptions"
-        @update:from="filters.from = $event"
-        @update:to="filters.to = $event"
-        @update:employee_id="filters.employee_id = $event"
-        @update:per_page="filters.per_page = $event"
-        @update:sort="filters.sort = $event"
-        @update:direction="filters.direction = $event"
-        @search="load"
-      />
-
-      <section v-if="error" class="report-error" role="alert">
-        <p>{{ error }}</p>
-        <AppButton type="button" variant="secondary" @click="load">Retry</AppButton>
-      </section>
-
-      <section v-else-if="data.length" class="report-table-wrapper">
-        <table class="report-table">
-          <thead>
-            <tr>
-              <th>Employee</th>
-              <th>Date</th>
-              <th>Status</th>
-              <th>Created At</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in data" :key="row.id">
-              <td>{{ row.employee_name }}</td>
-              <td>{{ row.attendance_date }}</td>
-              <td>{{ row.status }}</td>
-              <td>{{ new Date(row.created_at + 'Z').toLocaleString() }}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <ReportPagination :meta="meta" :loading="loading" @update:page="goToPage" />
-      </section>
-
-      <section v-else-if="!loading" class="report-empty">
-        <p>No attendance records found for the selected filters.</p>
-      </section>
-
-      <section v-else class="report-loading" aria-label="Loading attendance report">
-        <p>Loading attendance report...</p>
-      </section>
-    </section>
-  </main>
+    </template>
+  </UDashboardPanel>
 </template>
-
-<style scoped>
-@import '../../styles/report-page.css';
-</style>

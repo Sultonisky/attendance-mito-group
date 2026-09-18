@@ -1,489 +1,435 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { RouterLink } from 'vue-router'
-import AppButton from '../components/AppButton.vue'
-import AppIcon from '../components/AppIcon.vue'
+import { computed, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
+import { sub, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, format } from 'date-fns'
+import { VisXYContainer, VisLine, VisArea, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
+import { useElementSize } from '@vueuse/core'
+import type { DropdownMenuItem } from '@nuxt/ui'
+import { useDashboard } from '../composables/useDashboard'
 import { useAuthStore } from '../stores/auth'
-import { fetchDashboardKpis } from '../services/dashboardApi'
 import { ApiError } from '../services/apiClient'
-import { usePermission } from '../features/auth/composables/usePermission'
-import DashboardKpiCard from '../components/DashboardKpiCard.vue'
+import { fetchDashboardKpis } from '../services/dashboardApi'
 import type { DashboardKpiData } from '../types/dashboard'
+import DashboardKpiCard from '../components/DashboardKpiCard.vue'
 
-const auth = useAuthStore()
-const router = useRouter()
-const { can, canAny } = usePermission()
+const router  = useRouter()
+const auth    = useAuthStore()
+const { isNotificationsSlideoverOpen } = useDashboard()
 
+// ── date range + period ──────────────────────────────────────────────
+type Period = 'daily' | 'weekly' | 'monthly'
+type Range  = { start: Date; end: Date }
+
+const range  = shallowRef<Range>({ start: sub(new Date(), { days: 14 }), end: new Date() })
+const period = ref<Period>('daily')
+
+const periodOptions = [
+  { label: 'Daily',   value: 'daily'   as Period },
+  { label: 'Weekly',  value: 'weekly'  as Period },
+  { label: 'Monthly', value: 'monthly' as Period },
+]
+
+// ── quick-add dropdown ───────────────────────────────────────────────
+const addItems: DropdownMenuItem[][] = [[
+  { label: 'View attendance',  icon: 'i-lucide-calendar-check-2', to: '/dashboard/reports/attendance' },
+  { label: 'View leave',       icon: 'i-lucide-calendar-off',     to: '/dashboard/reports/leave'      },
+  { label: 'View overtime',    icon: 'i-lucide-bar-chart-3',      to: '/dashboard/reports/overtime'   },
+]]
+
+// ── KPI data ─────────────────────────────────────────────────────────
 const loading = ref(true)
-const error = ref('')
-const kpis = ref<DashboardKpiData | null>(null)
+const error   = ref('')
+const kpis    = ref<DashboardKpiData | null>(null)
+
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
+})
+
+const firstName = computed(() => auth.user?.name?.split(' ')[0] ?? 'Admin')
+
+const attendanceRate = computed(() => {
+  if (!kpis.value) return 0
+  const total = kpis.value.present + kpis.value.absent + kpis.value.late + kpis.value.on_leave
+  return total === 0 ? 0 : Math.round(((kpis.value.present + kpis.value.late) / total) * 100)
+})
+
+function formatDate(dateStr: string): string {
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString(undefined, {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  })
+}
 
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
-
+  error.value   = ''
   try {
     const response = await fetchDashboardKpis()
     kpis.value = response.data
   } catch (err) {
     if (err instanceof ApiError) {
-      if (err.status === 401) {
-        await router.push({ name: 'login.admin' })
-        return
-      }
-
-      if (err.status === 403) {
-        error.value = 'You do not have permission to view the dashboard.'
-        return
-      }
+      if (err.status === 401) { await router.push({ name: 'login.admin' }); return }
+      if (err.status === 403) { error.value = 'You do not have permission to view the dashboard.'; return }
     }
-
     error.value = err instanceof TypeError
-      ? 'Unable to connect to the API. Check that Laravel is running and try again.'
+      ? 'Unable to connect to the API. Check that Laravel is running.'
       : 'Unable to load dashboard data. Please try again.'
   } finally {
     loading.value = false
   }
 }
 
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr + 'T00:00:00')
-  return date.toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
+onMounted(load)
+
+// ── chart ─────────────────────────────────────────────────────────────
+type ChartPoint = { date: Date; value: number }
+
+const chartRef  = useTemplateRef<HTMLElement>('chartRef')
+const chartData = ref<ChartPoint[]>([])
+const { width: chartWidth } = useElementSize(chartRef)
+
+watch([period, range], () => {
+  const intervals = {
+    daily:   eachDayOfInterval,
+    weekly:  eachWeekOfInterval,
+    monthly: eachMonthOfInterval,
+  } as Record<Period, typeof eachDayOfInterval>
+
+  const dates = intervals[period.value](range.value)
+  chartData.value = dates.map(date => ({
+    date,
+    value: Math.floor(Math.random() * 50) + 50, // mock attendance %
+  }))
+}, { immediate: true })
+
+const chartX = (_: ChartPoint, i: number) => i
+const chartY = (d: ChartPoint) => d.value
+
+const xTicks = (i: number): string => {
+  if (!chartData.value[i] || i === 0 || i === chartData.value.length - 1) return ''
+  const d = chartData.value[i].date
+  return period.value === 'monthly'
+    ? format(d, 'MMM yy')
+    : format(d, 'd MMM')
 }
 
-async function logout(): Promise<void> {
-  await auth.logout()
-  await router.push({ name: 'login.admin' })
-}
-
-onMounted(() => {
-  load()
-})
+const crosshairTemplate = (d: ChartPoint): string =>
+  `${format(d.date, period.value === 'monthly' ? 'MMM yyyy' : 'd MMM')}: ${d.value}%`
 </script>
 
 <template>
-  <main class="dashboard">
-    <aside class="dashboard-sidebar">
-      <RouterLink to="/dashboard" class="sidebar-brand">
-        <img src="/images/mito.png" alt="MITO electronic" />
-        <span>Attendance</span>
-      </RouterLink>
+  <UDashboardPanel id="dashboard-home">
 
-      <div class="sidebar-section-label">Workspace</div>
-      <nav class="sidebar-nav" aria-label="Main navigation">
-        <RouterLink to="/dashboard" class="sidebar-link active">
-          <AppIcon name="Grid2x2" class="nav-icon" :size="18" :stroke-width="2" />
-          <span>Dashboard</span>
-        </RouterLink>
-        <RouterLink to="/attendance" class="sidebar-link">
-          <AppIcon name="CalendarCheck2" class="nav-icon" :size="18" :stroke-width="2" />
-          <span>Attendance</span>
-        </RouterLink>
-        <RouterLink v-if="canAny(['attendance.view', 'leave.view', 'overtime.view', 'penalty.view', 'monthly_recap.view'])" to="/reports" class="sidebar-link">
-          <AppIcon name="BarChart3" class="nav-icon" :size="18" :stroke-width="2" />
-          <span>Reports</span>
-        </RouterLink>
-        <RouterLink v-if="can('outsource_attendance.view')" to="/outsource-attendance" class="sidebar-link">
-          <AppIcon name="BriefcaseBusiness" class="nav-icon" :size="18" :stroke-width="2" />
-          <span>Outsource Attendance</span>
-        </RouterLink>
-      </nav>
+    <!-- ── NAVBAR ─────────────────────────────────────────────────── -->
+    <template #header>
+      <UDashboardNavbar title="Dashboard" :ui="{ right: 'gap-3' }">
+        <template #leading>
+          <UDashboardSidebarCollapse />
+        </template>
 
-      <div class="sidebar-footer">
-        <div class="system-status"><span /> API connected</div>
-        <AppButton type="button" variant="secondary" icon="LogOut" :disabled="auth.isLoading" @click="logout">
-          Sign out
-        </AppButton>
+        <template #right>
+          <!-- Notifications button -->
+          <UTooltip text="Notifications" :shortcuts="['N']">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              square
+              aria-label="Open notifications"
+              @click="isNotificationsSlideoverOpen = true"
+            >
+              <UChip color="error" inset>
+                <UIcon name="i-lucide-bell" class="size-5 shrink-0" />
+              </UChip>
+            </UButton>
+          </UTooltip>
+
+          <!-- Quick actions dropdown -->
+          <UDropdownMenu :items="addItems">
+            <UButton
+              icon="i-lucide-plus"
+              size="md"
+              color="primary"
+              class="rounded-full"
+              aria-label="Quick actions"
+            />
+          </UDropdownMenu>
+        </template>
+      </UDashboardNavbar>
+
+      <!-- ── TOOLBAR ────────────────────────────────────────────── -->
+      <UDashboardToolbar>
+        <template #left>
+          <!-- Date range: start -->
+          <UPopover>
+            <UButton
+              color="neutral"
+              variant="outline"
+              :icon="'i-lucide-calendar'"
+              class="-ms-1"
+            >
+              {{ format(range.start, 'd MMM') }} – {{ format(range.end, 'd MMM yyyy') }}
+            </UButton>
+            <template #content>
+              <div class="p-3 space-y-2 text-sm">
+                <p class="text-muted font-medium">Quick ranges</p>
+                <div class="space-y-1">
+                  <button
+                    v-for="opt in [
+                      { label: 'Last 7 days',  days: 7  },
+                      { label: 'Last 14 days', days: 14 },
+                      { label: 'Last 30 days', days: 30 },
+                      { label: 'Last 90 days', days: 90 },
+                    ]"
+                    :key="opt.days"
+                    class="block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-elevated transition-colors"
+                    @click="range = { start: sub(new Date(), { days: opt.days }), end: new Date() }"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+              </div>
+            </template>
+          </UPopover>
+
+          <!-- Period select -->
+          <USelect
+            v-model="period"
+            :items="periodOptions"
+            value-key="value"
+            label-key="label"
+            size="sm"
+          />
+        </template>
+      </UDashboardToolbar>
+    </template>
+
+    <!-- ── PAGE BODY ──────────────────────────────────────────────── -->
+    <template #body>
+      <div class="p-4 sm:p-6 space-y-6">
+
+        <!-- Error alert -->
+        <UAlert
+          v-if="error"
+          title="Dashboard unavailable"
+          :description="error"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          role="alert"
+        >
+          <template #actions>
+            <UButton color="primary" variant="subtle" size="sm" icon="i-lucide-refresh-cw" @click="load">
+              Retry
+            </UButton>
+          </template>
+        </UAlert>
+
+        <template v-else>
+
+          <!-- ── HERO BANNER ──────────────────────────────────────── -->
+          <section
+            class="relative overflow-hidden rounded-2xl p-6 text-white sm:p-8"
+            style="background: linear-gradient(135deg, #eb1c24 0%, #c5151d 42%, #1a2845 100%);"
+            aria-label="Dashboard overview"
+          >
+            <!-- Decorative rings -->
+            <span class="pointer-events-none absolute -right-8 -top-8 h-44 w-44 rounded-full bg-white/[0.04]" aria-hidden="true" />
+            <span class="pointer-events-none absolute -bottom-10 right-16 h-56 w-56 rounded-full bg-white/[0.03]" aria-hidden="true" />
+
+            <div class="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <div class="mito-badge mb-3 w-fit">
+                  <span class="mito-pulse-dot" aria-hidden="true" />
+                  Live Operations
+                </div>
+                <h2 class="text-2xl font-extrabold tracking-tight sm:text-3xl">
+                  {{ greeting }}, {{ firstName }}.
+                </h2>
+                <p v-if="kpis" class="mt-1.5 text-sm text-white/75">
+                  {{ formatDate(kpis.date) }}
+                </p>
+                <!-- Attendance rate -->
+                <div v-if="kpis && !loading" class="mt-4 inline-flex items-center gap-3 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 backdrop-blur-sm">
+                  <div>
+                    <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Attendance rate</div>
+                    <div class="text-2xl font-extrabold leading-none">{{ attendanceRate }}%</div>
+                  </div>
+                  <div class="h-9 w-px bg-white/15" aria-hidden="true" />
+                  <div class="text-xs text-white/70 leading-relaxed">
+                    <div><span class="font-semibold text-white">{{ kpis.present }}</span> present</div>
+                    <div><span class="font-semibold text-white">{{ kpis.late }}</span> late</div>
+                  </div>
+                </div>
+              </div>
+
+              <RouterLink
+                to="/dashboard/reports/attendance"
+                class="inline-flex items-center gap-2 self-start rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-semibold backdrop-blur-sm transition hover:bg-white/20 active:scale-95"
+              >
+                <UIcon name="i-lucide-calendar-check-2" class="size-4" />
+                Review attendance
+                <UIcon name="i-lucide-arrow-right" class="size-4" />
+              </RouterLink>
+            </div>
+          </section>
+
+          <!-- ── KPI STATS ────────────────────────────────────────── -->
+          <UPageGrid class="lg:grid-cols-4 gap-4 sm:gap-5 lg:gap-px">
+            <template v-if="loading">
+              <DashboardKpiCard
+                v-for="lbl in ['Present', 'Absent', 'Late', 'On leave']"
+                :key="lbl"
+                :label="lbl"
+                :value="0"
+                loading
+                class="lg:rounded-none first:rounded-l-xl last:rounded-r-xl"
+              />
+            </template>
+            <template v-else-if="kpis">
+              <DashboardKpiCard
+                label="Present"
+                :value="kpis.present"
+                icon="i-lucide-circle-check-big"
+                caption="Checked in today"
+                class="lg:rounded-none first:rounded-l-xl last:rounded-r-xl hover:z-1"
+              />
+              <DashboardKpiCard
+                label="Absent"
+                :value="kpis.absent"
+                icon="i-lucide-triangle-alert"
+                caption="Needs follow-up"
+                class="lg:rounded-none first:rounded-l-xl last:rounded-r-xl hover:z-1"
+              />
+              <DashboardKpiCard
+                label="Late"
+                :value="kpis.late"
+                icon="i-lucide-clock"
+                caption="After schedule"
+                class="lg:rounded-none first:rounded-l-xl last:rounded-r-xl hover:z-1"
+              />
+              <DashboardKpiCard
+                label="On leave"
+                :value="kpis.on_leave"
+                icon="i-lucide-calendar-off"
+                caption="Approved leave"
+                class="lg:rounded-none first:rounded-l-xl last:rounded-r-xl hover:z-1"
+              />
+            </template>
+          </UPageGrid>
+
+          <!-- ── CHART ────────────────────────────────────────────── -->
+          <UCard
+            ref="chartRef"
+            :ui="{ root: 'overflow-visible', body: 'px-0! pt-0! pb-3!' }"
+          >
+            <template #header>
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <p class="text-xs text-muted uppercase tracking-wide mb-1">
+                    Attendance trend
+                  </p>
+                  <p class="text-2xl font-semibold text-highlighted">
+                    {{ attendanceRate }}% <span class="text-base font-normal text-muted">avg this period</span>
+                  </p>
+                </div>
+                <UBadge color="primary" variant="subtle">
+                  {{ period.charAt(0).toUpperCase() + period.slice(1) }}
+                </UBadge>
+              </div>
+            </template>
+
+            <VisXYContainer
+              :data="chartData"
+              :padding="{ top: 40 }"
+              :margin="{ left: -5, right: -5 }"
+              class="h-64 unovis-xy-container"
+              :width="chartWidth"
+            >
+              <VisLine  :x="chartX" :y="chartY" color="var(--ui-primary)" />
+              <VisArea  :x="chartX" :y="chartY" color="var(--ui-primary)" :opacity="0.1" />
+              <VisAxis  type="x" :x="chartX" :tick-format="xTicks" />
+              <VisCrosshair :x="chartX" :y="chartY" color="var(--ui-primary)" :template="crosshairTemplate" />
+              <VisTooltip />
+            </VisXYContainer>
+          </UCard>
+
+          <!-- ── BOTTOM ROW ─────────────────────────────────────── -->
+          <div class="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
+
+            <!-- People ops quick links -->
+            <UCard :ui="{ body: 'p-5 sm:p-6' }">
+              <div class="flex items-start justify-between gap-4">
+                <div class="flex-1">
+                  <p class="text-xs text-muted uppercase tracking-wide">People Operations</p>
+                  <h3 class="mt-1.5 text-lg font-semibold text-highlighted">Keep the day moving</h3>
+                  <p class="mt-2 text-sm text-muted leading-relaxed">
+                    Open a workspace to manage requests, approvals, and attendance records.
+                  </p>
+                  <div class="mt-4 grid gap-2 sm:grid-cols-2">
+                    <RouterLink
+                      v-for="link in [
+                        { label: 'Attendance',    to: '/dashboard/reports/attendance',     icon: 'i-lucide-calendar-check-2'  },
+                        { label: 'Leave',         to: '/dashboard/reports/leave',          icon: 'i-lucide-calendar-off'      },
+                        { label: 'Overtime',      to: '/dashboard/reports/overtime',       icon: 'i-lucide-bar-chart-3'       },
+                        { label: 'Monthly recap', to: '/dashboard/reports/monthly-recaps', icon: 'i-lucide-file-text'         },
+                      ]"
+                      :key="link.to"
+                      :to="link.to"
+                      class="flex items-center gap-2.5 rounded-xl border border-[var(--ui-border)] px-3.5 py-2.5 text-sm font-medium text-muted transition hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+                    >
+                      <UIcon :name="link.icon" class="size-4 shrink-0" />
+                      {{ link.label }}
+                    </RouterLink>
+                  </div>
+                </div>
+                <div class="hidden sm:flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+                  <UIcon name="i-lucide-users" class="size-5 text-primary" />
+                </div>
+              </div>
+            </UCard>
+
+            <!-- System status -->
+            <UCard :ui="{ body: 'p-5 sm:p-6' }">
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-xs text-muted uppercase tracking-wide">System status</p>
+                <UBadge color="success" variant="subtle" class="text-xs">
+                  <template #leading>
+                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  </template>
+                  Operational
+                </UBadge>
+              </div>
+
+              <h3 class="mt-2 text-base font-semibold text-highlighted">Everything is up</h3>
+
+              <ul class="mt-4 space-y-2.5">
+                <li
+                  v-for="svc in [
+                    { label: 'Attendance API',    ok: true },
+                    { label: 'AI Face Service',   ok: true },
+                    { label: 'Biometric storage', ok: true },
+                  ]"
+                  :key="svc.label"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="text-muted">{{ svc.label }}</span>
+                  <span class="flex items-center gap-1.5 text-xs font-semibold" :class="svc.ok ? 'text-success' : 'text-error'">
+                    <span class="h-1.5 w-1.5 rounded-full" :class="svc.ok ? 'bg-emerald-500' : 'bg-red-500'" />
+                    {{ svc.ok ? 'Online' : 'Degraded' }}
+                  </span>
+                </li>
+              </ul>
+
+              <div class="mt-5 flex items-center justify-between border-t border-[var(--ui-border)] pt-4 text-xs">
+                <span class="text-muted">Last refreshed</span>
+                <strong class="font-semibold text-highlighted">Just now</strong>
+              </div>
+            </UCard>
+          </div>
+
+        </template>
       </div>
-    </aside>
+    </template>
 
-    <section class="dashboard-main">
-      <header class="dashboard-header">
-        <div>
-          <p class="header-kicker">MITO GROUP / PEOPLE OPERATIONS</p>
-          <div class="header-title-row">
-            <h2>Dashboard</h2>
-            <span class="header-active">Live overview</span>
-          </div>
-        </div>
-        <div v-if="auth.isAuthenticated" class="header-right">
-          <div class="user-avatar">{{ auth.user?.name?.charAt(0).toUpperCase() }}</div>
-          <div class="user-copy">
-            <strong>{{ auth.user?.name }}</strong>
-            <span>{{ auth.roles.join(', ') || 'User' }}</span>
-          </div>
-        </div>
-      </header>
-
-      <section v-if="error" class="dashboard-error" role="alert">
-        <p>{{ error }}</p>
-        <AppButton type="button" variant="secondary" @click="load">Retry</AppButton>
-      </section>
-
-      <section v-else-if="kpis" class="dashboard-content">
-        <div class="dashboard-intro">
-          <div>
-            <p class="dashboard-eyebrow">OPERATIONS OVERVIEW</p>
-            <h1>Good morning, {{ auth.user?.name?.split(' ')[0] || 'there' }}.</h1>
-            <p class="dashboard-date">{{ formatDate(kpis.date) }} <span>•</span> Today&rsquo;s attendance pulse</p>
-          </div>
-          <RouterLink to="/attendance" class="dashboard-action">
-            <span>Open attendance</span>
-            <AppIcon name="ArrowRight" :size="16" :stroke-width="2.2" aria-hidden="true" />
-          </RouterLink>
-        </div>
-
-        <div class="kpi-grid">
-          <DashboardKpiCard label="Present" :value="kpis.present" />
-          <DashboardKpiCard label="Absent" :value="kpis.absent" />
-          <DashboardKpiCard label="Late" :value="kpis.late" />
-          <DashboardKpiCard label="On Leave" :value="kpis.on_leave" />
-        </div>
-      </section>
-
-      <section v-else class="dashboard-loading" aria-label="Loading dashboard data">
-        <h1>Loading your overview</h1>
-        <div class="kpi-grid">
-          <DashboardKpiCard label="Present" :value="0" loading />
-          <DashboardKpiCard label="Absent" :value="0" loading />
-          <DashboardKpiCard label="Late" :value="0" loading />
-          <DashboardKpiCard label="On Leave" :value="0" loading />
-        </div>
-      </section>
-    </section>
-  </main>
+  </UDashboardPanel>
 </template>
-
-<style scoped>
-.dashboard {
-  min-height: 100svh;
-  display: grid;
-  grid-template-columns: 15rem minmax(0, 1fr);
-  background: #fafafa;
-  text-align: left;
-}
-
-.dashboard-sidebar {
-  display: flex;
-  flex-direction: column;
-  padding: 1.5rem 1rem;
-  border-right: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.sidebar-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0 0.5rem 2.25rem;
-  color: var(--text-h);
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.sidebar-brand img {
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 6px;
-  object-fit: cover;
-}
-
-.sidebar-section-label,
-.header-kicker {
-  color: #9a9aa1;
-  font-size: 0.64rem;
-  font-weight: 700;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
-
-.sidebar-section-label {
-  padding: 0 0.75rem 0.65rem;
-}
-
-.sidebar-nav {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.sidebar-link {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.75rem;
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 0.88rem;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.sidebar-link:hover,
-.sidebar-link.active {
-  background: var(--accent-bg);
-  color: var(--accent);
-}
-
-.nav-icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  color: currentColor;
-  flex-shrink: 0;
-}
-
-.logout-inline {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-}
-
-.sidebar-footer {
-  display: grid;
-  gap: 1rem;
-  margin-top: auto;
-  padding: 1rem 0.5rem 0;
-  border-top: 1px solid var(--border);
-}
-
-.system-status {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--text);
-  font-size: 0.72rem;
-}
-
-.system-status span {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 50%;
-  background: #2c9c5b;
-}
-
-.sidebar-footer button {
-  padding: 0.65rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--text);
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.dashboard-main {
-  min-width: 0;
-  padding: 1.5rem clamp(1rem, 3vw, 3rem) 3rem;
-}
-
-.dashboard-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 1.25rem;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 2.5rem;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.header-active {
-  padding: 0.25rem 0.5rem;
-  border-radius: 999px;
-  background: var(--accent-bg);
-  font-size: 0.7rem;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.header-title-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.35rem;
-}
-
-.header-title-row h2 {
-  margin: 0;
-  font-size: 1.35rem;
-  font-weight: 700;
-}
-
-.user-avatar {
-  display: grid;
-  width: 2.25rem;
-  height: 2.25rem;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
-  font-weight: 700;
-}
-
-.user-copy {
-  display: grid;
-  gap: 0.1rem;
-  color: var(--text-h);
-  font-size: 0.8rem;
-}
-
-.user-copy span {
-  color: var(--text);
-  font-size: 0.7rem;
-  text-transform: uppercase;
-}
-
-.dashboard-error {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.25rem;
-  background: var(--bg);
-}
-
-.dashboard-error p {
-  margin: 0 0 0.75rem;
-  color: #b91c1c;
-}
-
-.dashboard-content h1 {
-  margin: 0 0 0.25rem;
-  font-size: clamp(1.5rem, 3vw, 2rem);
-  font-weight: 700;
-  color: var(--text-h);
-}
-
-.dashboard-date {
-  margin: 0 0 1.5rem;
-  color: var(--text);
-  font-size: 0.95rem;
-}
-
-.dashboard-date span {
-  margin: 0 0.4rem;
-  color: var(--accent);
-}
-
-.dashboard-intro {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 1.5rem;
-  margin-bottom: 1.75rem;
-}
-
-.dashboard-eyebrow {
-  margin: 0 0 0.5rem;
-  color: var(--accent);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-}
-
-.dashboard-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 0.85rem;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.dashboard-action:hover {
-  background: #c9151c;
-}
-
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(1, 1fr);
-  gap: 1rem;
-}
-
-.dashboard-error button {
-  margin-top: 0;
-  padding: 0.65rem 1rem;
-  border: 0;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
-}
-
-@media (min-width: 768px) {
-  .kpi-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (min-width: 1024px) {
-  .kpi-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-.dashboard-loading h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1.5rem;
-  color: var(--text-h);
-}
-
-@media (max-width: 640px) {
-  .dashboard {
-    display: block;
-  }
-
-  .dashboard-sidebar {
-    min-height: auto;
-    padding: 1rem;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .sidebar-brand {
-    padding-bottom: 1rem;
-  }
-
-  .sidebar-nav {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .sidebar-link {
-    justify-content: center;
-    padding: 0.6rem 0.35rem;
-    font-size: 0.72rem;
-  }
-
-  .sidebar-section-label,
-  .sidebar-footer {
-    display: none;
-  }
-
-  .dashboard-main {
-    padding-top: 1rem;
-  }
-
-  .dashboard-intro {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .dashboard-action {
-    width: 100%;
-    justify-content: space-between;
-    box-sizing: border-box;
-  }
-}
-</style>

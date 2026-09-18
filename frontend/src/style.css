@@ -1,286 +1,171 @@
-:root {
-  --text: #5f5f66;
-  --text-h: #17171b;
-  --bg: #ffffff;
-  --border: #e8e8eb;
-  --code-bg: #f7f7f8;
-  --accent: #eb1c24;
-  --accent-bg: #fff1f2;
-  --accent-border: #f3a1a5;
-  --social-bg: #fafafa;
-  --surface: #ffffff;
-  --shadow: rgba(24, 24, 28, 0.08) 0 12px 28px -12px;
-  --sans: 'Trebuchet MS', 'Segoe UI', sans-serif;
-  --heading: 'Trebuchet MS', 'Segoe UI', sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+@import "tailwindcss" theme(static);
+@import "@nuxt/ui";
 
-  font: 16px/145% var(--sans);
-  color: var(--text);
-  background: var(--bg);
-  color-scheme: light;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+/* ─────────────────────────────────────────────
+   MITO BRAND — @theme static
+   Merah MITO + Navy sidebar
+───────────────────────────────────────────── */
+@theme static {
+  --font-sans: 'DM Sans', 'Inter', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+
+  /* MITO Red — overrides Tailwind's red to be MITO brand-exact */
+  --color-red-50:  #fff1f1;
+  --color-red-100: #ffe0e0;
+  --color-red-200: #ffc5c5;
+  --color-red-300: #ff9d9d;
+  --color-red-400: #ff6464;
+  --color-red-500: #eb1c24;
+  --color-red-600: #d01119;
+  --color-red-700: #ae0e15;
+  --color-red-800: #900f15;
+  --color-red-900: #781418;
+  --color-red-950: #410407;
+
+  /* MITO Navy */
+  --color-navy-50:  #f0f4fa;
+  --color-navy-100: #dce6f4;
+  --color-navy-200: #c0d0eb;
+  --color-navy-300: #96b2de;
+  --color-navy-400: #658bce;
+  --color-navy-500: #436dbc;
+  --color-navy-600: #3257a0;
+  --color-navy-700: #2a4582;
+  --color-navy-800: #273b6b;
+  --color-navy-900: #1a2845;
+  --color-navy-950: #0f1930;
+}
+
+/* Nuxt UI primary → MITO red in dark mode uses 500 swatch */
+.dark {
+  --ui-primary: var(--ui-color-primary-500);
+}
+
+/* ─────────────────────────────────────────────
+   MITO CSS TOKENS — light
+───────────────────────────────────────────── */
+:root {
+  --mito-red:          #eb1c24;
+  --mito-red-dark:     #ae0e15;
+  --mito-navy:         #1a2845;
+  --mito-bg:           #f4f7fb;
+  --mito-text:         #18212f;
+  --mito-muted:        #5f6c7b;
+  --mito-border:       #e2e8f0;
+  --mito-accent-bg:    rgba(235, 28, 36, 0.07);
+  --mito-accent-border:rgba(235, 28, 36, 0.22);
+  --mito-active-text:  #c5151d;
+  --mito-shadow:       0 8px 24px rgba(15, 23, 42, 0.09);
+  --mito-code-bg:      rgba(241, 245, 249, 0.8);
+
+  /* compat aliases */
+  --accent:        var(--mito-red);
+  --accent-bg:     var(--mito-accent-bg);
+  --accent-border: var(--mito-accent-border);
+  --text:          var(--mito-muted);
+  --text-h:        var(--mito-text);
+  --shadow:        var(--mito-shadow);
+  --code-bg:       var(--mito-code-bg);
+}
+
+/* ─────────────────────────────────────────────
+   MITO CSS TOKENS — dark
+───────────────────────────────────────────── */
+.dark {
+  --mito-bg:           #020817;
+  --mito-text:         #f8fafc;
+  --mito-muted:        #94a3b8;
+  --mito-border:       #1e2d45;
+  --mito-accent-bg:    rgba(235, 28, 36, 0.12);
+  --mito-accent-border:rgba(248, 113, 113, 0.28);
+  --mito-active-text:  #fca5a5;
+  --mito-shadow:       0 8px 24px rgba(0, 0, 0, 0.28);
+  --mito-code-bg:      rgba(30, 41, 59, 0.72);
+
+  --accent-bg:     var(--mito-accent-bg);
+  --accent-border: var(--mito-accent-border);
+  --text:          var(--mito-muted);
+  --text-h:        var(--mito-text);
+  --shadow:        var(--mito-shadow);
+  --code-bg:       var(--mito-code-bg);
+}
+
+/* ─────────────────────────────────────────────
+   BASE
+───────────────────────────────────────────── */
+html, body, #app {
+  min-height: 100dvh;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-body {
-  min-width: 320px;
-  margin: 0;
-  background: var(--bg);
-}
+* { box-sizing: border-box; }
 
-button,
-input,
-select {
-  font: inherit;
-}
+button, input, select, textarea { font: inherit; }
+
+a { text-decoration: none; }
+
+p, h1, h2, h3, h4, strong, span { margin: 0; }
+
+img { display: block; max-width: 100%; }
 
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
-select:focus-visible {
-  outline: 3px solid rgba(235, 28, 36, 0.22);
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(235, 28, 36, 0.5);
   outline-offset: 2px;
-}
-
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
-  margin: 0;
-}
-
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
   border-radius: 4px;
-  color: var(--text-h);
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+/* ─────────────────────────────────────────────
+   MITO SCROLLBAR
+───────────────────────────────────────────── */
+::-webkit-scrollbar          { width: 5px; height: 5px; }
+::-webkit-scrollbar-track    { background: transparent; }
+::-webkit-scrollbar-thumb    { background: rgba(148,163,184,0.32); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(235,28,36,0.38); }
+
+/* ─────────────────────────────────────────────
+   MITO UTILITIES
+───────────────────────────────────────────── */
+.mito-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.92);
 }
 
-.counter {
-  font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
-
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
+.mito-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.18);
 }
 
-.hero {
-  position: relative;
-
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .framework,
-  .vite {
-    position: absolute;
-  }
-
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
-  }
-
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
-  }
-}
-
-#app {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  text-align: center;
-  border: 0;
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-}
-
-#center {
-  display: flex;
-  flex-direction: column;
-  gap: 25px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
-}
-
-#next-steps {
-  display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
-  }
-
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
-  }
-}
-
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-#next-steps ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
-  }
-
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
-}
-
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
-}
-
-.ticks {
-  position: relative;
-  width: 100%;
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
-
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
-  }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
-  }
+/* unovis chart tokens */
+.unovis-xy-container {
+  --vis-crosshair-line-stroke-color:   var(--ui-primary);
+  --vis-crosshair-circle-stroke-color: var(--ui-bg);
+  --vis-axis-grid-color:               var(--ui-border);
+  --vis-axis-tick-color:               var(--ui-border);
+  --vis-axis-tick-label-color:         var(--ui-text-dimmed);
+  --vis-tooltip-background-color:      var(--ui-bg);
+  --vis-tooltip-border-color:          var(--ui-border);
+  --vis-tooltip-text-color:            var(--ui-text-highlighted);
 }

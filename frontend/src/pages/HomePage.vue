@@ -61,7 +61,7 @@ async function logout(): Promise<void> {
         <RouterLink to="/attendance" class="header-link">
           Attendance
         </RouterLink>
-        <RouterLink v-if="canAny(['attendance.view', 'leave.view', 'overtime.view', 'penalty.view', 'monthly_recap.view'])" to="/reports" class="header-link">
+        <RouterLink v-if="canAny(['attendance.view', 'leave.view', 'overtime.view', 'penalty.view', 'monthly_recap.view'])" to="/dashboard/reports" class="header-link">
           Reports
         </RouterLink>
       </div>
