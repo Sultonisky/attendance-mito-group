@@ -17,7 +17,15 @@ const links = computed<NavigationMenuItem[][]>(() => [
     can('penalty.view')       && { label: 'Penalties',         icon: 'i-lucide-triangle-alert',    to: '/dashboard/reports/penalties', exact: true },
     canAny(['monthly_recap.view','monthly_recap.generate','monthly_recap.review','monthly_recap.finalize','monthly_recap.export'])
       && { label: 'Monthly recap', icon: 'i-lucide-file-text',        to: '/dashboard/reports/monthly-recaps', exact: true },
-    can('outsource_attendance.view') && { label: 'Outsource',  icon: 'i-lucide-briefcase-business', to: '/dashboard/outsource-attendance', exact: true },
+    can('outsource_attendance.view') && {
+      label: 'Outsource',
+      icon: 'i-lucide-briefcase-business',
+      children: [
+        { label: 'Person list',     icon: 'i-lucide-users',            to: '/dashboard/outsource-persons',        exact: true },
+        { label: 'Attendance list', icon: 'i-lucide-calendar-check-2', to: '/dashboard/outsource-attendance',     exact: true },
+        { label: 'Work locations',  icon: 'i-lucide-map-pin',          to: '/dashboard/outsource-work-locations', exact: true },
+      ],
+    },
   ].filter(Boolean) as NavigationMenuItem[],
 
 ])
