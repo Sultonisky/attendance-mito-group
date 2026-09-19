@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { sub, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, format } from 'date-fns'
 import { VisXYContainer, VisLine, VisArea, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
 import { useElementSize, useMediaQuery } from '@vueuse/core'
 import type { ColumnFiltersState, RowSelectionState, SortingState, VisibilityState } from '@tanstack/vue-table'
 import type { DropdownMenuItem, TableColumn } from '@nuxt/ui'
 import { useDashboard } from '../composables/useDashboard'
-import { useAuthStore } from '../stores/auth'
 import { ApiError } from '../services/apiClient'
 import {
   fetchDashboardAttendanceTrend,
@@ -27,7 +26,6 @@ import { createSortableHeader, createStatusBadge, UCheckbox, DATA_TABLE_UI } fro
 import { useDataTableDisplay } from '../composables/useDataTableDisplay'
 
 const router = useRouter()
-const auth = useAuthStore()
 const { isNotificationsSlideoverOpen } = useDashboard()
 
 type Period = 'daily' | 'weekly' | 'monthly'
@@ -55,13 +53,6 @@ const trendPoints = ref<DashboardTrendPoint[]>([])
 const tableRows = ref<DashboardStaffRow[]>([])
 const systemHealth = ref<SystemHealthSnapshot | null>(null)
 
-const greeting = computed(() => {
-  const hour = new Date().getHours()
-  return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-})
-
-const firstName = computed(() => auth.user?.name?.split(' ')[0] ?? 'Admin')
-
 const attendanceRate = computed(() => {
   if (!kpis.value) return 0
   const total = kpis.value.present + kpis.value.absent + kpis.value.late + kpis.value.on_leave
@@ -73,12 +64,6 @@ const periodAverageRate = computed(() => {
   const sum = chartData.value.reduce((acc, point) => acc + point.value, 0)
   return Math.round(sum / chartData.value.length)
 })
-
-function formatDate(dateStr: string): string {
-  return new Date(`${dateStr}T00:00:00`).toLocaleDateString(undefined, {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
-}
 
 function formatRefreshedAt(iso: string | undefined): string {
   if (!iso) return '—'
