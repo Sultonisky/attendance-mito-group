@@ -61,6 +61,10 @@ class RolesAndPermissionsSeeder extends Seeder
         'outsource_work_location.create',
         'outsource_work_location.update',
         'outsource_work_location.delete',
+        'user.view',
+        'user.create',
+        'user.update',
+        'user.delete',
     ];
 
     /**
@@ -107,6 +111,10 @@ class RolesAndPermissionsSeeder extends Seeder
             'outsource_work_location.create',
             'outsource_work_location.update',
             'outsource_work_location.delete',
+            'user.view',
+            'user.create',
+            'user.update',
+            'user.delete',
         ],
         'USER' => [
             'dashboard.view',
