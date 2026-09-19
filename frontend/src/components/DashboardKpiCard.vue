@@ -1,64 +1,79 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+
+const props = defineProps<{
   label: string
   value: number
   loading?: boolean
+  icon?: string          // i-lucide-* string (Nuxt UI icon format)
+  tone?: 'positive' | 'warning' | 'neutral' | 'accent'
+  caption?: string
+  variation?: number     // % change vs previous period, optional
 }>()
+
+const variationColor = computed(() => {
+  if (props.variation === undefined) return ''
+  return props.variation > 0
+    ? 'success'
+    : props.variation < 0
+      ? 'error'
+      : 'neutral'
+})
+
+const variationLabel = computed(() => {
+  if (props.variation === undefined) return ''
+  const sign = props.variation > 0 ? '+' : ''
+  return `${sign}${props.variation}%`
+})
 </script>
 
 <template>
-  <div class="kpi-card">
-    <p class="kpi-label">{{ label }}</p>
-    <p class="kpi-value">
+  <UPageCard
+    :icon="icon"
+    :title="label"
+    variant="subtle"
+    :ui="{
+      container: 'gap-y-1.5',
+      wrapper: 'items-start',
+      leading: 'p-2.5 rounded-full bg-primary/10 ring ring-inset ring-primary/25',
+      title: 'font-normal text-muted text-xs uppercase tracking-wide',
+    }"
+    class="hover:z-1"
+  >
+    <div class="flex items-center gap-2.5">
+      <!-- Value -->
       <span v-if="loading" class="kpi-skeleton" aria-hidden="true" />
-      <span v-else>{{ value }}</span>
-    </p>
-  </div>
+      <span v-else class="text-2xl font-semibold text-highlighted">
+        {{ value }}
+      </span>
+
+      <!-- Variation badge -->
+      <UBadge
+        v-if="variation !== undefined && !loading"
+        :color="variationColor"
+        variant="subtle"
+        class="text-xs tabular-nums"
+      >
+        {{ variationLabel }}
+      </UBadge>
+    </div>
+
+    <p v-if="caption" class="text-xs text-muted">{{ caption }}</p>
+  </UPageCard>
 </template>
 
 <style scoped>
-.kpi-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.25rem;
-  background: var(--surface);
-  text-align: left;
-  box-shadow: var(--shadow);
-  border-top: 3px solid var(--accent);
-}
-
-.kpi-label {
-  margin: 0 0 0.5rem;
-  font-size: 0.875rem;
-  color: var(--text);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.kpi-value {
-  margin: 0;
-  font-size: 2rem;
-  font-weight: 600;
-  color: var(--accent);
-  line-height: 1.2;
-}
-
 .kpi-skeleton {
   display: inline-block;
   width: 3rem;
-  height: 2rem;
-  border-radius: 4px;
-  background: var(--code-bg);
-  animation: pulse 1.5s infinite;
+  height: 1.75rem;
+  border-radius: 6px;
+  background: var(--ui-bg-elevated);
+  animation: kpi-pulse 1.6s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
+@keyframes kpi-pulse {
+  0%, 100% { opacity: 1;    }
+  50%       { opacity: 0.35; }
 }
 </style>

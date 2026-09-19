@@ -13,25 +13,18 @@ const emit = defineEmits<{
 
 <template>
   <nav v-if="meta.last_page > 1" class="report-pagination" aria-label="Report pagination">
-    <button
-      type="button"
-      :disabled="loading || meta.current_page <= 1"
-      @click="emit('update:page', meta.current_page - 1)"
-    >
-      Previous
-    </button>
+    <UPagination
+      :page="meta.current_page"
+      :total="meta.last_page"
+      :items-per-page="1"
+      :disabled="loading"
+      show-edges
+      @update:page="emit('update:page', $event)"
+    />
 
     <span class="page-info">
       Page {{ meta.current_page }} of {{ meta.last_page }}
     </span>
-
-    <button
-      type="button"
-      :disabled="loading || meta.current_page >= meta.last_page"
-      @click="emit('update:page', meta.current_page + 1)"
-    >
-      Next
-    </button>
   </nav>
 </template>
 
@@ -41,7 +34,7 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.75rem 0;
+  padding: 0.85rem 0.15rem 0.15rem;
   border-top: 1px solid var(--border);
   margin-top: 0.5rem;
 }
@@ -51,17 +44,7 @@ const emit = defineEmits<{
   color: var(--text);
 }
 
-button {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text-h);
-  cursor: pointer;
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+nav :deep(ul) {
+  flex-wrap: wrap;
 }
 </style>

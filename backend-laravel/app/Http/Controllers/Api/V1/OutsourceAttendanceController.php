@@ -57,7 +57,16 @@ class OutsourceAttendanceController
             $query->where('city_id', $cityId);
         }
 
-        $stores = $query->orderBy('name')->get();
+        $stores = $query->orderBy('name')->get()->map(function (WorkLocation $store): array {
+            return [
+                'id' => $store->id,
+                'name' => $store->name,
+                'city_id' => $store->city_id,
+                'latitude' => $store->latitude,
+                'longitude' => $store->longitude,
+                'radius_meters' => (float) config('attendance.outsource_geofence_radius_meters', 150),
+            ];
+        })->values();
 
         return response()->json([
             'success' => true,

@@ -81,11 +81,6 @@ export type MonthlyRecapRow = {
   updated_at: string | null
 }
 
-export type ReportSortOption = {
-  label: string
-  value: string
-}
-
 export type OutsourceAttendanceReportRow = {
   attendance_id: number
   outsource: {
@@ -117,6 +112,7 @@ export type OutsourceAttendanceReportFilters = {
   status: string
   search: string
   per_page: number
+  page?: number
   sort: string
   direction: 'asc' | 'desc'
 }

@@ -1,213 +1,295 @@
 <script setup lang="ts">
-import { onMounted, ref, reactive } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import AppButton from '../../components/AppButton.vue'
-import { useAuthStore } from '../../stores/auth'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import type { TableColumn } from '@nuxt/ui'
+import type { ColumnFiltersState, VisibilityState } from '@tanstack/vue-table'
+import { useReportPage } from '../../composables/useReportPage'
+import { useDataTableSort } from '../../composables/useDataTableSort'
+import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
+import { usePermission } from '../../features/auth/composables/usePermission'
 import { fetchMonthlyRecaps } from '../../services/reports/monthlyRecapApi'
-import { ApiError } from '../../services/apiClient'
-import ReportPagination from '../../components/ReportPagination.vue'
+import {
+  exportMonthlyRecap,
+  finalizeMonthlyRecap,
+  generateMonthlyRecap,
+  reopenMonthlyRecap,
+  reviewMonthlyRecap,
+} from '../../services/adminCrudApi'
+import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
+import DataTableToolbar from '../../components/DataTableToolbar.vue'
+import DataTable from '../../components/DataTable.vue'
+import AdminRowActions, { type AdminRowAction } from '../../components/AdminRowActions.vue'
+import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
 import type { MonthlyRecapRow } from '../../types/reports'
 
-const auth = useAuthStore()
 const route = useRoute()
-const router = useRouter()
+const { can } = usePermission()
+const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 
-const loading = ref(false)
-const error = ref('')
 const data = ref<MonthlyRecapRow[]>([])
-const meta = reactive({
-  current_page: 1,
-  per_page: 30,
-  total: 0,
-  last_page: 1,
-})
+const actionBusyId = ref<number | null>(null)
+const generating = ref(false)
+const columnFilters = ref<ColumnFiltersState>([])
+const columnVisibility = ref<VisibilityState>()
+const statusFilter = ref('all')
+const search = ref('')
 
 const employeeId = ref('')
+const year = ref(new Date().getFullYear())
+const month = ref(new Date().getMonth() + 1)
+
+const sortState = reactive({
+  sort: 'period',
+  direction: 'desc' as 'asc' | 'desc',
+})
+
+const { sorting } = useDataTableSort(sortState, () => {
+  meta.current_page = 1
+  load()
+})
+
+const statusOptions = [
+  { label: 'All', value: 'all' },
+  { label: 'Draft', value: 'draft' },
+  { label: 'Generated', value: 'generated' },
+  { label: 'Reviewed', value: 'reviewed' },
+  { label: 'Finalized', value: 'finalized' },
+  { label: 'Exported', value: 'exported' },
+]
+
+const hideableColumns = [
+  { id: 'period', label: 'Period' },
+  { id: 'status', label: 'Status' },
+  { id: 'finalized_at', label: 'Finalized At' },
+  { id: 'exported_at', label: 'Exported At' },
+]
+
+const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
+
+const rowActions: AdminRowAction[] = [
+  { key: 'review', label: 'Review', permission: 'monthly_recap.review', icon: 'Eye', variant: 'secondary' },
+  { key: 'finalize', label: 'Finalize', permission: 'monthly_recap.finalize', icon: 'Check', variant: 'primary' },
+  { key: 'export', label: 'Export', permission: 'monthly_recap.export', icon: 'Download', variant: 'secondary' },
+  { key: 'reopen', label: 'Reopen', permission: 'monthly_recap.finalize', icon: 'ArrowLeft', variant: 'ghost' },
+]
+
+const statusColor: Record<string, 'success' | 'warning' | 'info' | 'neutral' | 'error'> = {
+  finalized: 'success',
+  reviewed: 'info',
+  generated: 'warning',
+  draft: 'neutral',
+  exported: 'success',
+}
+
+const columns = computed<TableColumn<MonthlyRecapRow>[]>(() => [
+  {
+    accessorKey: 'period',
+    header: ({ column }) => createSortableHeader(column, 'Period'),
+  },
+  {
+    accessorKey: 'status',
+    header: ({ column }) => createSortableHeader(column, 'Status'),
+    filterFn: 'equals',
+    cell: ({ row }) => {
+      const s = row.getValue<string>('status')
+      return createStatusBadge(s, statusColor[s] ?? 'neutral')
+    },
+  },
+  {
+    accessorKey: 'finalized_at',
+    header: ({ column }) => createSortableHeader(column, 'Finalized At'),
+    cell: ({ row }) => {
+      const v = row.getValue<string | null>('finalized_at')
+      return v ? new Date(v + 'Z').toLocaleString() : '—'
+    },
+  },
+  {
+    accessorKey: 'exported_at',
+    header: ({ column }) => createSortableHeader(column, 'Exported At'),
+    cell: ({ row }) => {
+      const v = row.getValue<string | null>('exported_at')
+      return v ? new Date(v + 'Z').toLocaleString() : '—'
+    },
+  },
+  {
+    id: 'actions',
+    header: 'Actions',
+    enableSorting: false,
+    enableHiding: false,
+    cell: ({ row }) => h(AdminRowActions, {
+      actions: rowActions,
+      busy: actionBusyId.value === row.original.id,
+      onAction: (key: string) => handleRowAction(key, row.original.id),
+    }),
+  },
+])
+
+watch([search, statusFilter], () => {
+  const next: ColumnFiltersState = []
+  if (search.value.trim()) next.push({ id: 'period', value: search.value.trim() })
+  if (statusFilter.value !== 'all') next.push({ id: 'status', value: statusFilter.value })
+  columnFilters.value = next
+})
+
+watch(employeeId, () => {
+  if (!ready.value) return
+  meta.current_page = 1
+  load()
+})
+
+const ready = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
-
   try {
-    const params: Record<string, string | number | boolean | null | undefined> = {}
+    const params: Record<string, string | number | null | undefined> = {
+      page: meta.current_page,
+      sort: sortState.sort,
+      direction: sortState.direction,
+    }
     if (employeeId.value) params.employee_id = employeeId.value
 
-    const response = await fetchMonthlyRecaps(params)
-    data.value = response.data
+    const res = await fetchMonthlyRecaps(params)
+    data.value = res.data
 
-    if (response.meta) {
-      meta.current_page = (response.meta.current_page as number) ?? 1
-      meta.per_page = (response.meta.per_page as number) ?? 30
-      meta.total = (response.meta.total as number) ?? 0
-      meta.last_page = (response.meta.last_page as number) ?? 1
-    } else {
-      meta.current_page = 1
-      meta.per_page = 30
-      meta.total = response.data.length
-      meta.last_page = 1
+    if (res.meta) {
+      applyMeta({
+        current_page: Number(res.meta.current_page ?? 1),
+        per_page: Number(res.meta.per_page ?? 30),
+        total: Number(res.meta.total ?? res.data.length),
+        last_page: Number(res.meta.last_page ?? 1),
+      })
     }
-  } catch (err) {
-    if (err instanceof ApiError) {
-      if (err.status === 401) {
-        await router.push({ name: 'login.admin' })
-        return
-      }
-
-      if (err.status === 403) {
-        error.value = 'You do not have permission to view this report.'
-        return
-      }
+    else {
+      applyMeta({ current_page: 1, per_page: 30, total: res.data.length, last_page: 1 })
     }
-
-    error.value = 'Unable to load monthly recaps. Please try again.'
-  } finally {
+  }
+  catch (err) {
+    await handleApiError(err, 'Unable to load monthly recaps. Please try again.')
+  }
+  finally {
     loading.value = false
   }
 }
 
-function goToPage(page: number): void {
-  if (page < 1 || page > meta.last_page) return
-  load()
+async function generate(): Promise<void> {
+  if (!employeeId.value) {
+    error.value = 'Employee ID is required to generate a recap.'
+    return
+  }
+  generating.value = true
+  error.value = ''
+  try {
+    await generateMonthlyRecap({
+      employee_id: Number(employeeId.value),
+      year: year.value,
+      month: month.value,
+    })
+    await load()
+  }
+  catch {
+    error.value = 'Unable to generate the monthly recap. Please try again.'
+  }
+  finally {
+    generating.value = false
+  }
 }
 
-onMounted(() => {
-  const queryEmployeeId = route.query.employee_id
-  if (typeof queryEmployeeId === 'string') employeeId.value = queryEmployeeId
-  load()
+async function handleRowAction(action: string, id: number): Promise<void> {
+  actionBusyId.value = id
+  error.value = ''
+  try {
+    if (action === 'review') await reviewMonthlyRecap(id)
+    if (action === 'finalize') await finalizeMonthlyRecap(id)
+    if (action === 'export') await exportMonthlyRecap(id)
+    if (action === 'reopen') await reopenMonthlyRecap(id)
+    await load()
+  }
+  catch {
+    error.value = 'Unable to update this monthly recap. Please try again.'
+  }
+  finally {
+    actionBusyId.value = null
+  }
+}
+
+onMounted(async () => {
+  if (typeof route.query.employee_id === 'string') employeeId.value = route.query.employee_id
+  await load()
+  ready.value = true
 })
 </script>
 
 <template>
-  <main class="report-page">
-    <header class="report-header">
-      <div class="header-left">
-        <img class="report-brand-logo" src="/images/mito.png" alt="MITO electronic" />
-        <RouterLink to="/reports" class="header-link">Reports</RouterLink>
-        <span class="header-separator" aria-hidden="true">/</span>
-        <span class="header-active">Monthly Recaps</span>
+  <UDashboardPanel id="monthly-recaps-report">
+    <template #header>
+      <UDashboardNavbar title="Monthly recap">
+        <template #leading><UDashboardSidebarCollapse /></template>
+        <template #right>
+          <UButton
+            v-if="can('monthly_recap.generate')"
+            color="primary"
+            size="sm"
+            icon="i-lucide-zap"
+            :loading="generating"
+            :disabled="!employeeId"
+            @click="generate"
+          >
+            Generate recap
+          </UButton>
+          <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-refresh-cw" :loading="loading" @click="load">
+            Refresh
+          </UButton>
+        </template>
+      </UDashboardNavbar>
+    </template>
+
+    <template #body>
+      <div class="p-4 sm:p-6 space-y-4">
+        <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-triangle-alert" title="Failed to load" :description="error">
+          <template #actions>
+            <UButton color="primary" variant="subtle" size="sm" icon="i-lucide-refresh-cw" @click="load">Retry</UButton>
+          </template>
+        </UAlert>
+
+        <template v-else>
+          <ReportDataToolbar :total="meta.total" :rows="data" filename="monthly-recaps" :loading="loading" />
+          <DataTableToolbar
+            v-model:search="search"
+            v-model:status="statusFilter"
+            v-model:employee-id="employeeId"
+            search-placeholder="Filter period..."
+            :status-options="statusOptions"
+            :display-items="displayItems"
+            show-employee-id
+          >
+            <template #filters>
+              <UInput v-model.number="year" type="number" min="2000" max="2200" placeholder="Year" class="w-24" />
+              <UInput v-model.number="month" type="number" min="1" max="12" placeholder="Month" class="w-20" />
+            </template>
+          </DataTableToolbar>
+          <DataTable
+            v-model:sorting="sorting"
+            v-model:column-filters="columnFilters"
+            v-model:column-visibility="columnVisibility"
+            :data="data"
+            :columns="columns"
+            :loading="loading"
+            :meta="meta"
+            manual-sorting
+            empty-icon="i-lucide-file-text"
+            empty-message="No monthly recap records found."
+            @update:page="goToPage($event, load)"
+          >
+            <template #empty-extra>
+              <p v-if="can('monthly_recap.generate')" class="mt-1 text-xs text-[var(--ui-text-dimmed)]">
+                Enter an Employee ID and click Generate recap to create one.
+              </p>
+            </template>
+          </DataTable>
+        </template>
       </div>
-      <div v-if="auth.isAuthenticated" class="header-right">
-        <span>{{ auth.user?.name }} ({{ auth.user?.email }})</span>
-      </div>
-    </header>
-
-    <section class="report-body">
-      <form class="report-filters" @submit.prevent="load">
-        <div class="filter-grid">
-          <label class="filter-field">
-            <span>Employee ID</span>
-            <input
-              type="number"
-              min="1"
-              placeholder="Employee ID"
-              :value="employeeId"
-              @input="employeeId = ($event.target as HTMLInputElement).value"
-            />
-          </label>
-        </div>
-        <div class="filter-actions">
-          <AppButton type="submit" :disabled="loading">Apply Filters</AppButton>
-        </div>
-      </form>
-
-      <section v-if="error" class="report-error" role="alert">
-        <p>{{ error }}</p>
-        <AppButton type="button" variant="secondary" @click="load">Retry</AppButton>
-      </section>
-
-      <section v-else-if="data.length" class="report-table-wrapper">
-        <table class="report-table">
-          <thead>
-            <tr>
-              <th>Period</th>
-              <th>Status</th>
-              <th>Finalized At</th>
-              <th>Exported At</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in data" :key="row.id">
-              <td>{{ row.period }}</td>
-              <td>{{ row.status }}</td>
-              <td>{{ row.finalized_at ? new Date(row.finalized_at + 'Z').toLocaleString() : '-' }}</td>
-              <td>{{ row.exported_at ? new Date(row.exported_at + 'Z').toLocaleString() : '-' }}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <ReportPagination :meta="meta" :loading="loading" @update:page="goToPage" />
-      </section>
-
-      <section v-else-if="!loading" class="report-empty">
-        <p>No monthly recap records found for the selected filters.</p>
-      </section>
-
-      <section v-else class="report-loading" aria-label="Loading monthly recap report">
-        <p>Loading monthly recap report...</p>
-      </section>
-    </section>
-  </main>
+    </template>
+  </UDashboardPanel>
 </template>
-
-<style scoped>
-@import '../../styles/report-page.css';
-
-.report-filters {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem;
-  background: var(--bg);
-  margin-bottom: 1rem;
-}
-
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(1, 1fr);
-  gap: 0.75rem;
-}
-
-@media (min-width: 768px) {
-  .filter-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-.filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.875rem;
-  color: var(--text);
-}
-
-.filter-field span {
-  font-weight: 500;
-}
-
-.filter-field input,
-.filter-field select {
-  padding: 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text-h);
-}
-
-.filter-actions {
-  margin-top: 0.75rem;
-}
-
-.filter-actions button {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text-h);
-  cursor: pointer;
-}
-
-.filter-actions button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-</style>
