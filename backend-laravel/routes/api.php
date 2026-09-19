@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\OvertimeController;
 use App\Http\Controllers\Api\V1\OutsourceAttendanceController;
 use App\Http\Controllers\Api\V1\OutsourcePersonController;
 use App\Http\Controllers\Api\V1\OutsourceWorkLocationController;
+use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\PenaltyController;
 use App\Http\Controllers\Api\V1\ReportController;
 use Illuminate\Http\Request;
@@ -150,6 +151,17 @@ Route::prefix('v1')->group(function () {
             Route::post('/{monthlyRecap}/finalize', [MonthlyRecapController::class, 'finalize'])->middleware('can:monthly_recap.finalize')->name('finalize');
             Route::post('/{monthlyRecap}/export', [MonthlyRecapController::class, 'export'])->middleware('can:monthly_recap.export')->name('export');
             Route::post('/{monthlyRecap}/reopen', [MonthlyRecapController::class, 'reopen'])->middleware('can:monthly_recap.finalize')->name('reopen');
+        });
+
+        // ── User management (admin CRUD) ───────────────────────────────────────
+        Route::prefix('users')->group(function () {
+            Route::get('/',                  [UserController::class, 'index'])        ->middleware('can:user.view');
+            Route::post('/',                 [UserController::class, 'store'])        ->middleware('can:user.create');
+            Route::get('/{user}',            [UserController::class, 'show'])         ->middleware('can:user.view');
+            Route::put('/{user}',            [UserController::class, 'update'])       ->middleware('can:user.update');
+            Route::patch('/{user}',          [UserController::class, 'update'])       ->middleware('can:user.update');
+            Route::post('/{user}/toggle-status', [UserController::class, 'toggleStatus'])->middleware('can:user.update');
+            Route::delete('/{user}',         [UserController::class, 'destroy'])      ->middleware('can:user.delete');
         });
 
         // ── Outsource persons (admin CRUD) ─────────────────────────────────────
