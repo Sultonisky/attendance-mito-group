@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, reactive, ref, resolveComponent, watch } from 'vue'
 import { watchDebounced } from '@vueuse/core'
 import type { TableColumn } from '@nuxt/ui'
 import type { VisibilityState } from '@tanstack/vue-table'
