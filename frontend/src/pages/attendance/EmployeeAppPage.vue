@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import AppButton from '../components/AppButton.vue'
-import AppIcon from '../components/AppIcon.vue'
-import { useAuthStore } from '../stores/auth'
-import { fetchAttendanceToday } from '../services/attendanceService'
-import { ApiError } from '../services/apiClient'
-import type { AttendanceRecord } from '../types/attendance'
+import AppButton from '../../components/AppButton.vue'
+import AppIcon from '../../components/AppIcon.vue'
+import { useAuthStore } from '../../stores/auth'
+import { fetchAttendanceToday } from '../../services/attendanceService'
+import { ApiError } from '../../services/apiClient'
+import type { AttendanceRecord } from '../../types/attendance'
 
 const auth = useAuthStore()
 const router = useRouter()

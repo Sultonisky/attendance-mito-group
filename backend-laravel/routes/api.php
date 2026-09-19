@@ -9,6 +9,8 @@ use App\Http\Controllers\Api\V1\LeaveController;
 use App\Http\Controllers\Api\V1\MonthlyRecapController;
 use App\Http\Controllers\Api\V1\OvertimeController;
 use App\Http\Controllers\Api\V1\OutsourceAttendanceController;
+use App\Http\Controllers\Api\V1\OutsourcePersonController;
+use App\Http\Controllers\Api\V1\OutsourceWorkLocationController;
 use App\Http\Controllers\Api\V1\PenaltyController;
 use App\Http\Controllers\Api\V1\ReportController;
 use Illuminate\Http\Request;
@@ -149,6 +151,34 @@ Route::prefix('v1')->group(function () {
             Route::post('/{monthlyRecap}/export', [MonthlyRecapController::class, 'export'])->middleware('can:monthly_recap.export')->name('export');
             Route::post('/{monthlyRecap}/reopen', [MonthlyRecapController::class, 'reopen'])->middleware('can:monthly_recap.finalize')->name('reopen');
         });
+
+        // ── Outsource persons (admin CRUD) ─────────────────────────────────────
+        Route::prefix('outsource-persons')->group(function () {
+            Route::get('/',                         [OutsourcePersonController::class, 'index'])        ->middleware('can:outsource_person.view');
+            Route::post('/',                        [OutsourcePersonController::class, 'store'])        ->middleware('can:outsource_person.create');
+            Route::get('/{outsourcePerson}',        [OutsourcePersonController::class, 'show'])         ->middleware('can:outsource_person.view');
+            Route::put('/{outsourcePerson}',        [OutsourcePersonController::class, 'update'])       ->middleware('can:outsource_person.update');
+            Route::patch('/{outsourcePerson}',      [OutsourcePersonController::class, 'update'])       ->middleware('can:outsource_person.update');
+            Route::post('/{outsourcePerson}/toggle-status', [OutsourcePersonController::class, 'toggleStatus'])->middleware('can:outsource_person.update');
+            Route::delete('/{outsourcePerson}',     [OutsourcePersonController::class, 'destroy'])      ->middleware('can:outsource_person.delete');
+        });
+
+        // ── Outsource work locations (admin CRUD) ───────────────────────────────
+        Route::prefix('outsource-work-locations')->group(function () {
+            Route::get('/cities',                           [OutsourceWorkLocationController::class, 'cities'])       ->middleware('can:outsource_work_location.view');
+            Route::get('/',                                 [OutsourceWorkLocationController::class, 'index'])        ->middleware('can:outsource_work_location.view');
+            Route::post('/',                                [OutsourceWorkLocationController::class, 'store'])        ->middleware('can:outsource_work_location.create');
+            Route::get('/{outsourceWorkLocation}',          [OutsourceWorkLocationController::class, 'show'])         ->middleware('can:outsource_work_location.view');
+            Route::put('/{outsourceWorkLocation}',          [OutsourceWorkLocationController::class, 'update'])       ->middleware('can:outsource_work_location.update');
+            Route::patch('/{outsourceWorkLocation}',        [OutsourceWorkLocationController::class, 'update'])       ->middleware('can:outsource_work_location.update');
+            Route::post('/{outsourceWorkLocation}/toggle-status', [OutsourceWorkLocationController::class, 'toggleStatus'])->middleware('can:outsource_work_location.update');
+            Route::delete('/{outsourceWorkLocation}',       [OutsourceWorkLocationController::class, 'destroy'])      ->middleware('can:outsource_work_location.delete');
+        });
+
+        // ── Outsource attendance void (admin) ───────────────────────────────────
+        Route::delete('/outsource-attendance/{record}/void', [OutsourceAttendanceController::class, 'voidRecord'])
+            ->middleware('can:outsource_attendance.void')
+            ->name('outsource-attendance.void');
 
         // Reports (Phase 13.1)
         Route::prefix('reports')->name('reports.')->group(function () {

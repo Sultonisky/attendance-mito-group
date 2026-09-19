@@ -1,23 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { watchDebounced } from '@vueuse/core'
 import type { TableColumn } from '@nuxt/ui'
 import type { VisibilityState } from '@tanstack/vue-table'
-import { useReportPage } from '../../composables/useReportPage'
-import { useDataTableSort } from '../../composables/useDataTableSort'
-import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
-import { fetchOutsourceAttendanceReport } from '../../services/reports/outsourceAttendanceReportApi'
-import { fetchOutsourceCities, fetchOutsourceStores, fetchOutsourceOutsources } from '../../services/outsourceService'
-import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
-import DataTableToolbar from '../../components/DataTableToolbar.vue'
-import DataTable from '../../components/DataTable.vue'
-import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
-import type { OutsourceAttendanceReportRow, OutsourceAttendanceReportFilters } from '../../types/reports'
-import { defaultReportDates } from '../../types/reportDates'
+import { useReportPage } from '../../../composables/useReportPage'
+import { useDataTableSort } from '../../../composables/useDataTableSort'
+import { useDataTableDisplay } from '../../../composables/useDataTableDisplay'
+import { usePermission } from '../../../features/auth/composables/usePermission'
+import {
+  fetchOutsourceAttendanceReport,
+  voidOutsourceAttendance,
+} from '../../../services/reports/outsourceAttendanceReportApi'
+import { fetchOutsourceCities, fetchOutsourceStores, fetchOutsourceOutsources } from '../../../services/outsourceService'
+import ReportDataToolbar from '../../../components/ReportDataToolbar.vue'
+import DataTableToolbar from '../../../components/DataTableToolbar.vue'
+import DataTable from '../../../components/DataTable.vue'
+import { createSortableHeader, createStatusBadge } from '../../../utils/dataTable'
+import type { OutsourceAttendanceReportRow, OutsourceAttendanceReportFilters } from '../../../types/reports'
+import { defaultReportDates } from '../../../types/reportDates'
 
 const route = useRoute()
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const { can } = usePermission()
 
 const data = ref<OutsourceAttendanceReportRow[]>([])
 const cities = ref<{ id: number; name: string }[]>([])
@@ -131,6 +136,24 @@ const columns = computed<TableColumn<OutsourceAttendanceReportRow>[]>(() => [
     cell: ({ row }) => {
       const s = row.getValue<string>('status')
       return createStatusBadge(s, statusColor[s] ?? 'neutral')
+    },
+  },
+  {
+    id: 'actions',
+    header: '',
+    cell: ({ row }) => {
+      if (!can('outsource_attendance.void')) return null
+      return h('div', { class: 'flex justify-end' }, [
+        h(resolveComponent('UButton'), {
+          size: 'xs',
+          color: 'error',
+          variant: 'ghost',
+          icon: 'i-lucide-trash-2',
+          'aria-label': 'Void record',
+          title: 'Void this attendance record',
+          onClick: () => confirmVoid(row.original),
+        }),
+      ])
     },
   },
 ])
@@ -252,6 +275,29 @@ function resetFilters() {
   load()
 }
 
+// ── Void ──────────────────────────────────────────────────────────────────────
+const showVoidModal  = ref(false)
+const voidTarget     = ref<OutsourceAttendanceReportRow | null>(null)
+const voidBusy       = ref(false)
+
+function confirmVoid(row: OutsourceAttendanceReportRow): void {
+  voidTarget.value  = row
+  showVoidModal.value = true
+}
+
+async function executeVoid(): Promise<void> {
+  if (!voidTarget.value) return
+  voidBusy.value = true
+  try {
+    await voidOutsourceAttendance(voidTarget.value.attendance_id)
+    showVoidModal.value = false
+    voidTarget.value = null
+    await load()
+  } catch { /* keep modal open */ } finally {
+    voidBusy.value = false
+  }
+}
+
 onMounted(async () => {
   if (typeof route.query.from === 'string') filters.from = route.query.from
   if (typeof route.query.to === 'string') filters.to = route.query.to
@@ -348,4 +394,22 @@ onMounted(async () => {
       </div>
     </template>
   </UDashboardPanel>
-</template>
+
+  <!-- ── Void confirm modal ────────────────────────────────────────────────── -->
+  <UModal v-model:open="showVoidModal" title="Void attendance record">
+    <template #body>
+      <p class="text-sm text-muted">
+        Are you sure you want to void the attendance record for
+        <strong class="text-highlighted">{{ voidTarget?.outsource?.name }}</strong>
+        on <strong class="text-highlighted">{{ voidTarget?.attendance_date }}</strong>?
+        This will permanently delete the record and cannot be undone.
+      </p>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="voidBusy" @click="showVoidModal = false">Cancel</UButton>
+        <UButton color="error" :loading="voidBusy" @click="executeVoid">Void record</UButton>
+      </div>
+    </template>
+  </UModal>
+</template>>

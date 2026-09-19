@@ -52,3 +52,9 @@ export async function fetchOutsourceAttendanceReport(
     `/reports/outsource-attendance${query ? `?${query}` : ''}`,
   )
 }
+
+export async function voidOutsourceAttendance(
+  attendanceId: number,
+): Promise<{ success: boolean }> {
+  return apiFetch(`/outsource-attendance/${attendanceId}/void`, { method: 'DELETE' })
+}

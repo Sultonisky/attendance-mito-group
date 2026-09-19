@@ -19,7 +19,6 @@ use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use App\Models\MonthlyRecap;
 use App\Models\Outsource;
-use App\Models\OutsourceStoreAssignment;
 use App\Models\OvertimeRecord;
 use App\Models\OvertimeRequest;
 use App\Models\PenaltyRecord;
@@ -301,16 +300,9 @@ class DevelopmentDataSeeder extends Seeder
         }
 
         if (Outsource::count() < 3) {
-            $outsources = Outsource::factory()->count(3 - Outsource::count())->create();
-
-            foreach ($outsources as $index => $outsource) {
-                $store = $context['stores'][$index % count($context['stores'])];
-
-                OutsourceStoreAssignment::factory()
-                    ->forOutsource($outsource)
-                    ->forStore($store)
-                    ->create();
-            }
+            // Outsource master data comes from the import command
+            // (OutsourceMasterDataImportService). No dummy outsource records
+            // are created here to avoid polluting the real dataset.
         }
     }
 
@@ -624,15 +616,38 @@ class DevelopmentDataSeeder extends Seeder
     }
 
     /**
+     * Seeds a small sample of outsource attendance history for dev/testing.
+     * Uses existing outsource records imported via OutsourceMasterDataImportService.
+     * Skips silently if no outsource data has been imported yet.
+     *
      * @param array{hq: WorkLocation, stores: list<WorkLocation>} $context
      */
     protected function seedOutsourceAttendance(array $context): void
     {
-        $outsources = Outsource::query()->orderBy('id')->limit(3)->get();
+        // Pick up to 3 outsource workers that have at least one active store assignment.
+        $outsources = Outsource::query()
+            ->whereHas('stores', fn ($q) => $q->where('outsource_store_assignments.status', 'active'))
+            ->where('status', 'active')
+            ->orderBy('id')
+            ->limit(3)
+            ->get();
+
+        if ($outsources->isEmpty()) {
+            // No imported outsource data yet — skip silently.
+            return;
+        }
+
         $today = CarbonImmutable::today();
 
         foreach ($outsources as $index => $outsource) {
-            $store = $context['stores'][$index % count($context['stores'])] ?? $context['hq'];
+            // Use the outsource worker's actual first active store assignment,
+            // falling back to the dev HQ location if none found.
+            /** @var WorkLocation|null $store */
+            $store = $outsource->stores()
+                ->wherePivot('status', 'active')
+                ->first();
+
+            $location = $store ?? $context['hq'];
 
             for ($day = 7; $day >= 0; $day--) {
                 $date = $today->subDays($day);
@@ -649,15 +664,15 @@ class DevelopmentDataSeeder extends Seeder
                 }
 
                 $isIncomplete = $day === 0 && $index === 1;
-                $checkInAt = $date->setTime(8, 30);
-                $checkOutAt = $isIncomplete ? null : $date->setTime(17, 0);
+                $checkInAt    = $date->setTime(8, 30);
+                $checkOutAt   = $isIncomplete ? null : $date->setTime(17, 0);
 
                 $record = AttendanceRecord::query()->create([
-                    'employee_id' => null,
-                    'outsource_id' => $outsource->id,
+                    'employee_id'    => null,
+                    'outsource_id'   => $outsource->id,
                     'attendable_type' => 'outsource',
                     'attendance_date' => $date->toDateString(),
-                    'status' => $isIncomplete
+                    'status'          => $isIncomplete
                         ? AttendanceStatus::Incomplete->value
                         : AttendanceStatus::Present->value,
                 ]);
@@ -665,10 +680,10 @@ class DevelopmentDataSeeder extends Seeder
                 $session = AttendanceSession::factory()
                     ->forRecord($record)
                     ->state([
-                        'check_in_at' => $checkInAt,
-                        'check_out_at' => $checkOutAt,
-                        'duration_minutes' => $isIncomplete ? null : 510,
-                        'status' => $isIncomplete
+                        'check_in_at'       => $checkInAt,
+                        'check_out_at'      => $checkOutAt,
+                        'duration_minutes'  => $isIncomplete ? null : 510,
+                        'status'            => $isIncomplete
                             ? AttendanceSessionStatus::Open->value
                             : AttendanceSessionStatus::Closed->value,
                     ])
@@ -679,11 +694,11 @@ class DevelopmentDataSeeder extends Seeder
                     ->forSession($session)
                     ->state([
                         'attendance_id' => $record->id,
-                        'employee_id' => null,
-                        'outsource_id' => $outsource->id,
-                        'occurred_at' => $checkInAt,
-                        'latitude' => $store->latitude,
-                        'longitude' => $store->longitude,
+                        'employee_id'   => null,
+                        'outsource_id'  => $outsource->id,
+                        'occurred_at'   => $checkInAt,
+                        'latitude'      => $location->latitude,
+                        'longitude'     => $location->longitude,
                     ])
                     ->create();
 
@@ -693,11 +708,11 @@ class DevelopmentDataSeeder extends Seeder
                         ->forSession($session)
                         ->state([
                             'attendance_id' => $record->id,
-                            'employee_id' => null,
-                            'outsource_id' => $outsource->id,
-                            'occurred_at' => $checkOutAt,
-                            'latitude' => $store->latitude,
-                            'longitude' => $store->longitude,
+                            'employee_id'   => null,
+                            'outsource_id'  => $outsource->id,
+                            'occurred_at'   => $checkOutAt,
+                            'latitude'      => $location->latitude,
+                            'longitude'     => $location->longitude,
                         ])
                         ->create();
                 }

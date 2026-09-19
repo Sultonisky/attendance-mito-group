@@ -176,7 +176,7 @@ class OutsourceMasterDataImportService
                 }
 
                 if ($header === null) {
-                    $header = array_map(fn($value) => $this->normalizeHeader($value), $row);
+                    $header = $this->canonicalizeHeaders(array_map(fn($value) => $this->normalizeHeader($value), $row));
                     continue;
                 }
 
@@ -198,9 +198,10 @@ class OutsourceMasterDataImportService
         }
 
         $header = array_map(fn($value) => $this->normalizeHeader($value), $rows[0]);
+        $header = $this->canonicalizeHeaders($header);
         $expectedHeaders = ['LIST CABANG', 'NAMA TOKO', 'NAMA SPG'];
         if (! empty(array_diff($expectedHeaders, $header))) {
-            throw new RuntimeException('The worksheet is missing one or more required headers: LIST CABANG, NAMA TOKO, NAMA SPG.');
+            throw new RuntimeException('The worksheet is missing one or more required headers: LIST CABANG, NAMA TOKO, NAMA SPG (or NAMA KARYAWAN).');
         }
 
         $dataRows = [];
@@ -216,11 +217,27 @@ class OutsourceMasterDataImportService
         return trim((string) $value);
     }
 
+    /**
+     * @param  list<string>  $headers
+     * @return list<string>
+     */
+    protected function canonicalizeHeaders(array $headers): array
+    {
+        return array_map(function (string $header): string {
+            $upper = strtoupper(trim($header));
+            if (in_array($upper, ['NAMA KARYAWAN', 'NAMA KARYA WAN', 'NAMA OUTSOURCE', 'EMPLOYEE NAME'], true)) {
+                return 'NAMA SPG';
+            }
+
+            return $header;
+        }, $headers);
+    }
+
     protected function normalizeRow(array $row, int $rowNumber): array
     {
         $city = $this->normalizeString($row['LIST CABANG'] ?? null);
         $store = $this->normalizeString($row['NAMA TOKO'] ?? null);
-        $outsource = $this->normalizeString($row['NAMA SPG'] ?? null);
+        $outsource = $this->normalizeString($row['NAMA SPG'] ?? $row['NAMA KARYAWAN'] ?? null);
 
         if ($city === null || $store === null || $outsource === null) {
             return [

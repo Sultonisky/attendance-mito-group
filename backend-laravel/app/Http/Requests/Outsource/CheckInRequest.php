@@ -18,6 +18,7 @@ class CheckInRequest extends FormRequest
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'accuracy_meters' => ['nullable', 'numeric', 'min:0'],
             'source' => ['nullable', 'string', 'max:255'],
+            'device_fingerprint' => ['required', 'string', 'min:16', 'max:128'],
             'device_metadata' => ['nullable', 'array'],
         ];
     }

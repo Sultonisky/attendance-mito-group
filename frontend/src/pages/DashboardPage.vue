@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { sub, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, format } from 'date-fns'
 import { VisXYContainer, VisLine, VisArea, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
 import { useElementSize, useMediaQuery } from '@vueuse/core'
 import type { ColumnFiltersState, RowSelectionState, SortingState, VisibilityState } from '@tanstack/vue-table'
 import type { DropdownMenuItem, TableColumn } from '@nuxt/ui'
 import { useDashboard } from '../composables/useDashboard'
-import { useAuthStore } from '../stores/auth'
 import { ApiError } from '../services/apiClient'
 import {
   fetchDashboardAttendanceTrend,
   fetchDashboardKpis,
   fetchDashboardStaffToday,
   fetchSystemHealth,
+  type DashboardSource,
 } from '../services/dashboardApi'
 import type {
   DashboardKpiData,
@@ -27,7 +27,6 @@ import { createSortableHeader, createStatusBadge, UCheckbox, DATA_TABLE_UI } fro
 import { useDataTableDisplay } from '../composables/useDataTableDisplay'
 
 const router = useRouter()
-const auth = useAuthStore()
 const { isNotificationsSlideoverOpen } = useDashboard()
 
 type Period = 'daily' | 'weekly' | 'monthly'
@@ -35,11 +34,18 @@ type Range = { start: Date; end: Date }
 
 const range = shallowRef<Range>({ start: sub(new Date(), { days: 14 }), end: new Date() })
 const period = ref<Period>('daily')
+const source = ref<DashboardSource>('employee')
 
 const periodOptions = [
-  { label: 'Daily', value: 'daily' as Period },
-  { label: 'Weekly', value: 'weekly' as Period },
+  { label: 'Daily',   value: 'daily'   as Period },
+  { label: 'Weekly',  value: 'weekly'  as Period },
   { label: 'Monthly', value: 'monthly' as Period },
+]
+
+const sourceOptions = [
+  { label: 'Employee',  value: 'employee'  as DashboardSource },
+  { label: 'Outsource', value: 'outsource' as DashboardSource },
+  { label: 'All',       value: 'all'       as DashboardSource },
 ]
 
 const addItems: DropdownMenuItem[][] = [[
@@ -55,13 +61,6 @@ const trendPoints = ref<DashboardTrendPoint[]>([])
 const tableRows = ref<DashboardStaffRow[]>([])
 const systemHealth = ref<SystemHealthSnapshot | null>(null)
 
-const greeting = computed(() => {
-  const hour = new Date().getHours()
-  return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-})
-
-const firstName = computed(() => auth.user?.name?.split(' ')[0] ?? 'Admin')
-
 const attendanceRate = computed(() => {
   if (!kpis.value) return 0
   const total = kpis.value.present + kpis.value.absent + kpis.value.late + kpis.value.on_leave
@@ -74,12 +73,6 @@ const periodAverageRate = computed(() => {
   return Math.round(sum / chartData.value.length)
 })
 
-function formatDate(dateStr: string): string {
-  return new Date(`${dateStr}T00:00:00`).toLocaleDateString(undefined, {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
-}
-
 function formatRefreshedAt(iso: string | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -90,15 +83,19 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     const [kpiResponse, staffResponse, health] = await Promise.all([
-      fetchDashboardKpis(),
-      fetchDashboardStaffToday(),
+      fetchDashboardKpis(source.value),
+      fetchDashboardStaffToday(source.value),
       fetchSystemHealth(),
     ])
     kpis.value = kpiResponse.data
     tableRows.value = staffResponse.data
     systemHealth.value = health
     rowSelection.value = {}
-    await loadTrend()
+    // Trend is non-blocking — a failure here should not wipe KPI cards
+    await loadTrend().catch(() => {
+      trendPoints.value = []
+      rebuildChart()
+    })
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 401) { await router.push({ name: 'login.admin' }); return }
@@ -115,7 +112,7 @@ async function load(): Promise<void> {
 async function loadTrend(): Promise<void> {
   const from = format(range.value.start, 'yyyy-MM-dd')
   const to = format(range.value.end, 'yyyy-MM-dd')
-  const response = await fetchDashboardAttendanceTrend(from, to)
+  const response = await fetchDashboardAttendanceTrend(from, to, source.value)
   trendPoints.value = response.data
   rebuildChart()
 }
@@ -171,13 +168,20 @@ function rebuildChart(): void {
 
 onMounted(load)
 
+// Range change: only the trend chart needs reloading; KPI cards are always today.
 watch(range, () => {
   void loadTrend().catch(() => {
-    /* trend errors are non-blocking once KPIs loaded */
+    trendPoints.value = []
+    rebuildChart()
   })
 })
 
 watch(period, rebuildChart)
+
+// Source change: full reload — KPI, staff table, and trend all change.
+watch(source, () => {
+  void load().catch(() => {})
+})
 
 type ChartPoint = { date: Date; value: number }
 
@@ -414,6 +418,15 @@ const healthServices = computed(() => [
             <USelect
               v-model="period"
               :items="periodOptions"
+              value-key="value"
+              label-key="label"
+              size="sm"
+              class="w-[7.5rem] shrink-0"
+            />
+
+            <USelect
+              v-model="source"
+              :items="sourceOptions"
               value-key="value"
               label-key="label"
               size="sm"

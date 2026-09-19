@@ -525,7 +525,9 @@ class AttendanceEngine
             'longitude' => $data->longitude,
             'accuracy_meters' => $data->accuracy,
             'source' => $data->source,
-            'device_metadata' => [],
+            'device_metadata' => array_filter([
+                'device_fingerprint' => $data->deviceIdentifier,
+            ]),
         ];
 
         if ($subject instanceof Employee) {

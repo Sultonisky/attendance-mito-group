@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import AppButton from '../components/AppButton.vue'
-import AppIcon from '../components/AppIcon.vue'
-import { ApiError } from '../services/apiClient'
-import { fetchAttendanceToday, submitCheckIn, submitCheckOut } from '../services/attendanceService'
-import { useAttendanceCamera } from '../composables/useAttendanceCamera'
-import { useGeolocation } from '../composables/useGeolocation'
-import type { AttendanceRecord } from '../types/attendance'
+import AppButton from '../../components/AppButton.vue'
+import AppIcon from '../../components/AppIcon.vue'
+import { ApiError } from '../../services/apiClient'
+import { fetchAttendanceToday, submitCheckIn, submitCheckOut } from '../../services/attendanceService'
+import { useAttendanceCamera } from '../../composables/useAttendanceCamera'
+import { useGeolocation } from '../../composables/useGeolocation'
+import type { AttendanceRecord } from '../../types/attendance'
 
 const router = useRouter()
 

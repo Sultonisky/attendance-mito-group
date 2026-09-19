@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { usePortalAnchor } from '../composables/usePortalAnchor'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -28,20 +29,22 @@ const router = createRouter({
         { path: 'reports/leave', name: 'reports.leave', component: () => import('../pages/reports/LeaveReportPage.vue'), meta: { title: 'Leave', permission: 'leave.view' } },
         { path: 'reports/overtime', name: 'reports.overtime', component: () => import('../pages/reports/OvertimeReportPage.vue'), meta: { title: 'Overtime', permission: 'overtime.view' } },
         { path: 'reports/penalties', name: 'reports.penalties', component: () => import('../pages/reports/PenaltyReportPage.vue'), meta: { title: 'Penalties', permission: 'penalty.view' } },
-        { path: 'outsource-attendance', name: 'outsource-attendance', component: () => import('../pages/reports/OutsourceAttendanceReportPage.vue'), meta: { title: 'Outsource attendance', permission: 'outsource_attendance.view' } },
+        { path: 'outsource-attendance', name: 'outsource-attendance', component: () => import('../pages/reports/outsource/OutsourceAttendanceReportPage.vue'), meta: { title: 'Outsource attendance', permission: 'outsource_attendance.view' } },
+        { path: 'outsource-persons', name: 'outsource.persons', component: () => import('../pages/reports/outsource/OutsourcePersonListPage.vue'), meta: { title: 'Outsource persons', permission: 'outsource_attendance.view' } },
+        { path: 'outsource-work-locations', name: 'outsource.work-locations', component: () => import('../pages/reports/outsource/OutsourceWorkLocationPage.vue'), meta: { title: 'Work locations', permission: 'outsource_attendance.view' } },
         { path: 'reports/monthly-recaps', name: 'reports.monthly-recaps', component: () => import('../pages/reports/MonthlyRecapsReportPage.vue'), meta: { title: 'Monthly recap', permissionAny: ['monthly_recap.view', 'monthly_recap.generate', 'monthly_recap.review', 'monthly_recap.finalize', 'monthly_recap.export'] } },
       ],
     },
     {
       path: '/employee',
       name: 'employee-app',
-      component: () => import('../pages/EmployeeAppPage.vue'),
+      component: () => import('../pages/attendance/EmployeeAppPage.vue'),
       meta: { requiresAuth: true, employeeOnly: true },
     },
     {
       path: '/attendance',
       name: 'attendance',
-      component: () => import('../pages/AttendancePage.vue'),
+      component: () => import('../pages/attendance/AttendancePage.vue'),
       meta: { requiresAuth: true, employeeOnly: true },
     },
     {
@@ -52,21 +55,19 @@ const router = createRouter({
     {
       path: '/login/admin',
       name: 'login.admin',
-      component: () => import('../pages/LoginPage.vue'),
-      props: { audience: 'admin' },
+      component: () => import('../pages/auth/AdminLoginPage.vue'),
       meta: { loginAudience: 'admin' },
     },
     {
       path: '/login/employee',
       name: 'login.employee',
-      component: () => import('../pages/LoginPage.vue'),
-      props: { audience: 'employee' },
+      component: () => import('../pages/auth/EmployeeLoginPage.vue'),
       meta: { loginAudience: 'employee' },
     },
     {
       path: '/outsource',
       name: 'outsource',
-      component: () => import('../pages/OutsourcePage.vue'),
+      component: () => import('../pages/attendance/OutsourcePage.vue'),
       meta: { requiresAuth: false },
     },
   ],
@@ -78,6 +79,13 @@ const router = createRouter({
  * Backend authorization (Sanctum + Gate/Policy) remains authoritative;
  * protected API endpoints reject unauthenticated/unauthorized requests
  * regardless of this guard.
+ *
+ * Cross-session isolation:
+ *   Each tab stores its portal anchor ('admin'|'employee') in sessionStorage.
+ *   sessionStorage is per-tab and NOT shared between tabs, so when Tab B
+ *   (employee) overwrites the shared session cookie, Tab A (admin) can detect
+ *   the mismatch on the next navigation/refresh and redirect to its own login
+ *   page rather than silently landing in the wrong portal.
  */
 router.beforeEach(async (to) => {
   if (to.path === '/outsource' || to.meta.requiresAuth === false) {
@@ -85,20 +93,40 @@ router.beforeEach(async (to) => {
   }
 
   const auth = useAuthStore()
+  const { getPortal, isRoleConsistentWithPortal, clearPortal } = usePortalAnchor()
 
   if (!auth.isInitialized) {
     await auth.fetchCurrentUser().catch(() => undefined)
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    return {
-      name: to.meta.adminOnly ? 'login.admin' : 'login.employee',
+    // Not authenticated — send to the login page that matches this tab's
+    // portal anchor, falling back to route meta if no anchor exists yet.
+    const portal = getPortal()
+    if (portal === 'admin' || to.meta.adminOnly) {
+      return { name: 'login.admin' }
     }
+    return { name: 'login.employee' }
   }
 
   const isAdmin = auth.roles.some((role) => ['ADMIN', 'SUPER_ADMIN'].includes(role))
 
+  // ── Cross-session takeover detection ──────────────────────────────────────
+  // If this tab has a portal anchor but the server session now belongs to a
+  // different role (another tab logged in and overwrote the cookie), we must
+  // NOT silently redirect to the other portal. Instead, clear the stale
+  // client state and send the user to THIS tab's correct login page.
+  if (to.meta.requiresAuth && !isRoleConsistentWithPortal(isAdmin)) {
+    const stalledPortal = getPortal()
+    clearPortal()
+    auth.clearUser()
+    return stalledPortal === 'admin'
+      ? { name: 'login.admin' }
+      : { name: 'login.employee' }
+  }
+
   if (to.meta.adminOnly && !isAdmin) {
+    // No anchor yet (e.g. direct URL navigation) — go to employee portal.
     return { name: 'employee-app' }
   }
 
@@ -115,8 +143,16 @@ router.beforeEach(async (to) => {
     return { name: 'dashboard' }
   }
 
+  // Redirect already-authenticated users away from the login page,
+  // but ONLY if their role matches the intended audience of that portal.
   if (to.meta.loginAudience && auth.isAuthenticated) {
-    return { name: isAdmin ? 'dashboard' : 'employee-app' }
+    const audienceMatchesRole =
+      (to.meta.loginAudience === 'admin' && isAdmin) ||
+      (to.meta.loginAudience === 'employee' && !isAdmin)
+
+    if (audienceMatchesRole) {
+      return { name: isAdmin ? 'dashboard' : 'employee-app' }
+    }
   }
 
   return true

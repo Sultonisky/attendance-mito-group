@@ -17,8 +17,9 @@ class DashboardTrendRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'from' => ['required', 'date', 'before_or_equal:to'],
-            'to' => ['required', 'date', 'after_or_equal:from'],
+            'from'   => ['required', 'date', 'before_or_equal:to'],
+            'to'     => ['required', 'date', 'after_or_equal:from'],
+            'source' => ['nullable', 'string', 'in:employee,outsource,all'],
         ];
     }
 }

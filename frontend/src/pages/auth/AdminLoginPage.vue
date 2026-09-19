@@ -1,17 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import AppButton from '../components/AppButton.vue'
-import AppIcon from '../components/AppIcon.vue'
-import { useAuthStore } from '../stores/auth'
-import { ApiError } from '../services/apiClient'
-
-const props = defineProps<{
-  audience: 'admin' | 'employee'
-}>()
+import AppButton from '../../components/AppButton.vue'
+import AppIcon from '../../components/AppIcon.vue'
+import { useAuthStore } from '../../stores/auth'
+import { ApiError } from '../../services/apiClient'
+import { usePortalAnchor } from '../../composables/usePortalAnchor'
 
 const auth = useAuthStore()
 const router = useRouter()
+const { setPortal } = usePortalAnchor()
 
 const email = ref('')
 const password = ref('')
@@ -32,17 +30,16 @@ async function submit(): Promise<void> {
     await auth.login(email.value, password.value)
 
     const isAdmin = auth.roles.some((role) => ['ADMIN', 'SUPER_ADMIN'].includes(role))
-    const expectedAdmin = props.audience === 'admin'
 
-    if (isAdmin !== expectedAdmin) {
+    if (!isAdmin) {
       await auth.logout()
-      errorMessage.value = expectedAdmin
-        ? 'This account belongs to the employee app. Use the employee sign-in.'
-        : 'This account belongs to the admin console. Use the admin sign-in.'
+      errorMessage.value = 'This account belongs to the employee app. Use the employee sign-in.'
       return
     }
 
-    await router.push(expectedAdmin ? { name: 'dashboard' } : { name: 'employee-app' })
+    // Anchor this tab as the admin portal before navigating.
+    setPortal('admin')
+    await router.push({ name: 'dashboard' })
   } catch (error) {
     if (error instanceof ApiError) {
       errorMessage.value = error.message
@@ -56,22 +53,21 @@ async function submit(): Promise<void> {
 
 <template>
   <main class="login">
-    <section class="login-visual" aria-label="MITO Attendance">
-
+    <section class="login-visual" aria-label="MITO Admin Console">
       <div class="visual-content">
         <div class="logo-frame">
           <img class="brand-logo" src="/images/mito.png" alt="MITO electronic" />
         </div>
-        <p class="visual-kicker">{{ props.audience === 'admin' ? 'ADMIN CONSOLE' : 'EMPLOYEE APP' }}</p>
-        <h1>{{ props.audience === 'admin' ? 'Run the day,' : 'Your day,' }}<br /><strong>{{ props.audience === 'admin' ? 'with clarity.' : 'on record.' }}</strong></h1>
-        <p class="visual-copy">{{ props.audience === 'admin' ? 'A focused workspace for attendance operations and workforce insights.' : 'A clear, reliable way to record your attendance wherever you work.' }}</p>
+        <p class="visual-kicker">ADMIN CONSOLE</p>
+        <h1>Run the day,<br /><strong>with clarity.</strong></h1>
+        <p class="visual-copy">A focused workspace for attendance operations and workforce insights.</p>
       </div>
     </section>
 
     <section class="login-panel">
       <div class="login-heading">
-        <p class="eyebrow">{{ props.audience === 'admin' ? 'ADMIN ACCESS' : 'EMPLOYEE ACCESS' }}</p>
-        <h2>{{ props.audience === 'admin' ? 'Sign in to admin console' : 'Sign in to employee app' }}</h2>
+        <p class="eyebrow">ADMIN ACCESS</p>
+        <h2>Sign in to admin console</h2>
         <p class="login-intro">Use your company credentials to continue.</p>
       </div>
 
@@ -80,7 +76,13 @@ async function submit(): Promise<void> {
           <span>Email address</span>
           <span class="field-control">
             <AppIcon name="Mail" class-name="field-icon" :size="16" :stroke-width="2" aria-hidden="true" />
-            <input v-model="email" type="email" name="email" autocomplete="username" placeholder="you@mito.co.id" />
+            <input
+              v-model="email"
+              type="email"
+              name="email"
+              autocomplete="username"
+              placeholder="you@mito.co.id"
+            />
           </span>
         </label>
         <p v-if="fieldErrors.email" class="error">{{ fieldErrors.email[0] }}</p>
@@ -116,21 +118,32 @@ async function submit(): Promise<void> {
         </AppButton>
       </form>
 
-      <RouterLink
-        v-if="props.audience === 'admin'"
-        class="portal-switch"
-        :to="{ name: 'login.employee' }"
-      >
+      <RouterLink class="portal-switch" :to="{ name: 'login.employee' }">
         Need employee access?
         <AppIcon name="ArrowRight" :size="16" :stroke-width="2.2" aria-hidden="true" />
       </RouterLink>
-      <p class="login-note"><AppIcon name="ShieldCheck" class-name="secure-mark" :size="14" :stroke-width="2.5" /> Your connection is protected and secure.</p>
+
+      <p class="login-note">
+        <AppIcon name="ShieldCheck" class-name="secure-mark" :size="14" :stroke-width="2.5" />
+        Your connection is protected and secure.
+      </p>
     </section>
   </main>
 </template>
 
 <style scoped>
+/* ── Accent tokens — Admin: MITO Red ─────────────────────────────── */
 .login {
+  --accent:        #eb1c24;
+  --accent-dark:   #c9151c;
+  --accent-bg:     #fff1f2;
+  --accent-border: #fecdd3;
+  --accent-ring:   rgba(235, 28, 36, 0.12);
+  --surface:       #fff;
+  --border:        #e4e4e7;
+  --text:          #52525b;
+  --text-h:        #18181b;
+
   box-sizing: border-box;
   width: 100%;
   min-height: 100svh;
@@ -140,6 +153,7 @@ async function submit(): Promise<void> {
   background: #f8f8f8;
 }
 
+/* ── Left visual panel ───────────────────────────────────────────── */
 .login-visual {
   position: relative;
   box-sizing: border-box;
@@ -163,26 +177,9 @@ async function submit(): Promise<void> {
   height: 32rem;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 50%;
-  box-shadow: 0 0 0 3rem rgba(255, 255, 255, 0.04), 0 0 0 6rem rgba(255, 255, 255, 0.04);
-}
-
-.visual-topline,
-.visual-footer {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-}
-
-.visual-dot {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 50%;
-  background: #fff;
+  box-shadow:
+    0 0 0 3rem rgba(255, 255, 255, 0.04),
+    0 0 0 6rem rgba(255, 255, 255, 0.04);
 }
 
 .visual-content {
@@ -212,17 +209,12 @@ async function submit(): Promise<void> {
   object-fit: cover;
 }
 
-.visual-kicker,
-.eyebrow {
+.visual-kicker {
   margin: 0;
-  color: var(--accent);
+  color: rgba(255, 255, 255, 0.78);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.13em;
-}
-
-.visual-kicker {
-  color: rgba(255, 255, 255, 0.78);
 }
 
 .visual-content h1 {
@@ -245,14 +237,7 @@ async function submit(): Promise<void> {
   line-height: 1.6;
 }
 
-.visual-footer {
-  color: rgba(255, 255, 255, 0.68);
-}
-
-.visual-footer span {
-  color: #fff;
-}
-
+/* ── Right form panel ────────────────────────────────────────────── */
 .login-panel {
   box-sizing: border-box;
   width: min(100%, 32rem);
@@ -265,25 +250,12 @@ async function submit(): Promise<void> {
   margin-bottom: 1.75rem;
 }
 
-.portal-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin-bottom: 1.25rem;
-  padding: 0.38rem 0.6rem;
-  border: 1px solid var(--accent-border);
-  border-radius: 999px;
-  background: var(--accent-bg);
+.eyebrow {
+  margin: 0;
   color: var(--accent);
   font-size: 0.7rem;
   font-weight: 700;
-}
-
-.portal-badge-dot {
-  width: 0.42rem;
-  height: 0.42rem;
-  border-radius: 50%;
-  background: var(--accent);
+  letter-spacing: 0.13em;
 }
 
 .login-heading h2 {
@@ -295,8 +267,16 @@ async function submit(): Promise<void> {
 }
 
 .login-intro {
+  margin: 0;
   color: var(--text);
   line-height: 1.55;
+}
+
+/* ── Form fields ─────────────────────────────────────────────────── */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 label {
@@ -323,8 +303,6 @@ label {
   left: 0.9rem;
   z-index: 1;
   color: #a1a1a8;
-  font-size: 0.85rem;
-  font-weight: 700;
   pointer-events: none;
 }
 
@@ -336,6 +314,7 @@ input {
   border-radius: 7px;
   color: var(--text-h);
   background: var(--surface);
+  font-size: 0.875rem;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -346,60 +325,65 @@ input::placeholder {
 input:focus {
   border-color: var(--accent);
   outline: none;
-  box-shadow: 0 0 0 4px rgba(235, 28, 36, 0.1);
+  box-shadow: 0 0 0 4px var(--accent-ring);
 }
 
 .password-toggle {
   position: absolute;
   right: 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: auto;
   margin: 0;
   padding: 0.25rem;
   border: 0;
   background: transparent;
   color: var(--accent);
-  font-size: 0.68rem;
-  font-weight: 700;
+  cursor: pointer;
   box-shadow: none;
-  transform: none;
 }
 
-.password-toggle:hover:not(:disabled) {
-  background: transparent;
-  box-shadow: none;
-  color: #c9151c;
-  transform: none;
+.password-toggle:hover {
+  color: var(--accent-dark);
 }
 
-button {
+/* ── Submit button ───────────────────────────────────────────────── */
+button[type='submit'],
+:deep(.app-btn) {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  margin-top: 1.35rem;
+  margin-top: 0.35rem;
   padding: 0.9rem 1rem 0.9rem 1.1rem;
   border: 0;
   border-radius: 7px;
   background: var(--accent);
   color: #fff;
   font-weight: 700;
+  cursor: pointer;
   transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-button:hover:not(:disabled) {
-  background: #c9151c;
+button[type='submit']:hover:not(:disabled),
+:deep(.app-btn):hover:not(:disabled) {
+  background: var(--accent-dark);
   transform: translateY(-1px);
   box-shadow: 0 8px 18px rgba(235, 28, 36, 0.2);
 }
 
-button:disabled {
+button[type='submit']:disabled,
+:deep(.app-btn):disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
+/* ── Errors ──────────────────────────────────────────────────────── */
 .error {
-  color: #b91c1c;
   margin: 0;
+  color: #b91c1c;
+  font-size: 0.8rem;
 }
 
 .error-banner {
@@ -409,13 +393,7 @@ button:disabled {
   font-size: 0.85rem;
 }
 
-.login-note {
-  margin-top: 1.25rem;
-  color: #85858d;
-  font-size: 0.78rem;
-  text-align: center;
-}
-
+/* ── Portal switch link ──────────────────────────────────────────── */
 .portal-switch {
   display: flex;
   align-items: center;
@@ -427,30 +405,35 @@ button:disabled {
   font-size: 0.78rem;
   font-weight: 600;
   text-decoration: none;
-}
-
-.portal-switch span {
-  color: var(--accent);
-  font-size: 1rem;
+  transition: color 0.15s ease;
 }
 
 .portal-switch:hover {
   color: var(--accent);
 }
 
+/* ── Footer note ─────────────────────────────────────────────────── */
+.login-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 1.25rem;
+  color: #85858d;
+  font-size: 0.78rem;
+}
+
 .secure-mark {
   display: inline-grid;
   width: 1rem;
   height: 1rem;
-  margin-right: 0.25rem;
   place-items: center;
   border-radius: 50%;
   background: #e8f7ee;
   color: #25834a;
-  font-size: 0.65rem;
-  font-weight: 700;
+  flex-shrink: 0;
 }
 
+/* ── Animation ───────────────────────────────────────────────────── */
 @keyframes login-rise {
   from {
     opacity: 0;
@@ -462,6 +445,7 @@ button:disabled {
   }
 }
 
+/* ── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 760px) {
   .login {
     display: block;
@@ -482,8 +466,7 @@ button:disabled {
     font-size: 2.6rem;
   }
 
-  .visual-copy,
-  .visual-footer {
+  .visual-copy {
     display: none;
   }
 

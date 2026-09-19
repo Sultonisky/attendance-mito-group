@@ -52,6 +52,15 @@ class RolesAndPermissionsSeeder extends Seeder
         'monthly_recap.export',
         'attendance.view',
         'outsource_attendance.view',
+        'outsource_attendance.void',
+        'outsource_person.view',
+        'outsource_person.create',
+        'outsource_person.update',
+        'outsource_person.delete',
+        'outsource_work_location.view',
+        'outsource_work_location.create',
+        'outsource_work_location.update',
+        'outsource_work_location.delete',
     ];
 
     /**
@@ -89,6 +98,15 @@ class RolesAndPermissionsSeeder extends Seeder
             'monthly_recap.export',
             'attendance.view',
             'outsource_attendance.view',
+            'outsource_attendance.void',
+            'outsource_person.view',
+            'outsource_person.create',
+            'outsource_person.update',
+            'outsource_person.delete',
+            'outsource_work_location.view',
+            'outsource_work_location.create',
+            'outsource_work_location.update',
+            'outsource_work_location.delete',
         ],
         'USER' => [
             'dashboard.view',

@@ -71,9 +71,15 @@ class OutsourceLocationImportService
                 continue;
             }
 
-            $city = City::query()->whereRaw('LOWER(name) = ?', [strtolower($cityName)])->first();
-            $store = $city
-                ? WorkLocation::query()->where('city_id', $city->id)->whereRaw('LOWER(name) = ?', [strtolower($storeName)])->first()
+            $cityIds = City::query()
+                ->whereRaw('LOWER(name) = ?', [strtolower($cityName)])
+                ->pluck('id');
+
+            $store = $cityIds->isNotEmpty()
+                ? WorkLocation::query()
+                    ->whereIn('city_id', $cityIds)
+                    ->whereRaw('LOWER(name) = ?', [strtolower($storeName)])
+                    ->first()
                 : null;
 
             if ($store === null) {
