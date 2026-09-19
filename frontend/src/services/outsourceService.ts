@@ -1,4 +1,5 @@
 import { apiFetch } from './apiClient'
+import { getOutsourceDeviceFingerprint } from '../utils/outsourceDeviceFingerprint'
 
 export interface City {
   id: number
@@ -66,7 +67,12 @@ export async function initOutsourceSession(
 ): Promise<OutsourceSessionResponse> {
   return apiFetch<OutsourceSessionResponse>('/outsource/session/init', {
     method: 'POST',
-    body: JSON.stringify({ city_id: cityId, store_id: storeId, outsource_id: outsourceId }),
+    body: JSON.stringify({
+      city_id: cityId,
+      store_id: storeId,
+      outsource_id: outsourceId,
+      device_fingerprint: getOutsourceDeviceFingerprint(),
+    }),
   })
 }
 
@@ -86,6 +92,7 @@ export async function outsourceCheckIn(
       longitude,
       accuracy_meters: accuracy,
       source: 'web',
+      device_fingerprint: getOutsourceDeviceFingerprint(),
     }),
   })
 }
@@ -106,6 +113,7 @@ export async function outsourceCheckOut(
       longitude,
       accuracy_meters: accuracy,
       source: 'web',
+      device_fingerprint: getOutsourceDeviceFingerprint(),
     }),
   })
 }

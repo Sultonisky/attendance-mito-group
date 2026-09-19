@@ -40,6 +40,11 @@ class OutsourcePublicApiTest extends TestCase
             ->create(['status' => 'active']);
     }
 
+    private const DEVICE_FINGERPRINT = 'testdevicefingerprint01';
+
+    private const DEVICE_FINGERPRINT_B = 'testdevicefingerprint02';
+
+
     // ============================================================
     // DISCOVERY ENDPOINTS
     // ============================================================
@@ -141,6 +146,8 @@ class OutsourcePublicApiTest extends TestCase
             'city_id' => $city->id,
             'store_id' => $store->id,
             'outsource_id' => $outsource->id,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response->assertStatus(201);
@@ -170,6 +177,8 @@ class OutsourcePublicApiTest extends TestCase
             'city_id' => $city->id,
             'store_id' => $store->id,
             'outsource_id' => $outsource->id,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response->assertStatus(422);
@@ -186,6 +195,8 @@ class OutsourcePublicApiTest extends TestCase
             'city_id' => $city->id,
             'store_id' => $store->id,
             'outsource_id' => $outsource->id,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response->assertStatus(422);
@@ -202,6 +213,8 @@ class OutsourcePublicApiTest extends TestCase
             'city_id' => $city->id,
             'store_id' => $store->id,
             'outsource_id' => $outsource->id,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response->assertStatus(422);
@@ -219,6 +232,8 @@ class OutsourcePublicApiTest extends TestCase
             'city_id' => $city1->id,
             'store_id' => $store->id,
             'outsource_id' => $outsource->id,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response->assertStatus(422);
@@ -235,6 +250,8 @@ class OutsourcePublicApiTest extends TestCase
             'city_id' => $city->id,
             'store_id' => $store->id,
             'outsource_id' => $outsource->id,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response->assertStatus(201);
@@ -256,6 +273,8 @@ class OutsourcePublicApiTest extends TestCase
             'city_id' => $city->id,
             'store_id' => $store->id,
             'outsource_id' => $outsource->id,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $token = $response->json('data.session_token');
@@ -276,15 +295,98 @@ class OutsourcePublicApiTest extends TestCase
             'city_id' => $city->id,
             'store_id' => $store->id,
             'outsource_id' => $outsource->id,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response2 = $this->postJson('/api/v1/outsource/session/init', [
             'city_id' => $city->id,
             'store_id' => $store->id,
             'outsource_id' => $outsource->id,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $this->assertNotEquals($response1->json('data.session_token'), $response2->json('data.session_token'));
+        $this->assertEquals(1, OutsourceAttendanceSession::where('status', OutsourceAttendanceSessionStatus::Active->value)->count());
+        $this->assertEquals(1, OutsourceAttendanceSession::where('status', OutsourceAttendanceSessionStatus::Revoked->value)->count());
+    }
+
+    public function test_device_with_open_attendance_cannot_init_session_for_another_outsource(): void
+    {
+        $city = City::factory()->create();
+        $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
+
+        $outsourceA = Outsource::factory()->create(['status' => 'active']);
+        $outsourceB = Outsource::factory()->create(['status' => 'active']);
+        $this->makeActiveAssignment($outsourceA, $store);
+        $this->makeActiveAssignment($outsourceB, $store);
+
+        $initA = $this->postJson('/api/v1/outsource/session/init', [
+            'city_id' => $city->id,
+            'store_id' => $store->id,
+            'outsource_id' => $outsourceA->id,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ]);
+        $initA->assertStatus(201);
+        $tokenA = $initA->json('data.session_token');
+
+        $this->postJson('/api/v1/outsource/attendance/check-in', [
+            'latitude' => -6.2001,
+            'longitude' => 106.8001,
+            'accuracy_meters' => 10,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ], [
+            'Authorization' => 'Bearer '.$tokenA,
+        ])->assertStatus(201);
+
+        $initB = $this->postJson('/api/v1/outsource/session/init', [
+            'city_id' => $city->id,
+            'store_id' => $store->id,
+            'outsource_id' => $outsourceB->id,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ]);
+
+        $initB->assertStatus(409);
+        $initB->assertJson([
+            'success' => false,
+            'code' => 'DEVICE_BUSY',
+        ]);
+    }
+
+    public function test_same_outsource_can_reinit_session_on_same_device_while_open(): void
+    {
+        $city = City::factory()->create();
+        $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $this->makeActiveAssignment($outsource, $store);
+
+        $initA = $this->postJson('/api/v1/outsource/session/init', [
+            'city_id' => $city->id,
+            'store_id' => $store->id,
+            'outsource_id' => $outsource->id,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ]);
+        $tokenA = $initA->json('data.session_token');
+
+        $this->postJson('/api/v1/outsource/attendance/check-in', [
+            'latitude' => -6.2001,
+            'longitude' => 106.8001,
+            'accuracy_meters' => 10,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ], [
+            'Authorization' => 'Bearer '.$tokenA,
+        ])->assertStatus(201);
+
+        $initAgain = $this->postJson('/api/v1/outsource/session/init', [
+            'city_id' => $city->id,
+            'store_id' => $store->id,
+            'outsource_id' => $outsource->id,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ]);
+
+        $initAgain->assertStatus(201);
+        $this->assertNotEquals($tokenA, $initAgain->json('data.session_token'));
     }
 
     // ============================================================
@@ -304,6 +406,8 @@ class OutsourcePublicApiTest extends TestCase
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
             'last_used_at' => now(),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
     }
 
@@ -338,6 +442,8 @@ class OutsourcePublicApiTest extends TestCase
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->subHour(),
             'last_used_at' => now()->subHour(),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $resolver = new ResolveOutsourceSession();
@@ -355,6 +461,8 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'revoked-token'),
             'status' => OutsourceAttendanceSessionStatus::Revoked->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $resolver = new ResolveOutsourceSession();
@@ -373,6 +481,8 @@ class OutsourcePublicApiTest extends TestCase
             'status' => OutsourceAttendanceSessionStatus::Completed->value,
             'expires_at' => now()->addHours(12),
             'completed_at' => now(),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $resolver = new ResolveOutsourceSession();
@@ -411,12 +521,16 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'checkin-token'),
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer checkin-token',
         ]);
@@ -444,12 +558,16 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'geofence-token'),
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.3,
             'longitude' => 106.9,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer geofence-token',
         ]);
@@ -471,12 +589,16 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'assignment-token'),
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer assignment-token',
         ]);
@@ -498,12 +620,16 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'store-token'),
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer store-token',
         ]);
@@ -525,12 +651,16 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'outsource-token'),
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer outsource-token',
         ]);
@@ -550,12 +680,16 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'dup-token'),
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $this->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer dup-token',
         ])->assertStatus(201);
@@ -564,6 +698,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer dup-token',
         ]);
@@ -584,12 +720,16 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'checkout-token'),
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $this->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer checkout-token',
         ])->assertStatus(201);
@@ -608,6 +748,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer checkout-token',
         ]);
@@ -631,12 +773,16 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'no-open-token'),
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response = $this->postJson('/api/v1/outsource/attendance/check-out', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer no-open-token',
         ]);
@@ -656,6 +802,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.3,
             'longitude' => 106.9,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer checkout-token',
         ]);
@@ -675,12 +823,16 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'expired-checkout-token'),
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->subHour(),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $this->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer expired-checkout-token',
         ])->assertStatus(401);
@@ -689,6 +841,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer expired-checkout-token',
         ]);
@@ -709,6 +863,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer checkout-token',
         ]);
@@ -728,6 +884,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer checkout-token',
         ])->assertStatus(200);
@@ -736,6 +894,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer checkout-token',
         ]);
@@ -761,6 +921,8 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => $tokenHash,
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $checkInAt = CarbonImmutable::create(2026, 9, 14, 22, 0, 0);
@@ -773,6 +935,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ])->assertStatus(201);
 
         $this->withHeaders([
@@ -782,6 +946,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ])->assertStatus(200);
 
         $record = AttendanceRecord::where('outsource_id', $outsource->id)->first();
@@ -811,6 +977,8 @@ class OutsourcePublicApiTest extends TestCase
             'token_hash' => hash('sha256', 'lifecycle-token'),
             'status' => OutsourceAttendanceSessionStatus::Active->value,
             'expires_at' => now()->addHours(12),
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $this->assertEquals(OutsourceAttendanceSessionStatus::Active->value, $session->status);
@@ -820,6 +988,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer lifecycle-token',
         ])->assertStatus(201);
@@ -832,6 +1002,8 @@ class OutsourcePublicApiTest extends TestCase
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ], [
             'Authorization' => 'Bearer lifecycle-token',
         ])->assertStatus(200);
@@ -857,13 +1029,17 @@ class OutsourcePublicApiTest extends TestCase
                 'city_id' => $city->id,
                 'store_id' => $store->id,
                 'outsource_id' => $outsource->id,
-            ]);
+            
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ]);
         }
 
         $response = $this->postJson('/api/v1/outsource/session/init', [
             'city_id' => $city->id,
             'store_id' => $store->id,
             'outsource_id' => $outsource->id,
+        
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
         $response->assertStatus(429);

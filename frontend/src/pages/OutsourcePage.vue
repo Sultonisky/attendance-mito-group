@@ -1,11 +1,7 @@
 <script setup lang="ts">
-declare global {
-  interface Window {
-    google?: any;
-  }
-}
-
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import AppButton from "../components/AppButton.vue";
 import AppIcon from "../components/AppIcon.vue";
 import { ApiError } from "../services/apiClient";
@@ -30,6 +26,36 @@ type Step =
   | "attendance_open"
   | "completed";
 
+/** Basemap tiles for store/GPS visualization only (not live tracking). */
+const CARTO_API_KEY = (import.meta.env.VITE_CARTO_API_KEY as string | undefined)?.trim();
+const CARTO_TILE_URL =
+  (import.meta.env.VITE_CARTO_TILE_URL as string | undefined)?.trim() ||
+  "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+const OSM_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const CARTO_TILE_ATTRIBUTION =
+  import.meta.env.VITE_CARTO_ATTRIBUTION ??
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const OSM_TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+function resolveBasemap(): { url: string; attribution: string; subdomains: string } {
+  // CARTO raster basemaps now watermark tiles without a free API key.
+  if (CARTO_API_KEY) {
+    const separator = CARTO_TILE_URL.includes("?") ? "&" : "?";
+    return {
+      url: `${CARTO_TILE_URL}${separator}key=${encodeURIComponent(CARTO_API_KEY)}`,
+      attribution: CARTO_TILE_ATTRIBUTION,
+      subdomains: "abcd",
+    };
+  }
+
+  return {
+    url: OSM_TILE_URL,
+    attribution: OSM_TILE_ATTRIBUTION,
+    subdomains: "abc",
+  };
+}
+
 const step = ref<Step>("city");
 const sessionToken = ref<string | null>(null);
 const expiresAt = ref<string | null>(null);
@@ -40,12 +66,10 @@ const currentMapLocation = ref<{
   longitude: number;
   accuracy?: number;
 } | null>(null);
-let googleMap: any = null;
-let storeMarker: any = null;
-let userMarker: any = null;
-let storeRadius: any = null;
-let googleMapsLoadPromise: Promise<void> | null = null;
-let advancedMarkerElementClass: any = null;
+let cartoMap: L.Map | null = null;
+let storeMarker: L.Marker | null = null;
+let userMarker: L.Marker | null = null;
+let storeRadius: L.Circle | null = null;
 
 const cities = ref<City[]>([]);
 const stores = ref<Store[]>([]);
@@ -111,8 +135,33 @@ const selectedOutsource = ref<Outsource | null>(null);
 const selectedOutsourceLabel = computed(() => {
   if (!selectedOutsource.value) return "";
 
-  return `${selectedOutsource.value.name} (${selectedOutsource.value.outsource_code})`;
+  return selectedOutsource.value.name;
 });
+
+function formatSelectLabel(name: string, code?: string | null): string {
+  const label = (name || "").trim();
+  if (!label) return "";
+
+  const normalizedCode = (code || "").trim();
+  if (!normalizedCode) return label;
+
+  // Generated codes often look like "BANDUNG-6d69a7" / "ADELINA-ASTUTI-c6a64b3e"
+  // — showing those next to the same name feels duplicated for users.
+  const nameSlug = label
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const codeSlug = normalizedCode.toUpperCase();
+  if (
+    codeSlug === nameSlug ||
+    codeSlug.startsWith(`${nameSlug}-`) ||
+    codeSlug.includes(nameSlug)
+  ) {
+    return label;
+  }
+
+  return `${label} (${normalizedCode})`;
+}
 
 const attendanceId = ref<number | null>(null);
 const attendanceStatus = ref<string | null>(null);
@@ -128,9 +177,15 @@ const message = ref("");
 
 const locationAccuracy = ref<number | null>(null);
 const locationStatus = ref<"idle" | "locating" | "ready" | "error">("idle");
+/** Accuracy gate only — store geofence radius stays fixed at 150 m.
+ *  Laptop/Wi‑Fi often reports ±50–100 m (no GPS chip). Phones outdoors can do better.
+ */
 const maxGpsAccuracyMeters = Number(
   import.meta.env.VITE_GPS_MAX_ACCURACY_METERS ?? 100,
 );
+/** Hard stop for GPS settle so UI never stays on "Menstabilkan" forever. */
+const GPS_SETTLE_TIMEOUT_MS = 12_000;
+const GPS_QUICK_TIMEOUT_MS = 6_000;
 
 const isGpsAccuracyAcceptable = computed(
   () =>
@@ -141,6 +196,18 @@ const isGpsAccuracyAcceptable = computed(
 
 const now = ref(new Date());
 let clockTimer: number | null = null;
+let gpsWatchId: number | null = null;
+let gpsSettleTimer: number | null = null;
+let gpsRequestId = 0;
+let activeGpsResolve:
+  | ((
+      value: {
+        latitude: number;
+        longitude: number;
+        accuracy?: number;
+      } | null,
+    ) => void)
+  | null = null;
 
 const attendanceDurationSeconds = computed(() => {
   if (!isAttendanceOpen.value || !checkInAt.value) {
@@ -175,7 +242,7 @@ const isSessionActive = computed(
 const isAttendanceOpen = computed(() => step.value === "attendance_open");
 
 const trackingStatusLabel = computed(() => {
-  if (locationStatus.value === "locating") return "Mengambil lokasi";
+  if (locationStatus.value === "locating") return "Menstabilkan GPS";
   if (locationStatus.value === "ready" && !isGpsAccuracyAcceptable.value)
     return "GPS kurang akurat";
   if (locationStatus.value === "ready") return "Lokasi valid";
@@ -184,9 +251,17 @@ const trackingStatusLabel = computed(() => {
 });
 
 const trackerHint = computed(() => {
-  if (locationStatus.value === "ready") return "Wilayah kerja terdeteksi aman.";
-  if (locationStatus.value === "locating")
-    return "Sedang membaca sinyal GPS Anda.";
+  if (locationStatus.value === "ready" && isGpsAccuracyAcceptable.value) {
+    return "Sinyal GPS sudah cukup akurat untuk presensi.";
+  }
+  if (locationStatus.value === "ready") {
+    return `Akurasi masih ±${locationAccuracy.value ?? 0} m. Target maksimal ±${maxGpsAccuracyMeters} m.`;
+  }
+  if (locationStatus.value === "locating") {
+    return locationAccuracy.value !== null
+      ? `Menunggu sinyal lebih akurat (saat ini ±${locationAccuracy.value} m, target ±${maxGpsAccuracyMeters} m).`
+      : "Sedang menstabilkan sinyal GPS. Tetap di tempat terbuka.";
+  }
   if (locationStatus.value === "error")
     return "Periksa izin GPS dan sinyal Anda.";
   return "Sinyal GPS belum aktif untuk validasi.";
@@ -333,218 +408,356 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function loadGoogleMapsScript(apiKey: string): Promise<void> {
-  if (advancedMarkerElementClass) {
-    return Promise.resolve();
-  }
+function createDivIcon(
+  className: string,
+  size: number,
+  options: { rotate?: boolean; glow?: boolean } = {},
+): L.DivIcon {
+  const rotate = options.rotate
+    ? "border-radius:50% 50% 50% 0;transform:rotate(-45deg);"
+    : "border-radius:50%;";
+  const glow = options.glow
+    ? "box-shadow:0 0 0 6px rgba(37,99,235,0.18);"
+    : "box-shadow:0 1px 4px rgba(15,23,42,0.25);";
+  const background = className === "store" ? "#eb1c24" : "#2563eb";
 
-  if (googleMapsLoadPromise) {
-    return googleMapsLoadPromise;
-  }
-
-  googleMapsLoadPromise = new Promise((resolve, reject) => {
-    let loadingFinished = false;
-
-    const finishLoading = async () => {
-      if (loadingFinished) return;
-
-      try {
-        if (!window.google?.maps) {
-          throw new Error("Google Maps API is unavailable.");
-        }
-
-        for (let attempt = 0; attempt < 20; attempt += 1) {
-          if (window.google.maps.importLibrary) {
-            const markerLibrary =
-              await window.google.maps.importLibrary("marker");
-            advancedMarkerElementClass = markerLibrary?.AdvancedMarkerElement;
-          }
-
-          advancedMarkerElementClass ??=
-            window.google.maps.marker?.AdvancedMarkerElement;
-
-          if (advancedMarkerElementClass) {
-            loadingFinished = true;
-            resolve();
-            return;
-          }
-
-          await new Promise((wait) => window.setTimeout(wait, 50));
-        }
-
-        throw new Error("Google Maps marker library is unavailable.");
-      } catch (error) {
-        reject(error);
-      }
-    };
-
-    const existingScript = document.querySelector(
-      "script[data-google-maps-sdk]",
-    ) as HTMLScriptElement | null;
-
-    if (existingScript) {
-      existingScript.addEventListener("load", finishLoading, { once: true });
-      existingScript.addEventListener(
-        "error",
-        () => reject(new Error("Google Maps failed to load.")),
-        { once: true },
-      );
-      if (window.google?.maps) {
-        void finishLoading();
-      }
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&libraries=marker`;
-    script.async = true;
-    script.defer = true;
-    script.dataset.googleMapsSdk = "true";
-    script.onload = finishLoading;
-    script.onerror = () => reject(new Error("Google Maps failed to load."));
-    document.head.appendChild(script);
+  return L.divIcon({
+    className: "carto-map-marker",
+    html: `<span style="display:block;width:${size}px;height:${size}px;border:3px solid #fff;background:${background};${rotate}${glow}"></span>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
-
-  return googleMapsLoadPromise;
 }
 
-function updateGoogleMap(): void {
-  if (
-    !selectedMapLocation.value ||
-    !mapContainer.value ||
-    !window.google?.maps
-  ) {
+function destroyCartoMap(): void {
+  if (cartoMap) {
+    cartoMap.remove();
+    cartoMap = null;
+  }
+  storeMarker = null;
+  userMarker = null;
+  storeRadius = null;
+}
+
+function updateCartoMap(): void {
+  if (!selectedMapLocation.value || !mapContainer.value) {
     return;
   }
 
-  if (!googleMap) {
-    googleMap = new window.google.maps.Map(mapContainer.value, {
-      center: selectedMapLocation.value,
-      zoom: 15,
-      mapId: "DEMO_MAP_ID",
-      disableDefaultUI: true,
-      gestureHandling: "greedy",
-      zoomControl: true,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: false,
-    });
+  if (cartoMap && cartoMap.getContainer() !== mapContainer.value) {
+    destroyCartoMap();
   }
 
-  googleMap.setCenter(selectedMapLocation.value);
-  googleMap.panTo(selectedMapLocation.value);
+  const center: L.LatLngExpression = [
+    selectedMapLocation.value.lat,
+    selectedMapLocation.value.lng,
+  ];
+
+  if (!cartoMap) {
+    cartoMap = L.map(mapContainer.value, {
+      zoomControl: true,
+      attributionControl: true,
+    }).setView(center, 15);
+
+    const basemap = resolveBasemap();
+    L.tileLayer(basemap.url, {
+      attribution: basemap.attribution,
+      subdomains: basemap.subdomains,
+      maxZoom: 19,
+    }).addTo(cartoMap);
+
+    // Leaflet needs a layout pass after the container becomes visible.
+    window.setTimeout(() => cartoMap?.invalidateSize(), 0);
+  } else {
+    cartoMap.setView(center, cartoMap.getZoom(), { animate: true });
+  }
+
+  const storeTitle = isUsingCityFallback.value
+    ? "Perkiraan pusat kota"
+    : selectedStoreName.value || "Store";
 
   if (!storeMarker) {
-    const storePin = document.createElement("div");
-    storePin.style.width = "18px";
-    storePin.style.height = "18px";
-    storePin.style.border = "3px solid #fff";
-    storePin.style.borderRadius = "50% 50% 50% 0";
-    storePin.style.background = "#eb1c24";
-    storePin.style.transform = "rotate(-45deg)";
-    storeMarker = new advancedMarkerElementClass({
-      map: googleMap,
-      position: selectedMapLocation.value,
-      title: isUsingCityFallback.value
-        ? "Perkiraan pusat kota"
-        : selectedStoreName.value || "Store",
-      content: storePin,
-    });
+    storeMarker = L.marker(center, {
+      icon: createDivIcon("store", 18, { rotate: true }),
+      title: storeTitle,
+      zIndexOffset: 200,
+    }).addTo(cartoMap);
   } else {
-    storeMarker.position = selectedMapLocation.value;
-    storeMarker.title = isUsingCityFallback.value
-      ? "Perkiraan pusat kota"
-      : selectedStoreName.value || "Store";
+    storeMarker.setLatLng(center);
+    storeMarker.options.title = storeTitle;
   }
 
   if (!selectedStoreLocation.value) {
     if (storeRadius) {
-      storeRadius.setMap(null);
+      storeRadius.remove();
       storeRadius = null;
     }
-  } else if (!storeRadius) {
-    storeRadius = new window.google.maps.Circle({
-      map: googleMap,
-      center: selectedStoreLocation.value,
-      radius: 150,
-      fillColor: "#f97316",
-      fillOpacity: 0.18,
-      strokeColor: "#f59e0b",
-      strokeOpacity: 0.8,
-      strokeWeight: 2,
-    });
   } else {
-    storeRadius.setCenter(selectedStoreLocation.value);
+    const radiusCenter: L.LatLngExpression = [
+      selectedStoreLocation.value.lat,
+      selectedStoreLocation.value.lng,
+    ];
+    if (!storeRadius) {
+      storeRadius = L.circle(radiusCenter, {
+        radius: 150,
+        color: "#f59e0b",
+        weight: 2,
+        opacity: 0.8,
+        fillColor: "#f97316",
+        fillOpacity: 0.18,
+      }).addTo(cartoMap);
+    } else {
+      storeRadius.setLatLng(radiusCenter);
+    }
   }
 
   if (currentMapLocation.value) {
-    const userPosition = {
-      lat: currentMapLocation.value.latitude,
-      lng: currentMapLocation.value.longitude,
-    };
+    const userPosition: L.LatLngExpression = [
+      currentMapLocation.value.latitude,
+      currentMapLocation.value.longitude,
+    ];
 
     if (!userMarker) {
-      const userPin = document.createElement("div");
-      userPin.style.width = "16px";
-      userPin.style.height = "16px";
-      userPin.style.border = "3px solid #fff";
-      userPin.style.borderRadius = "50%";
-      userPin.style.background = "#2563eb";
-      userPin.style.boxShadow = "0 0 0 6px rgba(37, 99, 235, 0.18)";
-      userMarker = new advancedMarkerElementClass({
-        map: googleMap,
-        position: userPosition,
-        title: "Current location",
-        content: userPin,
-      });
+      userMarker = L.marker(userPosition, {
+        icon: createDivIcon("user", 16, { glow: true }),
+        title: "Lokasi saat ini",
+        zIndexOffset: 300,
+      }).addTo(cartoMap);
     } else {
-      userMarker.position = userPosition;
+      userMarker.setLatLng(userPosition);
     }
   } else if (userMarker) {
-    userMarker.setMap(null);
+    userMarker.remove();
     userMarker = null;
   }
 }
 
-async function ensureGoogleMapsReady(): Promise<void> {
+async function ensureCartoMapReady(): Promise<void> {
   if (!selectedMapLocation.value) {
     return;
   }
 
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-
-  if (!apiKey) {
-    mapError.value =
-      "Google Maps is not configured yet. Add VITE_GOOGLE_MAPS_API_KEY to the frontend environment.";
-    return;
-  }
-
   try {
-    await loadGoogleMapsScript(apiKey);
+    await nextTick();
     if (!isUsingCityFallback.value) {
       mapError.value = "";
     }
-    updateGoogleMap();
+    updateCartoMap();
   } catch (error) {
-    console.error("Google Maps initialization failed.", error);
+    console.error("CARTO map initialization failed.", error);
     mapError.value =
       error instanceof Error
-        ? `Google Maps failed to load: ${error.message}`
-        : "Google Maps failed to load. Please try again later.";
+        ? `Peta gagal dimuat: ${error.message}`
+        : "Peta gagal dimuat. Silakan coba lagi nanti.";
   }
 }
 
+function stopGpsWatch(): void {
+  if (gpsWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(gpsWatchId);
+    gpsWatchId = null;
+  }
+  if (gpsSettleTimer !== null) {
+    window.clearTimeout(gpsSettleTimer);
+    gpsSettleTimer = null;
+  }
+}
+
+function cancelActiveGpsRequest(): void {
+  stopGpsWatch();
+  if (!activeGpsResolve) {
+    return;
+  }
+
+  const resolve = activeGpsResolve;
+  activeGpsResolve = null;
+  gpsRequestId += 1;
+  resolve(null);
+}
+
+function geoErrorMessage(geoErr: GeolocationPositionError): string {
+  if (geoErr.code === geoErr.PERMISSION_DENIED) {
+    return "Izin lokasi ditolak. Izinkan akses lokasi pada browser lalu coba lagi.";
+  }
+  if (geoErr.code === geoErr.POSITION_UNAVAILABLE) {
+    return "Lokasi tidak tersedia. Pastikan GPS/lokasi perangkat aktif lalu coba lagi.";
+  }
+  if (geoErr.code === geoErr.TIMEOUT) {
+    return "Pengambilan lokasi terlalu lama. Pastikan GPS/lokasi aktif lalu coba lagi.";
+  }
+  return "Gagal mendeteksi lokasi GPS. Pastikan GPS aktif dan berada di area terbuka.";
+}
+
+async function requestLocation(): Promise<{
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+} | null> {
+  if (!navigator.geolocation) {
+    error.value = "Browser ini tidak mendukung layanan lokasi.";
+    locationStatus.value = "error";
+    return null;
+  }
+
+  // End any previous settle immediately so retries cannot stack forever.
+  cancelActiveGpsRequest();
+
+  const requestId = ++gpsRequestId;
+  locationStatus.value = "locating";
+  error.value = "";
+
+  return new Promise((resolve) => {
+    activeGpsResolve = resolve;
+
+    let best: {
+      latitude: number;
+      longitude: number;
+      accuracy: number;
+    } | null = null;
+
+    const isCurrent = () =>
+      requestId === gpsRequestId && activeGpsResolve === resolve;
+
+    const finish = (
+      result: {
+        latitude: number;
+        longitude: number;
+        accuracy?: number;
+      } | null,
+      status: "ready" | "error",
+      messageText?: string,
+    ) => {
+      if (!isCurrent()) return;
+
+      stopGpsWatch();
+      activeGpsResolve = null;
+      locationStatus.value = status;
+
+      if (result) {
+        locationAccuracy.value = Math.round(result.accuracy ?? 0);
+        currentMapLocation.value = {
+          latitude: result.latitude,
+          longitude: result.longitude,
+          accuracy: result.accuracy,
+        };
+        updateCartoMap();
+      }
+
+      if (messageText) {
+        error.value = messageText;
+      } else if (status === "ready") {
+        error.value = "";
+      }
+
+      resolve(result);
+    };
+
+    const acceptReading = (position: GeolocationPosition): boolean => {
+      if (!isCurrent()) return false;
+
+      const accuracy = Number(position.coords.accuracy);
+      if (!Number.isFinite(accuracy) || accuracy < 0) {
+        return false;
+      }
+
+      const reading = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy,
+      };
+
+      if (!best || reading.accuracy < best.accuracy) {
+        best = reading;
+        locationAccuracy.value = Math.round(reading.accuracy);
+        currentMapLocation.value = {
+          latitude: reading.latitude,
+          longitude: reading.longitude,
+          accuracy: reading.accuracy,
+        };
+        updateCartoMap();
+      }
+
+      if (best.accuracy <= maxGpsAccuracyMeters) {
+        finish(best, "ready");
+        return true;
+      }
+
+      return false;
+    };
+
+    const completeWithBestOrError = (fallbackMessage: string) => {
+      if (!isCurrent()) return;
+
+      if (best) {
+        const accuracyNote =
+          best.accuracy > maxGpsAccuracyMeters
+            ? `Akurasi GPS ±${Math.round(best.accuracy)} m masih kurang. Pindah ke area terbuka lalu tekan Coba lagi (maksimal ±${maxGpsAccuracyMeters} m).`
+            : undefined;
+        finish(best, "ready", accuracyNote);
+        return;
+      }
+
+      finish(null, "error", fallbackMessage);
+    };
+
+    const startWatchImprove = () => {
+      if (!isCurrent() || gpsWatchId !== null) return;
+
+      gpsWatchId = navigator.geolocation.watchPosition(
+        (position) => {
+          acceptReading(position);
+        },
+        (geoErr) => {
+          if (!isCurrent()) return;
+          if (geoErr.code === geoErr.PERMISSION_DENIED) {
+            finish(null, "error", geoErrorMessage(geoErr));
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: GPS_QUICK_TIMEOUT_MS,
+          maximumAge: 0,
+        },
+      );
+    };
+
+    gpsSettleTimer = window.setTimeout(() => {
+      completeWithBestOrError(
+        "GPS belum mendapatkan sinyal akurat. Pastikan lokasi aktif, berada di area terbuka, lalu coba lagi.",
+      );
+    }, GPS_SETTLE_TIMEOUT_MS);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (!isCurrent()) return;
+        const done = acceptReading(position);
+        if (!done) {
+          startWatchImprove();
+        }
+      },
+      (geoErr) => {
+        if (!isCurrent()) return;
+        if (geoErr.code === geoErr.PERMISSION_DENIED) {
+          finish(null, "error", geoErrorMessage(geoErr));
+          return;
+        }
+        startWatchImprove();
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: GPS_QUICK_TIMEOUT_MS,
+        maximumAge: 0,
+      },
+    );
+  });
+}
+
 async function refreshMapLocation(): Promise<void> {
-  const location = await requestLocation();
-  if (!location) return;
+  if (locationStatus.value === "locating") {
+    return;
+  }
 
-  currentMapLocation.value = {
-    latitude: location.latitude,
-    longitude: location.longitude,
-    accuracy: location.accuracy ?? undefined,
-  };
-
-  updateGoogleMap();
+  await requestLocation();
 }
 
 async function loadCities(): Promise<void> {
@@ -565,6 +778,7 @@ async function loadCities(): Promise<void> {
 }
 
 function invalidateSessionState(): void {
+  cancelActiveGpsRequest();
   sessionToken.value = null;
   expiresAt.value = null;
   attendanceId.value = null;
@@ -635,7 +849,7 @@ async function onStoreSelected(): Promise<void> {
     }
 
     if (selectedMapLocation.value) {
-      await Promise.all([ensureGoogleMapsReady(), refreshMapLocation()]);
+      await Promise.all([ensureCartoMapReady(), refreshMapLocation()]);
     }
   } catch (e: unknown) {
     const err = e as Error;
@@ -737,7 +951,11 @@ async function startSession(): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     if (err instanceof ApiError) {
-      if (err.status === 422) {
+      if (err.status === 409) {
+        error.value =
+          err.message ||
+          "Perangkat ini masih dipakai absensi personel lain. Clock-out dulu sebelum ganti orang.";
+      } else if (err.status === 422) {
         error.value =
           "Pilihan penugasan tidak valid atau tidak aktif. Silakan pilih kembali.";
       } else if (err.status === 429) {
@@ -752,53 +970,6 @@ async function startSession(): Promise<void> {
   } finally {
     isSubmitting.value = false;
   }
-}
-
-async function requestLocation(): Promise<{
-  latitude: number;
-  longitude: number;
-  accuracy?: number;
-} | null> {
-  if (!navigator.geolocation) {
-    error.value = "Browser ini tidak mendukung layanan lokasi.";
-    locationStatus.value = "error";
-    return null;
-  }
-
-  locationStatus.value = "locating";
-
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        locationAccuracy.value = Math.round(position.coords.accuracy);
-        locationStatus.value = "ready";
-        error.value = "";
-        resolve({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-        });
-      },
-      (geoErr) => {
-        locationStatus.value = "error";
-        if (geoErr.code === geoErr.PERMISSION_DENIED) {
-          error.value =
-            "Izin lokasi ditolak. Izinkan akses lokasi pada browser lalu coba lagi.";
-        } else if (geoErr.code === geoErr.POSITION_UNAVAILABLE) {
-          error.value =
-            "Lokasi tidak tersedia. Pastikan GPS/lokasi perangkat aktif lalu coba lagi.";
-        } else if (geoErr.code === geoErr.TIMEOUT) {
-          error.value =
-            "Pengambilan lokasi terlalu lama. Pastikan GPS/lokasi aktif lalu coba lagi.";
-        } else {
-          error.value =
-            "Gagal mendeteksi lokasi GPS. Pastikan GPS aktif dan berada di area terbuka.";
-        }
-        resolve(null);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-    );
-  });
 }
 
 function isValidCoordinate(latitude: number, longitude: number): boolean {
@@ -929,21 +1100,7 @@ function resetSelection(): void {
   invalidateSessionState();
   currentMapLocation.value = null;
   mapError.value = "";
-  if (googleMap) {
-    googleMap = null;
-  }
-  if (storeMarker) {
-    storeMarker.setMap(null);
-    storeMarker = null;
-  }
-  if (userMarker) {
-    userMarker.setMap(null);
-    userMarker = null;
-  }
-  if (storeRadius) {
-    storeRadius.setMap(null);
-    storeRadius = null;
-  }
+  destroyCartoMap();
   selectedCity.value = null;
   selectedStore.value = null;
   selectedStoreName.value = "";
@@ -966,6 +1123,8 @@ onUnmounted(() => {
   if (clockTimer !== null) {
     clearInterval(clockTimer);
   }
+  cancelActiveGpsRequest();
+  destroyCartoMap();
 });
 </script>
 
@@ -1105,7 +1264,7 @@ onUnmounted(() => {
                 -- Pilih kota penempatan --
               </option>
               <option v-for="city in cities" :key="city.id" :value="city.id">
-                {{ city.code ? `${city.name} (${city.code})` : city.name }}
+                {{ formatSelectLabel(city.name, city.code) }}
               </option>
             </select>
             <AppIcon
@@ -1224,7 +1383,9 @@ onUnmounted(() => {
                 :key="outsource.id"
                 :value="outsource"
               >
-                {{ outsource.name }} ({{ outsource.outsource_code }})
+                {{
+                  formatSelectLabel(outsource.name, outsource.outsource_code)
+                }}
               </option>
             </select>
             <AppIcon
@@ -1260,7 +1421,7 @@ onUnmounted(() => {
                 isGpsAccuracyAcceptable
                   ? "Lokasi aktif"
                   : locationStatus === "locating"
-                    ? "Mengambil lokasi..."
+                    ? "Menstabilkan GPS..."
                     : locationStatus === "ready"
                       ? "GPS kurang akurat"
                       : "Lokasi wajib diaktifkan"
@@ -1270,9 +1431,13 @@ onUnmounted(() => {
               {{
                 isGpsAccuracyAcceptable
                   ? `Akurasi GPS ±${locationAccuracy ?? 0} m`
-                  : locationStatus === "ready"
-                    ? `Akurasi ±${locationAccuracy ?? 0} m (maksimal ±${maxGpsAccuracyMeters} m)`
-                    : "Aktifkan izin lokasi untuk melanjutkan presensi."
+                  : locationStatus === "locating"
+                    ? locationAccuracy !== null
+                      ? `Saat ini ±${locationAccuracy} m — target maksimal ±${maxGpsAccuracyMeters} m`
+                      : `Menunggu sinyal akurat (maksimal ±${maxGpsAccuracyMeters} m)`
+                    : locationStatus === "ready"
+                      ? `Akurasi ±${locationAccuracy ?? 0} m (maksimal ±${maxGpsAccuracyMeters} m). Radius toko tetap 150 m.`
+                      : "Aktifkan izin lokasi untuk melanjutkan presensi."
               }}
             </span>
           </div>
@@ -1280,9 +1445,12 @@ onUnmounted(() => {
             v-if="!isGpsAccuracyAcceptable"
             type="button"
             class="location-retry-button"
+            :disabled="locationStatus === 'locating'"
             @click="refreshMapLocation"
           >
-            Coba lagi
+            {{
+              locationStatus === "locating" ? "Menstabilkan..." : "Coba lagi"
+            }}
           </button>
         </div>
 
@@ -1312,9 +1480,11 @@ onUnmounted(() => {
                 ? "Menginisiasi Sesi..."
                 : isGpsAccuracyAcceptable
                   ? "Mulai Sesi Presensi"
-                  : locationStatus === "ready"
-                    ? "Tunggu GPS lebih akurat"
-                    : "Aktifkan Lokasi untuk Lanjut"
+                  : locationStatus === "locating"
+                    ? "Menstabilkan GPS..."
+                    : locationStatus === "ready"
+                      ? "Tunggu GPS lebih akurat"
+                      : "Aktifkan Lokasi untuk Lanjut"
             }}
           </AppButton>
         </div>
@@ -1344,8 +1514,8 @@ onUnmounted(() => {
         <div
           v-if="!mapError || isUsingCityFallback"
           ref="mapContainer"
-          class="google-map"
-          aria-label="Google Map for selected store"
+          class="carto-map"
+          aria-label="Peta lokasi toko dan GPS pengguna"
         />
 
         <div class="map-meta-row">
@@ -1521,41 +1691,13 @@ onUnmounted(() => {
           <small>Radius validasi 150 m</small>
         </div>
         <div class="info-card">
-          <span class="info-title">Sesi</span>
-          <strong>{{ expiresAt ? formatDate(expiresAt) : "Aktif" }}</strong>
-          <small>{{ expiresAt ? "Kedaluwarsa sesi" : "Belum diatur" }}</small>
+          <span class="info-title">Personel</span>
+          <strong>{{ selectedOutsourceLabel || "-" }}</strong>
+          <small>Penugasan hari ini</small>
         </div>
       </section>
 
-      <section class="session-details-card">
-        <div class="detail-header-row">
-          <h3>Detail sesi</h3>
-          <span class="detail-pill">{{
-            isAttendanceOpen ? "Bertugas" : "Siap hadir"
-          }}</span>
-        </div>
-
-        <p v-if="selectedOutsourceLabel" class="session-person">
-          {{ selectedOutsourceLabel }}
-        </p>
-
-        <div class="session-row">
-          <span class="label">Lokasi Toko</span>
-          <span class="value">{{ selectedStoreName }}</span>
-        </div>
-        <div class="session-row">
-          <span class="label">Status Absensi</span>
-          <span class="value">{{
-            isAttendanceOpen
-              ? "Clock In sedang aktif"
-              : "Sesi belum di-clock in"
-          }}</span>
-        </div>
-        <div v-if="expiresAt" class="session-row">
-          <span class="label">Kedaluwarsa Sesi</span>
-          <span class="value text-muted">{{ formatDate(expiresAt) }}</span>
-        </div>
-
+      <div class="session-reset-row">
         <AppButton
           type="button"
           class="btn-link-reset"
@@ -1565,7 +1707,7 @@ onUnmounted(() => {
         >
           Ganti Personel / Akhiri Sesi
         </AppButton>
-      </section>
+      </div>
     </template>
 
     <template v-if="step === 'completed'">
@@ -1751,13 +1893,19 @@ onUnmounted(() => {
   margin-top: 1rem;
 }
 
-.google-map {
+.carto-map {
   width: 100%;
   height: 220px;
   border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.25);
   background: linear-gradient(135deg, #e2e8f0, #dbeafe);
   overflow: hidden;
+  z-index: 0;
+}
+
+.carto-map-marker {
+  background: transparent;
+  border: none;
 }
 
 .map-warning {
@@ -2083,6 +2231,11 @@ onUnmounted(() => {
   font-size: 0.72rem;
   font-weight: 700;
   cursor: pointer;
+}
+
+.location-retry-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 /* Button System */
@@ -2628,6 +2781,16 @@ onUnmounted(() => {
 
 .btn-link-reset:hover {
   color: var(--accent);
+}
+
+.session-reset-row {
+  margin-top: 0.25rem;
+  display: flex;
+  justify-content: center;
+}
+
+.session-reset-row .btn-link-reset {
+  margin-top: 0;
 }
 
 /* Completed Screen */

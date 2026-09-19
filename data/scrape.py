@@ -5,6 +5,10 @@ import urllib.parse
 import urllib.request
 import urllib.error
 
+# Prefer Excel pin-points when available:
+#   python data/geocode_from_excel.py
+# This Nominatim store-name scraper is a secondary fallback.
+
 CITY_CENTERS = {
     'BALIKPAPAN': (-1.2694616, 116.8543264),
     'BANDUNG': (-6.914744, 107.609810),
@@ -46,6 +50,13 @@ CITY_CENTERS = {
     'SAMARINDA': (-0.502, 117.153),
     'SAMPIT': (-2.539, 112.949),
     'SEMARANG': (-6.966, 110.414),
+    'SIDOARJO': (-7.4478, 112.7183),
+    'SUKOHARJO': (-7.683, 110.84),
+    'SURABAYA': (-7.2575, 112.7521),
+    'TABALONG': (-2.18, 115.43),
+    'TANGERANG': (-6.1783, 106.6319),
+    'TULUNGAGUNG': (-8.0667, 111.9),
+    'YOGYAKARTA': (-7.7956, 110.3695),
 }
 
 CITY_ALIASES = {

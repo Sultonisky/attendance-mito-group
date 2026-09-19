@@ -12,6 +12,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'outsource_id',
     'work_location_id',
     'token_hash',
+    'device_fingerprint',
+    'ip_address',
+    'user_agent',
     'status',
     'expires_at',
     'last_used_at',
@@ -24,6 +27,9 @@ class OutsourceAttendanceSession extends Model
 
     protected $hidden = [
         'token_hash',
+        'device_fingerprint',
+        'ip_address',
+        'user_agent',
     ];
 
     protected function casts(): array

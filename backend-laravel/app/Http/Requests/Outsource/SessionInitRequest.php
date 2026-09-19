@@ -17,6 +17,7 @@ class SessionInitRequest extends FormRequest
             'city_id' => ['required', 'integer', 'exists:cities,id'],
             'store_id' => ['required', 'integer', 'exists:work_locations,id'],
             'outsource_id' => ['required', 'integer', 'exists:outsources,id'],
+            'device_fingerprint' => ['required', 'string', 'min:16', 'max:128'],
         ];
     }
 }

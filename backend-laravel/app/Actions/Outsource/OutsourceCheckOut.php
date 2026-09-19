@@ -26,12 +26,36 @@ class OutsourceCheckOut
 
     public function execute(Outsource $outsource, OutsourceAttendanceSession $session, CarbonImmutable $occurredAt, array $context): array
     {
+        $fingerprint = trim((string) ($context['device_fingerprint'] ?? ''));
+        if ($fingerprint === '' || strlen($fingerprint) < 16) {
+            return [
+                'success' => false,
+                'error' => 'DEVICE_REQUIRED',
+                'message' => 'Device fingerprint is required.',
+                'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
+            ];
+        }
+
+        if (
+            filled($session->device_fingerprint)
+            && ! hash_equals((string) $session->device_fingerprint, $fingerprint)
+        ) {
+            return [
+                'success' => false,
+                'error' => 'DEVICE_MISMATCH',
+                'message' => 'Sesi ini terikat ke perangkat lain. Mulai ulang sesi dari perangkat yang sama.',
+                'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
+            ];
+        }
+
+        $accuracy = $context['accuracy_meters'] ?? $context['accuracy'] ?? null;
+
         $operationData = new AttendanceOperationData(
             employeeId: 0,
             latitude: (float) $context['latitude'],
             longitude: (float) $context['longitude'],
-            accuracy: isset($context['accuracy']) ? (float) $context['accuracy'] : null,
-            deviceIdentifier: $context['device_identifier'] ?? null,
+            accuracy: $accuracy !== null ? (float) $accuracy : null,
+            deviceIdentifier: $fingerprint,
             source: $context['source'] ?? 'web',
             workLocationId: $session->work_location_id,
             occurredAt: $occurredAt,

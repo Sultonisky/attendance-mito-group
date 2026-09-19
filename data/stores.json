@@ -24,13 +24,16 @@
   {
     "store": "SURYA JAYA BALIKPAPAN",
     "city": "BALIKPAPAN",
-    "lat": -1.2415673,
-    "lon": 116.8375072,
-    "address": "Bengkel Surya Jaya Motor, Jalan Soekarno-Hatta, Karang Rejo, Balikpapan Tengah, Balikpapan, Kalimantan Timur, 76125, Indonesia",
-    "source": "nominatim",
+    "lat": -1.2308375,
+    "lon": 116.87720312500001,
+    "address": "QV9G+MV8 Sepinggan, Kota Balikpapan, Kalimantan Timur",
+    "source": "excel_pluscode",
     "is_fallback": false,
-    "confidence": "review",
-    "query": "SURYA JAYA BALIKPAPAN BALIKPAPAN"
+    "confidence": "high",
+    "query": "QV9G+MV8",
+    "employees": [
+      "Mohammad Nur Fadilah"
+    ]
   },
   {
     "store": "TOKO GYS JAYA",
@@ -68,24 +71,30 @@
   {
     "store": "HARTONO",
     "city": "BANDUNG",
-    "lat": -6.9007169,
-    "lon": 107.6129297,
-    "address": "Hartono, Jalan Diponegoro, Citarum, Bandung Wetan, Kota Bandung, Jawa Barat, 40116, Indonesia",
-    "source": "nominatim",
+    "lat": -6.9005624999999995,
+    "lon": 107.6130625,
+    "address": "Jl. Diponegoro No.2, Citarum, Kec. Bandung Wetan, Kota Bandung, Jawa Barat 40115 (3JX7+Q6 Citarum, Kota Bandung, Jawa Barat)",
+    "source": "excel_pluscode",
     "is_fallback": false,
-    "confidence": "review",
-    "query": "BANDUNG HARTONO"
+    "confidence": "high",
+    "query": "3JX7+Q6",
+    "employees": [
+      "Deni Lindiansah"
+    ]
   },
   {
     "store": "LOGIN MEGASTORE (ABC)",
     "city": "BANDUNG",
-    "lat": -6.914744,
-    "lon": 107.60981,
-    "address": "BANDUNG, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -6.9192374999999995,
+    "lon": 107.60617187500002,
+    "address": "3JJ4+8F3 Braga, Kota Bandung, Jawa Barat",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "3JJ4+8F3",
+    "employees": [
+      "Dinda Sri Rahayu"
+    ]
   },
   {
     "store": "MUTIARA SUPER KITCHEN",
@@ -112,13 +121,16 @@
   {
     "store": "TOKO PANTES AGUNG (ONLINE)",
     "city": "BANDUNG",
-    "lat": -6.914744,
-    "lon": 107.60981,
-    "address": "BANDUNG, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -6.9180625,
+    "lon": 107.63856249999999,
+    "address": "1. Jl. Anyer No.61, Kebonwaru, Kec. Batununggal, Kota Bandung, Jawa Barat 40272 (3JJQ+QC Kebonwaru, Kota Bandung, Jawa Barat)\n\n2. Jl. AH. Nasution No.138B, Sukamulya, Kec. Cinambo, Kota Bandung, Jawa Barat 40294 (3PP2+7C Sukamulya, Kota Bandung, Jawa Barat)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "3JJQ+QC",
+    "employees": [
+      "Isma Kurniawati"
+    ]
   },
   {
     "store": "MITO - SALES B2B",
@@ -134,13 +146,16 @@
   {
     "store": "NUANSA MARTAPURA",
     "city": "BANJAR BARU",
-    "lat": -3.442,
-    "lon": 114.842,
-    "address": "BANJAR BARU, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -3.4320125,
+    "lon": 114.84889062500001,
+    "address": "HR9X+5HR Loktabat Utara, Kota Banjar Baru, Kalimantan Selatan",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "HR9X+5HR",
+    "employees": [
+      "Sisi septiana"
+    ]
   },
   {
     "store": "CENTRAL PLASTIK PALANGKARAYA",
@@ -156,35 +171,46 @@
   {
     "store": "GOLDEN 10",
     "city": "BANJARMASIN",
-    "lat": -3.318,
-    "lon": 114.594,
-    "address": "BANJARMASIN, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -3.3014875,
+    "lon": 114.57273437500001,
+    "address": "MHXF+C35 Kuin Cerucuk, Kota Banjarmasin, Kalimantan Selatan",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "MHXF+C35",
+    "employees": [
+      "Ainun Jariyah"
+    ]
   },
   {
     "store": "PONDOK ELEKTRONIK",
     "city": "BANJARMASIN",
-    "lat": -3.3472689,
-    "lon": 114.6238505,
-    "address": "Pondok Elektronik, Jalan Jenderal Achmad Yani, Pemurus Dalam, Banjarmasin Selatan, Banjarmasin, Kalimantan Selatan, 70249, Indonesia",
-    "source": "nominatim",
+    "lat": -3.3473875,
+    "lon": 114.62392187500001,
+    "address": "MJ3F+2HV Pemurus Dalam, Kota Banjarmasin, Kalimantan Selatan",
+    "source": "excel_pluscode",
     "is_fallback": false,
-    "confidence": "review",
-    "query": "BANJARMASIN PONDOK ELEKTRONIK"
+    "confidence": "high",
+    "query": "MJ3F+2HV",
+    "employees": [
+      "Fitri Wulandari",
+      "Norhidayah S"
+    ]
   },
   {
     "store": "POS ELEKTRONIK",
     "city": "BANJARMASIN",
-    "lat": -3.318,
-    "lon": 114.594,
-    "address": "BANJARMASIN, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -3.2928125,
+    "lon": 114.5894375,
+    "address": "Jl. Brigjend H. Hasan Basri No.10, RT.16, Pangeran, Kec. Banjarmasin Utara, Kota Banjarmasin, Kalimantan Selatan 70124 (PH4Q+VQ Pangeran, Kota Banjarmasin, Kalimantan Selatan)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "PH4Q+VQ",
+    "employees": [
+      "Annisa",
+      "Ilham Ansyar"
+    ]
   },
   {
     "store": "PONDOK ELEKTRONIK BANJARBARU",
@@ -200,13 +226,16 @@
   {
     "store": "DEPO PELITA",
     "city": "BANYUMAS",
-    "lat": -7.459559,
-    "lon": 109.2812694,
-    "address": "Depo Pelita Sokaraja, Jalan Menteri Supeno, Depo Pelita Sokaraja, Karangkedawung, Sokaraja, Banyumas, Jawa Tengah, 53145, Indonesia",
-    "source": "nominatim",
+    "lat": -7.4590625,
+    "lon": 109.28179687500001,
+    "address": "G7RJ+9PF Kalikidang, Kabupaten Banyumas, Jawa Tengah",
+    "source": "excel_pluscode",
     "is_fallback": false,
-    "confidence": "review",
-    "query": "BANYUMAS DEPO PELITA"
+    "confidence": "high",
+    "query": "G7RJ+9PF",
+    "employees": [
+      "Diah Catur Apriani"
+    ]
   },
   {
     "store": "BARES",
@@ -222,24 +251,30 @@
   {
     "store": "BARES ROGOJAMPI",
     "city": "BANYUWANGI",
-    "lat": -8.219,
-    "lon": 114.369,
-    "address": "BANYUWANGI, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -8.3635625,
+    "lon": 114.1529375,
+    "address": "1. Jl. Gajah Mada No.113-115, Dusun Sawahan, Genteng Kulon, Kec. Genteng, Kabupaten Banyuwangi, Jawa Timur 68465 (J5P3+H5 Genteng Kulon, Kabupaten Banyuwangi, Jawa Timur)\n2. M7MQ+PHX, Jl. Raya Petung No.16, Krajan, Kedaleman, Kec. Rogojampi, Kabupaten Banyuwangi, Jawa Timur 68462",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "J5P3+H5",
+    "employees": [
+      "Syfa Dwi Ayu Cahyani"
+    ]
   },
   {
     "store": "JACKSON'S HOMEWARE MARKET",
     "city": "BATAM",
-    "lat": 1.13,
-    "lon": 104.051,
-    "address": "BATAM, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": 1.1277375,
+    "lon": 104.031828125,
+    "address": "42HJ+3PW Sungai Panas, Kota Batam, Kepulauan Riau",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "42HJ+3PW",
+    "employees": [
+      "Intan Kristiani Laoli"
+    ]
   },
   {
     "store": "UNIVERSAL PASIR PUTIH",
@@ -277,13 +312,17 @@
   {
     "store": "OGAN BANDULAN & OGAN BONDOWOSO",
     "city": "MALANG",
-    "lat": -7.983,
-    "lon": 112.63,
-    "address": "MALANG, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -7.9677375,
+    "lon": 112.61520312500001,
+    "address": "1. 2JJ8+W34 Gading Kasri, Kota Malang, Jawa Timur\n\n2.",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "2JJ8+W34",
+    "employees": [
+      "Fiqri Nur Arfindiyani Putri",
+      "Mochamad Abdi Akbar"
+    ]
   },
   {
     "store": "NUANSA ELEKTRONIK BONTANG",
@@ -299,35 +338,44 @@
   {
     "store": "SINAR JAYA",
     "city": "CIREBON",
-    "lat": -6.706,
-    "lon": 108.557,
-    "address": "CIREBON, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -6.7117875,
+    "lon": 108.539828125,
+    "address": "1. 7GQQ+7WP Kertawinangun, Kabupaten Cirebon, Jawa Barat (Jl Tuparev, kertawinagun, kecamatan kedawung)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "7GQQ+7WP",
+    "employees": [
+      "Wartini"
+    ]
   },
   {
     "store": "HARAPAN BARU",
     "city": "DEPOK",
-    "lat": -6.402,
-    "lon": 106.794,
-    "address": "DEPOK, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -6.399687500000001,
+    "lon": 106.8173125,
+    "address": "1. Jl. Dewi Sartika No.19-21, Depok, Kec. Pancoran Mas, Kota Depok, Jawa Barat 16431 (JR28+4W Depok, Kota Depok, Jawa Barat)\n\n2. Jl. Tole Iskandar No.11a, Tirtajaya, depok, Kota Depok, Jawa Barat 16412 (HRWP+F5 Tirtajaya, Kota Depok, Jawa Barat)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "JR28+4W",
+    "employees": [
+      "Anggiza Gana Pawestri"
+    ]
   },
   {
     "store": "TOKO SINAR GUNTUR",
     "city": "GARUT",
-    "lat": -7.227,
-    "lon": 107.908,
-    "address": "GARUT, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -7.210912499999999,
+    "lon": 107.903453125,
+    "address": "QWQ3+J9P Pakuwon, Kabupaten Garut, Jawa Barat",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "QWQ3+J9P",
+    "employees": [
+      "Lilis Hidayati"
+    ]
   },
   {
     "store": "Admin National",
@@ -354,35 +402,44 @@
   {
     "store": "HARTONO PONDOK INDAH",
     "city": "JAKARTA",
-    "lat": -6.2088,
-    "lon": 106.8456,
-    "address": "JAKARTA, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -6.25874277,
+    "lon": 106.78156096,
+    "address": "Jl. Sultan Iskandar Muda No.8, RT.6/RW.9, Kby. Lama Sel., Kec. Kebayoran Lama, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12240",
+    "source": "excel_maps",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "https://www.google.com/maps/search/Hartono%20Pondok%20Indah/@-6.25874277,106.78156096,17z?hl=id",
+    "employees": [
+      "Tendy Anugerah Saputro"
+    ]
   },
   {
     "store": "JAWA ELEKTRONIK",
     "city": "JAKARTA",
-    "lat": -6.2088,
-    "lon": 106.8456,
-    "address": "JAKARTA, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -6.223112499999999,
+    "lon": 106.932328125,
+    "address": "QWGJ+QW4 Malaka Jaya, Kota Jakarta Timur, Daerah Khusus Ibukota Jakarta",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "QWGJ+QW4",
+    "employees": [
+      "Yahya"
+    ]
   },
   {
     "store": "SPN HOUSEWARE",
     "city": "JAKARTA",
-    "lat": -6.2088,
-    "lon": 106.8456,
-    "address": "JAKARTA, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -6.1223714283347,
+    "lon": 106.91671438515186,
+    "address": "1. VWH8+3M4 Tugu Utara, Jkt Utara, Daerah Khusus Ibukota Jakarta\n2. QQ6J+68Q Kby. Lama Utara, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta",
+    "source": "excel_maps",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "1. https://www.google.com/maps?q=-6.1223714283347,106.91671438515186&z=17&hl=id (Tk. SPN Houseware)\n2. https://www.google.com/maps?q=-6.2394039013338025,106.78086183965206&z=17&hl=id (Tk. Sinar Terang)",
+    "employees": [
+      "Fahrur Reza"
+    ]
   },
   {
     "store": "STEIN - SPG/SPB MT",
@@ -409,46 +466,60 @@
   {
     "store": "TOKO EMETAL ASIA JAYA (ONLINE)",
     "city": "JAKARTA",
-    "lat": -6.2088,
-    "lon": 106.8456,
-    "address": "JAKARTA, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -6.1927875,
+    "lon": 106.74629687500001,
+    "address": "RP4W+VGM Meruya Utara, Kota Jakarta Barat, Daerah Khusus Ibukota Jakarta",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "RP4W+VGM",
+    "employees": [
+      "Nur Rahmah"
+    ]
   },
   {
     "store": "TOKO PALAPA",
     "city": "JAKARTA",
-    "lat": -6.2088,
-    "lon": 106.8456,
-    "address": "JAKARTA, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -6.1213125,
+    "lon": 106.7751875,
+    "address": "Blok O-6 T No. 1F, Jl. Pluit Karang Manis 6, Pluit, Jakarta Utara, RT.6/RW.8, Pluit, Kecamatan Penjaringan, Jakarta, Daerah Khusus Ibukota Jakarta 14450 (VQHG+F3 Pluit, North Jakarta City, Jakarta)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "VQHG+F3",
+    "employees": [
+      "Rekha Riakiah"
+    ]
   },
   {
     "store": "MALL KELAPA GADING",
     "city": "JAKARTA",
-    "lat": -6.1573987,
-    "lon": 106.9083661,
-    "address": "Summarecon Mall Kelapa Gading, Kelapa Lilin Raya, RW 18, Kelapa Gading Timur, Kelapa Gading, Jakarta Utara, Daerah Khusus Ibukota Jakarta, 14240, Indonesia",
-    "source": "nominatim",
+    "lat": -6.1571625,
+    "lon": 106.908203125,
+    "address": "RWV5+47P Klp. Gading Tim., Jkt Utara, Daerah Khusus Ibukota Jakarta (Summarecon mall kelapa gading (MKG) jakarta utara)",
+    "source": "excel_pluscode",
     "is_fallback": false,
-    "confidence": "review",
-    "query": "JAKARTA MALL KELAPA GADING"
+    "confidence": "high",
+    "query": "RWV5+47P",
+    "employees": [
+      "Adelina Astuti",
+      "Ari Kusumawati",
+      "Joko Supriatna"
+    ]
   },
   {
     "store": "TOKO RAMAI JAYA JEMBER",
     "city": "JEMBER",
-    "lat": -8.184,
-    "lon": 113.668,
-    "address": "JEMBER, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -8.1740611,
+    "lon": 113.700728,
+    "address": "Jl. R.A. Kartini No.60, Tembaan, Kepatihan, Kec. Kaliwates, Kabupaten Jember, Jawa Timur 68131",
+    "source": "excel_manual",
+    "is_fallback": false,
+    "confidence": "review",
+    "query": "Jalan RA Kartini, Kepatihan, Jember",
+    "employees": [
+      "Hagai Hendrik Yonathan"
+    ]
   },
   {
     "store": "TOKO RAMAI JAYA RAMBIPUJI",
@@ -486,24 +557,30 @@
   {
     "store": "LARIS KLATEN",
     "city": "KLATEN",
-    "lat": -7.7058434,
-    "lon": 110.6035241,
-    "address": "Sami Laris Swalayan Klaten, Jalan Rajawali, Bareng, Klaten, Jawa Tengah, 57415, Indonesia",
-    "source": "nominatim",
+    "lat": -7.7055938,
+    "lon": 110.6000605,
+    "address": "Jl. Pemuda No.164, Ngepos, Bareng, Kec. Klaten Tengah, Kabupaten Klaten, Jawa Tengah 57413",
+    "source": "excel_maps",
     "is_fallback": false,
-    "confidence": "review",
-    "query": "KLATEN LARIS KLATEN"
+    "confidence": "high",
+    "query": "https://www.google.com/maps/place/Laris+Swalayan+Klaten/@-7.7055938,110.6000605,17z/data=!4m6!3m5!1s0x2e7a440823aeb2a5:0xd3ac106fe77a066a!8m2!3d-7.7055691!4d110.6000562!16s%2Fg%2F11dx99_tdt?hl=id&entry=ttu&g_ep=EgoyMDI2MDkxNi4wIKXMDSoASAFQAw%3D%3D",
+    "employees": [
+      "Riris Mustika Sari"
+    ]
   },
   {
     "store": "NUANSA PANGKALANBUN",
     "city": "KOTAWARINGIN BARAT",
-    "lat": -2.677,
-    "lon": 111.616,
-    "address": "KOTAWARINGIN BARAT, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -2.7019625,
+    "lon": 111.642140625,
+    "address": "7JXR+6V6 Madurejo, Kabupaten Kotawaringin Barat, Kalimantan Tengah",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "7JXR+6V6",
+    "employees": [
+      "Agustia Ningrum"
+    ]
   },
   {
     "store": "TOKO DEPO MURAH JAYA SENTOSA KUDUS",
@@ -530,13 +607,16 @@
   {
     "store": "ANUGERAH SUKSES",
     "city": "LUBUKLINGGAU",
-    "lat": -3.293,
-    "lon": 102.851,
-    "address": "LUBUKLINGGAU, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -3.2705375,
+    "lon": 102.952703125,
+    "address": "PXH3+Q3P Lubuk Kupang, Kota Lubuklinggau, Sumatera Selatan",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "PXH3+Q3P",
+    "employees": [
+      "Widana"
+    ]
   },
   {
     "store": "MAKASSAR",
@@ -596,13 +676,16 @@
   {
     "store": "SEMERU PERINTIS",
     "city": "MAKASSAR",
-    "lat": -5.147,
-    "lon": 119.432,
-    "address": "MAKASSAR, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -5.1222625,
+    "lon": 119.50814062500001,
+    "address": "VGH5+37R Paccerakkang, Kota Makassar, Sulawesi Selatan",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "VGH5+37R",
+    "employees": [
+      "Sulaiman"
+    ]
   },
   {
     "store": "SEMERU SARAPPO",
@@ -618,13 +701,16 @@
   {
     "store": "TOKO IWATA",
     "city": "MAKASSAR",
-    "lat": -5.147,
-    "lon": 119.432,
-    "address": "MAKASSAR, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -5.1470875,
+    "lon": 119.421515625,
+    "address": "VC3C+5J6 Maricaya Baru, Kota Makassar, Sulawesi Selatan",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "VC3C+5J6",
+    "employees": [
+      "Uun Yanuarti"
+    ]
   },
   {
     "store": "HARTONO MALANG",
@@ -717,13 +803,16 @@
   {
     "store": "CV ANEKA JAYA ELEKTRONIK",
     "city": "MUARA ENIM",
-    "lat": -3.65,
-    "lon": 103.782,
-    "address": "MUARA ENIM, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -3.6556375,
+    "lon": 103.77398437500001,
+    "address": "1. 8QVF+PHX Ps. II Muara Enim, Kabupaten Muara Enim, Sumatera Selatan\n2. 8QVF+GGX Ps. II Muara Enim, Kabupaten Muara Enim, Sumatera Selatan",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "8QVF+PHX",
+    "employees": [
+      "Herdy Yansyah"
+    ]
   },
   {
     "store": "A FAUZI",
@@ -772,13 +861,16 @@
   {
     "store": "ANUGRAH JAYA PALU",
     "city": "PALU",
-    "lat": -0.891,
-    "lon": 119.87,
-    "address": "PALU, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -0.8945624999999999,
+    "lon": 119.866578125,
+    "address": "4V48+5JG Besusu Bar., Kota Palu, Sulawesi Tengah",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "4V48+5JG",
+    "employees": [
+      "Juice Antika Rompis"
+    ]
   },
   {
     "store": "HOKKY HOUSE WARE",
@@ -805,13 +897,16 @@
   {
     "store": "STAR KITCHEN",
     "city": "PALU",
-    "lat": -0.891,
-    "lon": 119.87,
-    "address": "PALU, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -0.9185625,
+    "lon": 119.889390625,
+    "address": "3VJQ+HQC Birobuli Utara, Kota Palu, Sulawesi Tengah",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "3VJQ+HQC",
+    "employees": [
+      "I Ketut Sugiarta"
+    ]
   },
   {
     "store": "NUANSA ELEKTRONIC TANAH GROGOT",
@@ -849,13 +944,16 @@
   {
     "store": "BERKAT ELEKTRONIK",
     "city": "PEKANBARU",
-    "lat": 0.507,
-    "lon": 101.447,
-    "address": "PEKANBARU, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": 0.4209125,
+    "lon": 101.37129687500001,
+    "address": "C9CC+9G7 Tarai Bangun, Kabupaten Kampar, Riau",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "C9CC+9G7",
+    "employees": [
+      "Suci Ramadhani"
+    ]
   },
   {
     "store": "GOLDEN DRAGON ELEKTRONIK",
@@ -871,35 +969,44 @@
   {
     "store": "CV SAMI JAYA",
     "city": "PONOROGO",
-    "lat": -7.867,
-    "lon": 111.468,
-    "address": "PONOROGO, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -7.871662499999999,
+    "lon": 111.46942187500001,
+    "address": "4FH9+8QM Kepatihan, Kabupaten Ponorogo, Jawa Timur",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "4FH9+8QM",
+    "employees": [
+      "Ayu Novitaningsih"
+    ]
   },
   {
     "store": "HIBURAN BARU SINGKAWANG",
     "city": "PONTIANAK",
-    "lat": -0.026,
-    "lon": 109.342,
-    "address": "PONTIANAK, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": 0.9096875,
+    "lon": 108.99029687500001,
+    "address": "WX5R+V4F Condong, Kota Singkawang, Kalimantan Barat",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "WX5R+V4F",
+    "employees": [
+      "Eza Adela"
+    ]
   },
   {
     "store": "TOKO PUTRA ELEKTRONIK",
     "city": "PONTIANAK",
-    "lat": -0.026,
-    "lon": 109.342,
-    "address": "PONTIANAK, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -0.02476443,
+    "lon": 109.3409202,
+    "address": "Jl. Tanjung Pura No.5, RW.7, Darat Sekip, Kec. Pontianak Kota, Kota Pontianak, Kalimantan Barat 78243 (X8GR+38 Darat Sekip, Kota Pontianak, Kalimantan Barat)",
+    "source": "excel_maps",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "https://www.google.com/maps/search/Putra%20Elektronik/@-0.02476443,109.3409202,17z?hl=id",
+    "employees": [
+      "Charles Setiawan"
+    ]
   },
   {
     "store": "MAMASUKA",
@@ -926,13 +1033,16 @@
   {
     "store": "NUANSA IMAM BONJOL",
     "city": "SAMARINDA",
-    "lat": -0.502,
-    "lon": 117.153,
-    "address": "SAMARINDA, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -0.4975625,
+    "lon": 117.15392187500001,
+    "address": "G523+XHF Pelabuhan, Kota Samarinda, Kalimantan Timur",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "G523+XHF",
+    "employees": [
+      "Firda Duri Yatinal Ulya"
+    ]
   },
   {
     "store": "NUANSA MATOS SAMARINDA",
@@ -959,35 +1069,44 @@
   {
     "store": "HOKKY OMEGA SAMPIT",
     "city": "SAMPIT",
-    "lat": -2.539,
-    "lon": 112.949,
-    "address": "SAMPIT, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -2.5439625,
+    "lon": 112.949703125,
+    "address": "FW4X+CV8 Mentawa Baru Hulu, Kabupaten Kotawaringin Timur, Kalimantan Tengah",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "FW4X+CV8",
+    "employees": [
+      "Munjiyah Agus Cancetta"
+    ]
   },
   {
     "store": "ADA SILIWANGI",
     "city": "SEMARANG",
-    "lat": -6.982587,
-    "lon": 110.404969,
-    "address": "ADA Siliwangi, Jalan MGR Soegiyopranoto, RW 01, Bulustalan, Semarang Selatan, Kota Semarang, Jawa Tengah, 50245, Indonesia",
-    "source": "nominatim",
+    "lat": -6.9834625,
+    "lon": 110.40442187500001,
+    "address": "2C83+JQ7 Bulustalan, Kota Semarang, Jawa Tengah",
+    "source": "excel_pluscode",
     "is_fallback": false,
-    "confidence": "review",
-    "query": "SEMARANG ADA SILIWANGI"
+    "confidence": "high",
+    "query": "2C83+JQ7",
+    "employees": [
+      "Arenta putri Widyaningsih"
+    ]
   },
   {
     "store": "ADA SWALAYAN SETIABUDI",
     "city": "SEMARANG",
-    "lat": -6.966,
-    "lon": 110.414,
-    "address": "SEMARANG, Indonesia (fallback by city)",
-    "source": "city_fallback",
-    "is_fallback": true,
-    "confidence": "low",
-    "query": null
+    "lat": -7.061412499999999,
+    "lon": 110.412609375,
+    "address": "WCQ7+C2Q Srondol Kulon, Kota Semarang, Jawa Tengah",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "WCQ7+C2Q",
+    "employees": [
+      "Priya Thadgea"
+    ]
   },
   {
     "store": "ATLANTA MAJAPAHIT",
@@ -1021,5 +1140,275 @@
     "is_fallback": true,
     "confidence": "low",
     "query": null
+  },
+  {
+    "store": "MANGGA DUA SQUARE",
+    "city": "JAKARTA",
+    "lat": -6.1406624999999995,
+    "lon": 106.831984375,
+    "address": "VR5J+PQQ Ancol, Jkt Utara, Daerah Khusus Ibukota Jakarta",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "VR5J+PQQ",
+    "employees": [
+      "Muti'ah Nur Fadilah"
+    ]
+  },
+  {
+    "store": "HARTONO BUKIT DARMO",
+    "city": "SURABAYA",
+    "lat": -7.2824875,
+    "lon": 112.682203125,
+    "address": "Yono Suwoyo, Jl. Mayjend. Jonosewojo No.12, Pradahkalikendal, Kec. Dukuhpakis, Surabaya, Jawa Timur 60226 (PM9J+2V4 Pradahkalikendal, Surabaya, Jawa Timur)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "PM9J+2V4",
+    "employees": [
+      "Bagus Dwi Ardiansyah",
+      "Balqis Ayudia Pramesti"
+    ]
+  },
+  {
+    "store": "TUNJUNGAN PLAZA",
+    "city": "SURABAYA",
+    "lat": -7.2634875,
+    "lon": 112.739984375,
+    "address": "PPPQ+JX5 Kedungdoro, Surabaya, Jawa Timur (Outlet MITO Tunjungan plaza 3, Lt. LG  No. 008)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "PPPQ+JX5",
+    "employees": [
+      "Faisol Adha",
+      "Muhammad Hafrizal",
+      "Yuliana Siswanti"
+    ]
+  },
+  {
+    "store": "HARTONO BG JUNCTION",
+    "city": "SURABAYA",
+    "lat": -7.2551875,
+    "lon": 112.7338125,
+    "address": "1. BG Junction L1 Floor , C 95-97, Jl. Bubutan No.1, Bubutan, Kec. Bubutan, Surabaya, Jawa Timur 60174 (PPVM+WG Bubutan, Surabaya, Jawa Timur)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "PPVM+WG",
+    "employees": [
+      "Moy Yustiwa Rahayu Putri Kartika"
+    ]
+  },
+  {
+    "store": "HARTONO KERTAJAYA INDAH",
+    "city": "SURABAYA",
+    "lat": -7.2841875,
+    "lon": 112.7813125,
+    "address": "Jl. Dr. Ir. H. Soekarno No.35, Klampis Ngasem, Kec. Sukolilo, Surabaya, Jawa Timur 60282 (PQ8J+8G Klampis Ngasem, Surabaya, Jawa Timur)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "PQ8J+8G",
+    "employees": [
+      "Rista bellawati basuki",
+      "Gabriella Marchelline Blandina Romkeny"
+    ]
+  },
+  {
+    "store": "YOGYA RIAU JUNCTION",
+    "city": "BANDUNG",
+    "lat": -6.907562499999999,
+    "lon": 107.61173437500001,
+    "address": "LLRE Martadinata St, Citarum, Bandung Wetan, Bandung City, West Java 40115 (3JR6+XMH Citarum, Kota Bandung, Jawa Barat)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "3JR6+XMH",
+    "employees": [
+      "Wiwit Pujiyanti"
+    ]
+  },
+  {
+    "store": "WIJAYA ELEKTRONIK",
+    "city": "SEMARANG",
+    "lat": -6.9979375,
+    "lon": 110.3508125,
+    "address": "Alamat : Jln Karonsih Utara V no 196 Ngaliyan Kota Semarang Jawa tengah (2922+R8 Ngaliyan, Kota Semarang, Jawa Tengah)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "2922+R8",
+    "employees": [
+      "Habib Mustopa"
+    ]
+  },
+  {
+    "store": "PIRANTI HOUSEWARE",
+    "city": "SEMARANG",
+    "lat": -7.0028125,
+    "lon": 110.44381249999999,
+    "address": "Jl. Lamper Tengah No.19, Lamper Tengah, Kec. Semarang Sel., Kota Semarang, Jawa Tengah 50249 (XCWV+VG Lamper Tengah, Kota Semarang, Jawa Tengah)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "XCWV+VG",
+    "employees": [
+      "Paramita Restuningtyas"
+    ]
+  },
+  {
+    "store": "SURYA TIMUR",
+    "city": "SEMARANG",
+    "lat": -7.3188625,
+    "lon": 110.188421875,
+    "address": "M5JQ+F93 Kertosari, Kabupaten Temanggung, Jawa Tengah",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "M5JQ+F93",
+    "employees": [
+      "Yunita Eka Anggraeni"
+    ]
+  },
+  {
+    "store": "CANDI ELEKTRONIK",
+    "city": "SUKOHARJO",
+    "lat": -7.6725625,
+    "lon": 110.839828125,
+    "address": "8RGQ+XWG Jombor, Kabupaten Sukoharjo, Jawa Tengah",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "8RGQ+XWG",
+    "employees": [
+      "Dimas Setya Nugraha"
+    ]
+  },
+  {
+    "store": "UFO KERTAJAYA",
+    "city": "SURABAYA",
+    "lat": -7.3111625,
+    "lon": 112.680609375,
+    "address": "1. Jl. Raya Menganti No.473, Babatan, Kec. Wiyung, Surabaya, Jawa Timur 60227 (MMQJ+G6Q Babatan, Surabaya, Jawa Timur)\n\n2. Jl. Kertajaya No.149, Airlangga, Kec. Gubeng, Surabaya, Jawa Timur 60286 (PQC5+HQ Airlangga, Surabaya, Jawa Timur)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "MMQJ+G6Q",
+    "employees": [
+      "Marni Dwi widiyaningsih"
+    ]
+  },
+  {
+    "store": "PERDANA MANYAR",
+    "city": "SURABAYA",
+    "lat": -7.2661875,
+    "lon": 112.7448125,
+    "address": "1. Jl. Panglima Sudirman No.20-22, Embong Kaliasin, Kec. Genteng, Surabaya, Jawa Timur, Jawa Timur 60271 (PPMV+GW Embong Kaliasin, Surabaya, Jawa Timur)\n2. Blok G-204 No.32, Jl. Raya Kertajaya Indah, Manyar Sabrangan, Kec. Mulyorejo, Surabaya, Jawa Timur 60116 (PQ9G+M2 Manyar Sabrangan, Surabaya, Jawa Timur)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "PPMV+GW",
+    "employees": [
+      "Nany Maria Panjaitan"
+    ]
+  },
+  {
+    "store": "SUPER MURAH SURABAYA 2",
+    "city": "SURABAYA",
+    "lat": -7.249487500000001,
+    "lon": 112.690515625,
+    "address": "1. QM2R+662 Greges, Surabaya, Jawa Timur ( margomulyo permai Dd 9-10 super murah surabaya 2)\n\n2. Jl. Kenjeran No.577, Kalijudan, Kec. Mulyorejo, Surabaya, Jawa Timur 60134 (QQ2P+3G Kalijudan, Surabaya, Jawa Timur)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "QM2R+662",
+    "employees": [
+      "Owen Jehezkiel Wijaya"
+    ]
+  },
+  {
+    "store": "MEDIA ELEKTRONIK DENPASAR",
+    "city": "SURABAYA",
+    "lat": -8.6795625,
+    "lon": 115.2149375,
+    "address": "Jl. Raya Sesetan No.18, Sesetan, Denpasar Selatan, Kota Denpasar, Bali 80223 (86C7+5X Sesetan, Kota Denpasar, Bali)",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "86C7+5X",
+    "employees": [
+      "Rizky Nanda Karunia"
+    ]
+  },
+  {
+    "store": "CV OMEGA SEJAHTERA",
+    "city": "TULUNGAGUNG",
+    "lat": -8.0582625,
+    "lon": 111.90260937500001,
+    "address": "WWR3+M2X Kenayan, Kabupaten Tulungagung, Jawa Timur",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "WWR3+M2X",
+    "employees": [
+      "Nurmalita Widiyanti"
+    ]
+  },
+  {
+    "store": "UFO YOGYAKARTA JOKTENG",
+    "city": "YOGYAKARTA",
+    "lat": -7.7679375,
+    "lon": 110.3611875,
+    "address": "1. 69J6+RF Sinduadi, Sleman Regency, Special Region of Yogyakarta\n\n2. 59P8+3V Mantrijeron, Yogyakarta City, Special Region of Yogyakarta",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "69J6+RF",
+    "employees": [
+      "Agustina Galuh Prihaningtyas"
+    ]
+  },
+  {
+    "store": "FORTUNA",
+    "city": "YOGYAKARTA",
+    "lat": -7.7999624999999995,
+    "lon": 110.369921875,
+    "address": "6929+2X7 Ngupasan, Kota Yogyakarta, Daerah Istimewa Yogyakarta",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "6929+2X7",
+    "employees": [
+      "Puji Astuti"
+    ]
+  },
+  {
+    "store": "PROGO JOGJA",
+    "city": "YOGYAKARTA",
+    "lat": -7.798837499999999,
+    "lon": 110.368703125,
+    "address": "6929+FF8 Ngupasan, Kota Yogyakarta, Daerah Istimewa Yogyakarta",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "6929+FF8",
+    "employees": [
+      "Vera Winarti"
+    ]
+  },
+  {
+    "store": "SINAR GUNTUR GARUT",
+    "city": "GARUT",
+    "lat": -7.210912499999999,
+    "lon": 107.903453125,
+    "address": "QWQ3+J9P Pakuwon, Kabupaten Garut, Jawa Barat",
+    "source": "excel_pluscode",
+    "is_fallback": false,
+    "confidence": "high",
+    "query": "QWQ3+J9P",
+    "employees": [
+      "Lilis Hidayati"
+    ]
   }
 ]

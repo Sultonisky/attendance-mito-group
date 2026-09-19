@@ -6,6 +6,7 @@ use App\Actions\Outsource\InitializeOutsourceAttendanceSession;
 use App\Actions\Outsource\OutsourceCheckIn;
 use App\Actions\Outsource\OutsourceCheckOut;
 use App\Actions\Outsource\ResolveOutsourceSession;
+use App\Exceptions\Domain\OutsourceDeviceBusyException;
 use App\Http\Requests\Outsource\CheckInRequest;
 use App\Http\Requests\Outsource\CheckOutRequest;
 use App\Http\Requests\Outsource\SessionInitRequest;
@@ -94,9 +95,16 @@ class OutsourceAttendanceController
                 (int) $request->input('city_id'),
                 (int) $request->input('store_id'),
                 (int) $request->input('outsource_id'),
+                (string) $request->input('device_fingerprint'),
                 $request->userAgent(),
                 $request->ip(),
             );
+        } catch (OutsourceDeviceBusyException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => 'DEVICE_BUSY',
+            ], 409);
         } catch (\InvalidArgumentException $e) {
             return response()->json([
                 'success' => false,

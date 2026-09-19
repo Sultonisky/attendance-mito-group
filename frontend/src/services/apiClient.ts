@@ -4,7 +4,8 @@ const configuredApiBaseUrl =
 function resolveApiBaseUrl(): string {
   const apiUrl = new URL(configuredApiBaseUrl);
   const browserHost = window.location.hostname;
-  const isLocalHost = (host: string) => host === "localhost" || host === "127.0.0.1";
+  const isLocalHost = (host: string) =>
+    host === "localhost" || host === "127.0.0.1";
 
   // Cookies are host-scoped, so localhost and 127.0.0.1 must not be mixed.
   if (isLocalHost(browserHost) && isLocalHost(apiUrl.hostname)) {
@@ -27,7 +28,11 @@ export class ApiError extends Error {
   status: number;
   errors: Record<string, string[]>;
 
-  constructor(status: number, message: string, errors: Record<string, string[]> = {}) {
+  constructor(
+    status: number,
+    message: string,
+    errors: Record<string, string[]> = {},
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -56,13 +61,18 @@ export async function fetchCsrfCookie(): Promise<void> {
     csrfCookiePromise = fetch(`${API_ORIGIN}/sanctum/csrf-cookie`, {
       method: "GET",
       credentials: "include",
-    }).then((response) => {
-      if (!response.ok) {
-        throw new ApiError(response.status, "Unable to initialize CSRF protection.");
-      }
-    }).finally(() => {
-      csrfCookiePromise = null;
-    });
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new ApiError(
+            response.status,
+            "Unable to initialize CSRF protection.",
+          );
+        }
+      })
+      .finally(() => {
+        csrfCookiePromise = null;
+      });
   }
 
   await csrfCookiePromise;

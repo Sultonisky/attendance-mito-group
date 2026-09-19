@@ -13,6 +13,7 @@ use App\Enums\AttendanceEventType;
 use App\Exceptions\Domain\InactiveSubjectException;
 use App\Models\Outsource;
 use App\Models\OutsourceAttendanceSession;
+use App\Services\Outsource\OutsourceDeviceLockService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -21,16 +22,51 @@ class OutsourceCheckIn
     public function __construct(
         protected AttendanceEngine $engine,
         protected RecordAuditAction $audit,
+        protected OutsourceDeviceLockService $deviceLock,
     ) {}
 
     public function execute(Outsource $outsource, OutsourceAttendanceSession $session, CarbonImmutable $occurredAt, array $context): array
     {
+        $fingerprint = trim((string) ($context['device_fingerprint'] ?? ''));
+        if ($fingerprint === '' || strlen($fingerprint) < 16) {
+            return [
+                'success' => false,
+                'error' => 'DEVICE_REQUIRED',
+                'message' => 'Device fingerprint is required.',
+                'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
+            ];
+        }
+
+        if (
+            filled($session->device_fingerprint)
+            && ! hash_equals((string) $session->device_fingerprint, $fingerprint)
+        ) {
+            return [
+                'success' => false,
+                'error' => 'DEVICE_MISMATCH',
+                'message' => 'Sesi ini terikat ke perangkat lain. Mulai ulang sesi dari perangkat yang sama.',
+                'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
+            ];
+        }
+
+        $busyOutsourceId = $this->deviceLock->findOpenOutsourceIdForDevice($fingerprint, $outsource->id);
+        if ($busyOutsourceId !== null) {
+            return [
+                'success' => false,
+                'error' => 'DEVICE_BUSY',
+                'message' => 'Perangkat ini masih digunakan untuk absensi personel lain yang belum clock-out.',
+                'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
+            ];
+        }
+
+        $accuracy = $context['accuracy_meters'] ?? $context['accuracy'] ?? null;
+
         $operationData = new AttendanceOperationData(
             employeeId: 0,
             latitude: (float) $context['latitude'],
             longitude: (float) $context['longitude'],
-            accuracy: isset($context['accuracy']) ? (float) $context['accuracy'] : null,
-            deviceIdentifier: $context['device_identifier'] ?? null,
+            accuracy: $accuracy !== null ? (float) $accuracy : null,
+            deviceIdentifier: $fingerprint,
             source: $context['source'] ?? 'web',
             workLocationId: $session->work_location_id,
             occurredAt: $occurredAt,
@@ -83,7 +119,11 @@ class OutsourceCheckIn
             ];
         }
 
-        $result = DB::transaction(function () use ($domainResult, $session, $context) {
+        $result = DB::transaction(function () use ($domainResult, $session, $fingerprint) {
+            if (! filled($session->device_fingerprint)) {
+                $session->update(['device_fingerprint' => $fingerprint]);
+            }
+
             $record = $domainResult->attendanceRecord;
             $attendanceSession = $domainResult->session;
 
@@ -98,6 +138,7 @@ class OutsourceCheckIn
                     'check_in_at' => $attendanceSession->check_in_at?->toIso8601String(),
                     'outsource_id' => $session->outsource_id,
                     'store_id' => $session->work_location_id,
+                    'device_fingerprint' => $fingerprint,
                 ],
                 null,
                 ['session_id' => $session->id, 'record_id' => $record->id]
