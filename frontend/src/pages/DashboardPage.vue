@@ -13,6 +13,7 @@ import {
   fetchDashboardKpis,
   fetchDashboardStaffToday,
   fetchSystemHealth,
+  type DashboardSource,
 } from '../services/dashboardApi'
 import type {
   DashboardKpiData,
@@ -33,11 +34,18 @@ type Range = { start: Date; end: Date }
 
 const range = shallowRef<Range>({ start: sub(new Date(), { days: 14 }), end: new Date() })
 const period = ref<Period>('daily')
+const source = ref<DashboardSource>('employee')
 
 const periodOptions = [
-  { label: 'Daily', value: 'daily' as Period },
-  { label: 'Weekly', value: 'weekly' as Period },
+  { label: 'Daily',   value: 'daily'   as Period },
+  { label: 'Weekly',  value: 'weekly'  as Period },
   { label: 'Monthly', value: 'monthly' as Period },
+]
+
+const sourceOptions = [
+  { label: 'Employee',  value: 'employee'  as DashboardSource },
+  { label: 'Outsource', value: 'outsource' as DashboardSource },
+  { label: 'All',       value: 'all'       as DashboardSource },
 ]
 
 const addItems: DropdownMenuItem[][] = [[
@@ -75,15 +83,19 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     const [kpiResponse, staffResponse, health] = await Promise.all([
-      fetchDashboardKpis(),
-      fetchDashboardStaffToday(),
+      fetchDashboardKpis(source.value),
+      fetchDashboardStaffToday(source.value),
       fetchSystemHealth(),
     ])
     kpis.value = kpiResponse.data
     tableRows.value = staffResponse.data
     systemHealth.value = health
     rowSelection.value = {}
-    await loadTrend()
+    // Trend is non-blocking — a failure here should not wipe KPI cards
+    await loadTrend().catch(() => {
+      trendPoints.value = []
+      rebuildChart()
+    })
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 401) { await router.push({ name: 'login.admin' }); return }
@@ -100,7 +112,7 @@ async function load(): Promise<void> {
 async function loadTrend(): Promise<void> {
   const from = format(range.value.start, 'yyyy-MM-dd')
   const to = format(range.value.end, 'yyyy-MM-dd')
-  const response = await fetchDashboardAttendanceTrend(from, to)
+  const response = await fetchDashboardAttendanceTrend(from, to, source.value)
   trendPoints.value = response.data
   rebuildChart()
 }
@@ -156,13 +168,20 @@ function rebuildChart(): void {
 
 onMounted(load)
 
+// Range change: only the trend chart needs reloading; KPI cards are always today.
 watch(range, () => {
   void loadTrend().catch(() => {
-    /* trend errors are non-blocking once KPIs loaded */
+    trendPoints.value = []
+    rebuildChart()
   })
 })
 
 watch(period, rebuildChart)
+
+// Source change: full reload — KPI, staff table, and trend all change.
+watch(source, () => {
+  void load().catch(() => {})
+})
 
 type ChartPoint = { date: Date; value: number }
 
@@ -399,6 +418,15 @@ const healthServices = computed(() => [
             <USelect
               v-model="period"
               :items="periodOptions"
+              value-key="value"
+              label-key="label"
+              size="sm"
+              class="w-[7.5rem] shrink-0"
+            />
+
+            <USelect
+              v-model="source"
+              :items="sourceOptions"
               value-key="value"
               label-key="label"
               size="sm"
