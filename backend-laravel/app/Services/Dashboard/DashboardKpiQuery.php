@@ -10,18 +10,25 @@ use Illuminate\Support\Facades\DB;
 
 class DashboardKpiQuery
 {
-    public function forToday(User $user): array
+    // ──────────────────────────────────────────────────────────────────────────
+    // Public entry-points
+    // ──────────────────────────────────────────────────────────────────────────
+
+    public function forToday(User $user, string $source = 'employee'): array
     {
         $today = CarbonImmutable::now()->toDateString();
-        $result = $this->aggregateForDate($today, $this->employeeScope($user));
 
-        return [
-            'date' => $today,
-            'present' => $result['present'],
-            'absent' => $result['absent'],
-            'late' => $result['late'],
-            'on_leave' => $result['on_leave'],
-        ];
+        if ($source === 'outsource') {
+            $result = $this->aggregateOutsourceForDate($today);
+        } elseif ($source === 'all') {
+            $emp     = $this->aggregateForDate($today, $this->employeeScope($user));
+            $outside = $this->aggregateOutsourceForDate($today);
+            $result  = $this->mergeAggregates($emp, $outside);
+        } else {
+            $result = $this->aggregateForDate($today, $this->employeeScope($user));
+        }
+
+        return ['date' => $today, ...$result];
     }
 
     /**
@@ -29,41 +36,21 @@ class DashboardKpiQuery
      *
      * @return list<array{id: int, name: string, email: string|null, location: string, status: string}>
      */
-    public function staffToday(User $user): array
+    public function staffToday(User $user, string $source = 'employee'): array
     {
         $today = CarbonImmutable::now()->toDateString();
-        $employeeId = $this->employeeScope($user);
 
-        $query = $this->eligibleEmployeesBase($today)
-            ->select([
-                'e.id',
-                'e.full_name as name',
-                'e.email',
-                DB::raw("COALESCE(NULLIF(TRIM(e.branch), ''), 'MITO HQ') as location"),
-                DB::raw("CASE
-                    WHEN MAX(CASE WHEN lr.id IS NOT NULL THEN 1 ELSE 0 END) = 1 THEN 'On leave'
-                    WHEN MAX(CASE WHEN ar.status = 'late' THEN 1 ELSE 0 END) = 1 THEN 'Late'
-                    WHEN MAX(CASE WHEN ar.status IN ('present', 'incomplete') THEN 1 ELSE 0 END) = 1 THEN 'Present'
-                    ELSE 'Absent'
-                END as status"),
-            ])
-            ->groupBy('e.id', 'e.full_name', 'e.email', 'e.branch')
-            ->orderBy('e.full_name');
-
-        if ($employeeId !== null) {
-            $query->where('e.id', $employeeId);
+        if ($source === 'outsource') {
+            return $this->outsourceStaffToday($today);
         }
 
-        return $query->get()
-            ->map(static fn ($row): array => [
-                'id' => (int) $row->id,
-                'name' => (string) $row->name,
-                'email' => $row->email,
-                'location' => (string) $row->location,
-                'status' => (string) $row->status,
-            ])
-            ->values()
-            ->all();
+        if ($source === 'all') {
+            $employees  = $this->employeeStaffToday($today, $user);
+            $outsources = $this->outsourceStaffToday($today);
+            return array_values(array_merge($employees, $outsources));
+        }
+
+        return $this->employeeStaffToday($today, $user);
     }
 
     /**
@@ -71,10 +58,10 @@ class DashboardKpiQuery
      *
      * @return list<array{date: string, present: int, absent: int, late: int, on_leave: int, rate: int}>
      */
-    public function attendanceTrend(User $user, string $from, string $to): array
+    public function attendanceTrend(User $user, string $from, string $to, string $source = 'employee'): array
     {
         $fromDate = CarbonImmutable::parse($from)->startOfDay();
-        $toDate = CarbonImmutable::parse($to)->startOfDay();
+        $toDate   = CarbonImmutable::parse($to)->startOfDay();
 
         if ($fromDate->greaterThan($toDate)) {
             [$fromDate, $toDate] = [$toDate, $fromDate];
@@ -85,7 +72,27 @@ class DashboardKpiQuery
             $fromDate = $toDate->subDays(120);
         }
 
-        $employeeId = $this->employeeScope($user);
+        if ($source === 'outsource') {
+            return $this->outsourceTrend($fromDate, $toDate);
+        }
+
+        if ($source === 'all') {
+            return $this->mergedTrend($user, $fromDate, $toDate);
+        }
+
+        return $this->employeeTrend($user, $fromDate, $toDate);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Employee trend (original logic, extracted)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @return list<array{date: string, present: int, absent: int, late: int, on_leave: int, rate: int}>
+     */
+    private function employeeTrend(User $user, CarbonImmutable $fromDate, CarbonImmutable $toDate): array
+    {
+        $employeeId  = $this->employeeScope($user);
         $eligibleIds = $this->eligibleEmployeeIds($toDate->toDateString(), $employeeId);
 
         if ($eligibleIds->isEmpty()) {
@@ -93,11 +100,7 @@ class DashboardKpiQuery
         }
 
         $attendance = DB::table('attendance_records')
-            ->select([
-                'attendance_date',
-                'employee_id',
-                'status',
-            ])
+            ->select(['attendance_date', 'employee_id', 'status'])
             ->whereIn('employee_id', $eligibleIds)
             ->whereNotNull('employee_id')
             ->whereDate('attendance_date', '>=', $fromDate->toDateString())
@@ -113,32 +116,49 @@ class DashboardKpiQuery
             ->whereDate('end_date', '>=', $fromDate->toDateString())
             ->get();
 
+        return $this->buildTrendPoints($fromDate, $toDate, $eligibleIds, $attendance, $leaves);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Outsource trend
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @return list<array{date: string, present: int, absent: int, late: int, on_leave: int, rate: int}>
+     */
+    private function outsourceTrend(CarbonImmutable $fromDate, CarbonImmutable $toDate): array
+    {
+        $eligibleIds = $this->eligibleOutsourceIds();
+
+        if ($eligibleIds->isEmpty()) {
+            return $this->emptyTrendRange($fromDate, $toDate);
+        }
+
+        $attendance = DB::table('attendance_records')
+            ->select(['attendance_date', 'outsource_id', 'status'])
+            ->whereIn('outsource_id', $eligibleIds)
+            ->whereNotNull('outsource_id')
+            ->where('attendable_type', 'outsource')
+            ->whereDate('attendance_date', '>=', $fromDate->toDateString())
+            ->whereDate('attendance_date', '<=', $toDate->toDateString())
+            ->get()
+            ->groupBy(static fn ($row) => CarbonImmutable::parse($row->attendance_date)->toDateString());
+
         $points = [];
         for ($date = $fromDate; $date->lessThanOrEqualTo($toDate); $date = $date->addDay()) {
-            $key = $date->toDateString();
-            $dayAttendance = $attendance->get($key, collect());
+            $key         = $date->toDateString();
+            $dayRows     = $attendance->get($key, collect());
+            $present     = 0;
+            $late        = 0;
+            $absent      = 0;
+            $seen        = [];
 
-            $onLeaveIds = $leaves
-                ->filter(static function ($leave) use ($key): bool {
-                    return $key >= CarbonImmutable::parse($leave->start_date)->toDateString()
-                        && $key <= CarbonImmutable::parse($leave->end_date)->toDateString();
-                })
-                ->pluck('employee_id')
-                ->unique()
-                ->all();
-
-            $onLeave = count($onLeaveIds);
-            $present = 0;
-            $late = 0;
-            $absent = 0;
-
-            $seen = [];
-            foreach ($dayAttendance as $row) {
-                $eid = (int) $row->employee_id;
-                if (isset($seen[$eid]) || in_array($eid, $onLeaveIds, true)) {
+            foreach ($dayRows as $row) {
+                $oid = (int) $row->outsource_id;
+                if (isset($seen[$oid])) {
                     continue;
                 }
-                $seen[$eid] = true;
+                $seen[$oid] = true;
 
                 if (in_array($row->status, ['present', 'incomplete'], true)) {
                     $present++;
@@ -149,28 +169,75 @@ class DashboardKpiQuery
                 }
             }
 
-            foreach ($eligibleIds as $eid) {
-                if (isset($seen[$eid]) || in_array($eid, $onLeaveIds, true)) {
-                    continue;
+            foreach ($eligibleIds as $oid) {
+                if (!isset($seen[$oid])) {
+                    $absent++;
                 }
-                $absent++;
             }
 
-            $total = $present + $late + $absent + $onLeave;
-            $rate = $total === 0 ? 0 : (int) round((($present + $late) / $total) * 100);
+            $total = $present + $late + $absent;
+            $rate  = $total === 0 ? 0 : (int) round((($present + $late) / $total) * 100);
 
             $points[] = [
-                'date' => $key,
-                'present' => $present,
-                'absent' => $absent,
-                'late' => $late,
-                'on_leave' => $onLeave,
-                'rate' => $rate,
+                'date'     => $key,
+                'present'  => $present,
+                'absent'   => $absent,
+                'late'     => $late,
+                'on_leave' => 0, // outsource workers have no leave system
+                'rate'     => $rate,
             ];
         }
 
         return $points;
     }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // All (employee + outsource merged)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @return list<array{date: string, present: int, absent: int, late: int, on_leave: int, rate: int}>
+     */
+    private function mergedTrend(User $user, CarbonImmutable $fromDate, CarbonImmutable $toDate): array
+    {
+        $empPoints  = $this->employeeTrend($user, $fromDate, $toDate);
+        $outsPoints = $this->outsourceTrend($fromDate, $toDate);
+
+        $byDate = [];
+        foreach ($empPoints as $p) {
+            $byDate[$p['date']] = $p;
+        }
+
+        foreach ($outsPoints as $p) {
+            if (!isset($byDate[$p['date']])) {
+                $byDate[$p['date']] = $p;
+                continue;
+            }
+
+            $e = $byDate[$p['date']];
+            $present  = $e['present']  + $p['present'];
+            $absent   = $e['absent']   + $p['absent'];
+            $late     = $e['late']     + $p['late'];
+            $on_leave = $e['on_leave'] + $p['on_leave'];
+            $total    = $present + $late + $absent + $on_leave;
+
+            $byDate[$p['date']] = [
+                'date'     => $p['date'],
+                'present'  => $present,
+                'absent'   => $absent,
+                'late'     => $late,
+                'on_leave' => $on_leave,
+                'rate'     => $total === 0 ? 0 : (int) round((($present + $late) / $total) * 100),
+            ];
+        }
+
+        ksort($byDate);
+        return array_values($byDate);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // KPI aggregation
+    // ──────────────────────────────────────────────────────────────────────────
 
     /**
      * @return array{present: int, absent: int, late: int, on_leave: int}
@@ -204,14 +271,167 @@ class DashboardKpiQuery
         $result = $query->first();
 
         return [
-            'present' => (int) ($result->present ?? 0),
-            'absent' => (int) ($result->absent ?? 0),
-            'late' => (int) ($result->late ?? 0),
+            'present'  => (int) ($result->present ?? 0),
+            'absent'   => (int) ($result->absent ?? 0),
+            'late'     => (int) ($result->late ?? 0),
             'on_leave' => (int) ($result->on_leave ?? 0),
         ];
     }
 
-    private function eligibleEmployeesBase(string $today)
+    /**
+     * @return array{present: int, absent: int, late: int, on_leave: int}
+     */
+    private function aggregateOutsourceForDate(string $today): array
+    {
+        $eligibleIds = $this->eligibleOutsourceIds();
+
+        if ($eligibleIds->isEmpty()) {
+            return ['present' => 0, 'absent' => 0, 'late' => 0, 'on_leave' => 0];
+        }
+
+        $rows = DB::table('attendance_records')
+            ->select(['outsource_id', 'status'])
+            ->whereIn('outsource_id', $eligibleIds)
+            ->whereNotNull('outsource_id')
+            ->where('attendable_type', 'outsource')
+            ->whereDate('attendance_date', '=', $today)
+            ->get()
+            ->keyBy('outsource_id');
+
+        $present = 0;
+        $late    = 0;
+        $absent  = 0;
+
+        foreach ($eligibleIds as $oid) {
+            $row = $rows->get($oid);
+            if (!$row) {
+                $absent++;
+                continue;
+            }
+            if (in_array($row->status, ['present', 'incomplete'], true)) {
+                $present++;
+            } elseif ($row->status === 'late') {
+                $late++;
+            } else {
+                $absent++;
+            }
+        }
+
+        return ['present' => $present, 'absent' => $absent, 'late' => $late, 'on_leave' => 0];
+    }
+
+    /**
+     * @param array{present: int, absent: int, late: int, on_leave: int} $a
+     * @param array{present: int, absent: int, late: int, on_leave: int} $b
+     * @return array{present: int, absent: int, late: int, on_leave: int}
+     */
+    private function mergeAggregates(array $a, array $b): array
+    {
+        return [
+            'present'  => $a['present']  + $b['present'],
+            'absent'   => $a['absent']   + $b['absent'],
+            'late'     => $a['late']     + $b['late'],
+            'on_leave' => $a['on_leave'] + $b['on_leave'],
+        ];
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Staff-today helpers
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @return list<array{id: int, name: string, email: string|null, location: string, status: string}>
+     */
+    private function employeeStaffToday(string $today, User $user): array
+    {
+        $employeeId = $this->employeeScope($user);
+
+        $query = $this->eligibleEmployeesBase($today)
+            ->select([
+                'e.id',
+                'e.full_name as name',
+                'e.email',
+                DB::raw("COALESCE(NULLIF(TRIM(e.branch), ''), 'MITO HQ') as location"),
+                DB::raw("CASE
+                    WHEN MAX(CASE WHEN lr.id IS NOT NULL THEN 1 ELSE 0 END) = 1 THEN 'On leave'
+                    WHEN MAX(CASE WHEN ar.status = 'late' THEN 1 ELSE 0 END) = 1 THEN 'Late'
+                    WHEN MAX(CASE WHEN ar.status IN ('present', 'incomplete') THEN 1 ELSE 0 END) = 1 THEN 'Present'
+                    ELSE 'Absent'
+                END as status"),
+            ])
+            ->groupBy('e.id', 'e.full_name', 'e.email', 'e.branch')
+            ->orderBy('e.full_name');
+
+        if ($employeeId !== null) {
+            $query->where('e.id', $employeeId);
+        }
+
+        return $query->get()
+            ->map(static fn ($row): array => [
+                'id'       => (int) $row->id,
+                'name'     => (string) $row->name,
+                'email'    => $row->email,
+                'location' => (string) $row->location,
+                'status'   => (string) $row->status,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<array{id: int, name: string, email: string|null, location: string, status: string}>
+     */
+    private function outsourceStaffToday(string $today): array
+    {
+        $eligibleIds = $this->eligibleOutsourceIds();
+
+        if ($eligibleIds->isEmpty()) {
+            return [];
+        }
+
+        $attendanceMap = DB::table('attendance_records')
+            ->select(['outsource_id', 'status'])
+            ->whereIn('outsource_id', $eligibleIds)
+            ->whereNotNull('outsource_id')
+            ->where('attendable_type', 'outsource')
+            ->whereDate('attendance_date', '=', $today)
+            ->get()
+            ->keyBy('outsource_id');
+
+        return DB::table('outsources as o')
+            ->whereIn('o.id', $eligibleIds)
+            ->select(['o.id', 'o.name'])
+            ->orderBy('o.name')
+            ->get()
+            ->map(static function ($row) use ($attendanceMap): array {
+                $attendance = $attendanceMap->get($row->id);
+                $status     = 'Absent';
+
+                if ($attendance) {
+                    if (in_array($attendance->status, ['present', 'incomplete'], true)) {
+                        $status = 'Present';
+                    } elseif ($attendance->status === 'late') {
+                        $status = 'Late';
+                    }
+                }
+
+                return [
+                    'id'       => (int) $row->id,
+                    'name'     => (string) $row->name,
+                    'email'    => null,
+                    'location' => 'Outsource',
+                    'status'   => $status,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Shared query helpers
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private function eligibleEmployeesBase(string $today): \Illuminate\Database\Query\Builder
     {
         return DB::table('employees as e')
             ->leftJoin('schedule_assignments as sa', function ($join) use ($today): void {
@@ -261,6 +481,98 @@ class DashboardKpiQuery
     }
 
     /**
+     * Active outsource workers that have at least one active store assignment.
+     * Only these workers are "eligible" for attendance tracking — mirrors the
+     * same eligibility rule the outsource check-in flow enforces.
+     *
+     * @return Collection<int, int>
+     */
+    private function eligibleOutsourceIds(): Collection
+    {
+        return DB::table('outsources')
+            ->join('outsource_store_assignments as osa', 'osa.outsource_id', '=', 'outsources.id')
+            ->whereNull('outsources.deleted_at')
+            ->where('outsources.status', 'active')
+            ->where('osa.status', 'active')
+            ->whereNull('osa.deleted_at')
+            ->distinct()
+            ->pluck('outsources.id')
+            ->map(static fn ($id) => (int) $id);
+    }
+
+    /**
+     * @param Collection<int, int>   $eligibleIds
+     * @param Collection<string, Collection<int, object>> $attendance   grouped by date string
+     * @param Collection<int, object> $leaves
+     * @return list<array{date: string, present: int, absent: int, late: int, on_leave: int, rate: int}>
+     */
+    private function buildTrendPoints(
+        CarbonImmutable $fromDate,
+        CarbonImmutable $toDate,
+        Collection $eligibleIds,
+        Collection $attendance,
+        Collection $leaves,
+    ): array {
+        $points = [];
+
+        for ($date = $fromDate; $date->lessThanOrEqualTo($toDate); $date = $date->addDay()) {
+            $key          = $date->toDateString();
+            $dayAttendance = $attendance->get($key, collect());
+
+            $onLeaveIds = $leaves
+                ->filter(static function ($leave) use ($key): bool {
+                    return $key >= CarbonImmutable::parse($leave->start_date)->toDateString()
+                        && $key <= CarbonImmutable::parse($leave->end_date)->toDateString();
+                })
+                ->pluck('employee_id')
+                ->unique()
+                ->all();
+
+            $onLeave = count($onLeaveIds);
+            $present = 0;
+            $late    = 0;
+            $absent  = 0;
+            $seen    = [];
+
+            foreach ($dayAttendance as $row) {
+                $eid = (int) $row->employee_id;
+                if (isset($seen[$eid]) || in_array($eid, $onLeaveIds, true)) {
+                    continue;
+                }
+                $seen[$eid] = true;
+
+                if (in_array($row->status, ['present', 'incomplete'], true)) {
+                    $present++;
+                } elseif ($row->status === 'late') {
+                    $late++;
+                } elseif ($row->status === 'absent') {
+                    $absent++;
+                }
+            }
+
+            foreach ($eligibleIds as $eid) {
+                if (!isset($seen[$eid]) && !in_array($eid, $onLeaveIds, true)) {
+                    $absent++;
+                }
+            }
+
+            $total = $present + $late + $absent + $onLeave;
+            $rate  = $total === 0 ? 0 : (int) round((($present + $late) / $total) * 100);
+
+            $points[] = [
+                'date'     => $key,
+                'present'  => $present,
+                'absent'   => $absent,
+                'late'     => $late,
+                'on_leave' => $onLeave,
+                'rate'     => $rate,
+            ];
+        }
+
+        return $points;
+    }
+
+    /**
      * @return list<array{date: string, present: int, absent: int, late: int, on_leave: int, rate: int}>
      */
     private function emptyTrendRange(CarbonImmutable $fromDate, CarbonImmutable $toDate): array
@@ -268,12 +580,12 @@ class DashboardKpiQuery
         $points = [];
         for ($date = $fromDate; $date->lessThanOrEqualTo($toDate); $date = $date->addDay()) {
             $points[] = [
-                'date' => $date->toDateString(),
-                'present' => 0,
-                'absent' => 0,
-                'late' => 0,
+                'date'     => $date->toDateString(),
+                'present'  => 0,
+                'absent'   => 0,
+                'late'     => 0,
                 'on_leave' => 0,
-                'rate' => 0,
+                'rate'     => 0,
             ];
         }
 
