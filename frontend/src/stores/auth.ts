@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { apiFetch, fetchCsrfCookie, ApiError } from '../services/apiClient'
+import { usePortalAnchor } from '../composables/usePortalAnchor'
 import type { ApiResponse, AuthUser } from '../types/api'
 
 type AuthState = {
@@ -45,13 +46,34 @@ export const useAuthStore = defineStore('auth', {
 
     /**
      * Load the current session user from the API (session cookie based).
+     *
+     * Cross-session takeover guard:
+     * If this tab has a portal anchor (set at login time) and the server
+     * session now belongs to a different role — because another tab logged in
+     * and overwrote the shared cookie — we treat it as "not authenticated"
+     * for this tab. The router guard then redirects to the correct login page.
+     * We do NOT throw here so the guard's `.catch(() => undefined)` doesn't
+     * swallow the mismatch; instead we simply leave `user` as null.
      */
     async fetchCurrentUser(): Promise<void> {
+      const { isRoleConsistentWithPortal, clearPortal } = usePortalAnchor()
       try {
         const response = await apiFetch<ApiResponse<{ user: AuthUser }>>(
           '/auth/me',
         )
-        this.setUser(response.data.user)
+        const user = response.data.user
+        const isAdmin = user.roles.some((r) => ['ADMIN', 'SUPER_ADMIN'].includes(r))
+
+        // Detect session takeover: server returned a user whose role does not
+        // match the portal this tab was anchored to at login time.
+        if (!isRoleConsistentWithPortal(isAdmin)) {
+          // Clear the anchor so the guard can redirect cleanly to login.
+          clearPortal()
+          this.clearUser()
+          return
+        }
+
+        this.setUser(user)
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
           this.clearUser()
@@ -87,14 +109,17 @@ export const useAuthStore = defineStore('auth', {
 
     /**
      * Invalidate the session on the server and clear client state.
+     * Also clears the portal anchor so the tab is no longer bound to a portal.
      */
     async logout(): Promise<void> {
       this.isLoading = true
+      const { clearPortal } = usePortalAnchor()
 
       try {
         await apiFetch<{ success: boolean }>('/logout', { method: 'POST' })
       } finally {
         this.clearUser()
+        clearPortal()
         this.isLoading = false
       }
     },
