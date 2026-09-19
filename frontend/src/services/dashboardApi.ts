@@ -6,19 +6,24 @@ import type {
   SystemHealthSnapshot,
 } from '../types/dashboard'
 
-export async function fetchDashboardKpis(): Promise<DashboardKpiResponse> {
-  return apiFetch<DashboardKpiResponse>('/dashboard/kpis')
+export type DashboardSource = 'employee' | 'outsource' | 'all'
+
+export async function fetchDashboardKpis(source: DashboardSource = 'employee'): Promise<DashboardKpiResponse> {
+  const params = new URLSearchParams({ source })
+  return apiFetch<DashboardKpiResponse>(`/dashboard/kpis?${params}`)
 }
 
-export async function fetchDashboardStaffToday(): Promise<DashboardStaffResponse> {
-  return apiFetch<DashboardStaffResponse>('/dashboard/staff-today')
+export async function fetchDashboardStaffToday(source: DashboardSource = 'employee'): Promise<DashboardStaffResponse> {
+  const params = new URLSearchParams({ source })
+  return apiFetch<DashboardStaffResponse>(`/dashboard/staff-today?${params}`)
 }
 
 export async function fetchDashboardAttendanceTrend(
   from: string,
   to: string,
+  source: DashboardSource = 'employee',
 ): Promise<DashboardTrendResponse> {
-  const params = new URLSearchParams({ from, to })
+  const params = new URLSearchParams({ from, to, source })
   return apiFetch<DashboardTrendResponse>(`/dashboard/attendance-trend?${params}`)
 }
 
