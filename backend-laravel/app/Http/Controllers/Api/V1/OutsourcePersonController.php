@@ -1,0 +1,217 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Actions\Outsource\CreateOutsourcePerson;
+use App\Actions\Outsource\DeleteOutsourcePerson;
+use App\Actions\Outsource\ToggleOutsourcePersonStatus;
+use App\Actions\Outsource\UpdateOutsourcePerson;
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Outsource\StoreOutsourcePersonRequest;
+use App\Http\Requests\Outsource\UpdateOutsourcePersonRequest;
+use App\Http\Resources\Outsource\OutsourcePersonResource;
+use App\Models\Outsource;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class OutsourcePersonController extends Controller
+{
+    // ── READ ──────────────────────────────────────────────────────────────────
+
+    public function index(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'search'    => ['nullable', 'string', 'max:100'],
+            'city_id'   => ['nullable', 'integer', 'min:1'],
+            'store_id'  => ['nullable', 'integer', 'min:1'],
+            'status'    => ['nullable', 'string', 'in:active,inactive,all'],
+            'per_page'  => ['nullable', 'integer', 'in:10,25,50,100'],
+            'sort'      => ['nullable', 'string', 'in:name,outsource_code,status,created_at'],
+            'direction' => ['nullable', 'string', 'in:asc,desc'],
+        ]);
+
+        $allowedSorts = [
+            'name'           => 'o.name',
+            'outsource_code' => 'o.outsource_code',
+            'status'         => 'o.status',
+            'created_at'     => 'o.created_at',
+        ];
+
+        $sortCol  = $allowedSorts[$validated['sort'] ?? 'name'] ?? 'o.name';
+        $sortDir  = ($validated['direction'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
+        $perPage  = (int) ($validated['per_page'] ?? 25);
+        $status   = $validated['status'] ?? 'all';
+
+        $eligibleIds = null;
+
+        if (!empty($validated['store_id'])) {
+            $eligibleIds = DB::table('outsource_store_assignments')
+                ->where('store_id', (int) $validated['store_id'])
+                ->where('status', 'active')
+                ->whereNull('deleted_at')
+                ->pluck('outsource_id')
+                ->map(fn ($id) => (int) $id)->unique()->values()->all();
+        } elseif (!empty($validated['city_id'])) {
+            $eligibleIds = DB::table('outsource_store_assignments as osa')
+                ->join('work_locations as wl', 'wl.id', '=', 'osa.store_id')
+                ->where('wl.city_id', (int) $validated['city_id'])
+                ->where('osa.status', 'active')->whereNull('osa.deleted_at')
+                ->where('wl.status', 'active')->whereNull('wl.deleted_at')
+                ->pluck('osa.outsource_id')
+                ->map(fn ($id) => (int) $id)->unique()->values()->all();
+        }
+
+        $query = DB::table('outsources as o')
+            ->whereNull('o.deleted_at')
+            ->select(['o.id', 'o.outsource_code', 'o.name', 'o.status', 'o.created_at']);
+
+        if ($eligibleIds !== null) {
+            $query->whereIn('o.id', $eligibleIds ?: [0]);
+        }
+
+        if ($status !== 'all') {
+            $query->where('o.status', $status);
+        }
+
+        if (!empty($validated['search'])) {
+            $term = '%' . $validated['search'] . '%';
+            $query->where(function ($q) use ($term): void {
+                $q->whereRaw('LOWER(o.name) LIKE LOWER(?)', [$term])
+                    ->orWhereRaw('LOWER(o.outsource_code) LIKE LOWER(?)', [$term]);
+            });
+        }
+
+        $query->orderBy($sortCol, $sortDir);
+        $paginated = $query->paginate($perPage);
+
+        $outsourceIds = collect($paginated->items())->pluck('id')->all();
+        $assignments  = DB::table('outsource_store_assignments as osa')
+            ->join('work_locations as wl', 'wl.id', '=', 'osa.store_id')
+            ->join('cities as c', 'c.id', '=', 'wl.city_id')
+            ->whereIn('osa.outsource_id', $outsourceIds)
+            ->where('osa.status', 'active')->whereNull('osa.deleted_at')
+            ->select(['osa.outsource_id', 'wl.id as store_id', 'wl.name as store_name', 'c.id as city_id', 'c.name as city_name'])
+            ->get()->keyBy('outsource_id');
+
+        $enriched = collect($paginated->items())->map(function ($row) use ($assignments) {
+            $asgn          = $assignments->get($row->id);
+            $row->store_id   = $asgn?->store_id;
+            $row->store_name = $asgn?->store_name;
+            $row->city_id    = $asgn?->city_id;
+            $row->city_name  = $asgn?->city_name;
+            return $row;
+        });
+
+        return OutsourcePersonResource::collection($enriched)
+            ->additional(['success' => true, 'meta' => [
+                'current_page' => $paginated->currentPage(),
+                'last_page'    => $paginated->lastPage(),
+                'per_page'     => $paginated->perPage(),
+                'total'        => $paginated->total(),
+                'from'         => $paginated->firstItem(),
+                'to'           => $paginated->lastItem(),
+            ]])->response();
+    }
+
+    public function show(Outsource $outsourcePerson): JsonResponse
+    {
+        $asgn = DB::table('outsource_store_assignments as osa')
+            ->join('work_locations as wl', 'wl.id', '=', 'osa.store_id')
+            ->join('cities as c', 'c.id', '=', 'wl.city_id')
+            ->where('osa.outsource_id', $outsourcePerson->id)
+            ->where('osa.status', 'active')->whereNull('osa.deleted_at')
+            ->select(['wl.id as store_id', 'wl.name as store_name', 'c.id as city_id', 'c.name as city_name'])
+            ->first();
+
+        $outsourcePerson->store_id   = $asgn?->store_id;
+        $outsourcePerson->store_name = $asgn?->store_name;
+        $outsourcePerson->city_id    = $asgn?->city_id;
+        $outsourcePerson->city_name  = $asgn?->city_name;
+
+        return (new OutsourcePersonResource($outsourcePerson))
+            ->additional(['success' => true])
+            ->response();
+    }
+
+    // ── CREATE ────────────────────────────────────────────────────────────────
+
+    public function store(
+        StoreOutsourcePersonRequest $request,
+        CreateOutsourcePerson $action,
+    ): JsonResponse {
+        $person = $action->execute($request->validated(), $request->user(), $request);
+
+        $asgn = DB::table('outsource_store_assignments as osa')
+            ->join('work_locations as wl', 'wl.id', '=', 'osa.store_id')
+            ->join('cities as c', 'c.id', '=', 'wl.city_id')
+            ->where('osa.outsource_id', $person->id)
+            ->where('osa.status', 'active')->whereNull('osa.deleted_at')
+            ->select(['wl.id as store_id', 'wl.name as store_name', 'c.id as city_id', 'c.name as city_name'])
+            ->first();
+
+        $person->store_id   = $asgn?->store_id;
+        $person->store_name = $asgn?->store_name;
+        $person->city_id    = $asgn?->city_id;
+        $person->city_name  = $asgn?->city_name;
+
+        return (new OutsourcePersonResource($person))
+            ->additional(['success' => true])
+            ->response()
+            ->setStatusCode(201);
+    }
+
+    // ── UPDATE ────────────────────────────────────────────────────────────────
+
+    public function update(
+        UpdateOutsourcePersonRequest $request,
+        Outsource $outsourcePerson,
+        UpdateOutsourcePerson $action,
+    ): JsonResponse {
+        $person = $action->execute($outsourcePerson, $request->validated(), $request->user(), $request);
+
+        $asgn = DB::table('outsource_store_assignments as osa')
+            ->join('work_locations as wl', 'wl.id', '=', 'osa.store_id')
+            ->join('cities as c', 'c.id', '=', 'wl.city_id')
+            ->where('osa.outsource_id', $person->id)
+            ->where('osa.status', 'active')->whereNull('osa.deleted_at')
+            ->select(['wl.id as store_id', 'wl.name as store_name', 'c.id as city_id', 'c.name as city_name'])
+            ->first();
+
+        $person->store_id   = $asgn?->store_id;
+        $person->store_name = $asgn?->store_name;
+        $person->city_id    = $asgn?->city_id;
+        $person->city_name  = $asgn?->city_name;
+
+        return (new OutsourcePersonResource($person))
+            ->additional(['success' => true])
+            ->response();
+    }
+
+    // ── TOGGLE STATUS ─────────────────────────────────────────────────────────
+
+    public function toggleStatus(
+        Outsource $outsourcePerson,
+        ToggleOutsourcePersonStatus $action,
+        Request $request,
+    ): JsonResponse {
+        $person = $action->execute($outsourcePerson, $request->user(), $request);
+
+        return response()->json([
+            'success' => true,
+            'data'    => ['id' => $person->id, 'status' => $person->status],
+        ]);
+    }
+
+    // ── DELETE ────────────────────────────────────────────────────────────────
+
+    public function destroy(
+        Outsource $outsourcePerson,
+        DeleteOutsourcePerson $action,
+        Request $request,
+    ): JsonResponse {
+        $action->execute($outsourcePerson, $request->user(), $request);
+
+        return response()->json(['success' => true], 200);
+    }
+}

@@ -12,15 +12,19 @@ use App\Http\Requests\Outsource\CheckOutRequest;
 use App\Http\Requests\Outsource\SessionInitRequest;
 use App\Http\Resources\Outsource\OutsourceAttendanceResource;
 use App\Http\Resources\Outsource\OutsourceAttendanceSessionResource;
+use App\Models\AttendanceRecord;
+use App\Models\AttendanceSession;
 use App\Models\City;
 use App\Models\Outsource;
 use App\Models\OutsourceAttendanceSession;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\WorkLocation;
+use App\Actions\Audit\RecordAuditAction;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class OutsourceAttendanceController
 {
@@ -284,6 +288,44 @@ class OutsourceAttendanceController
             'check_out_at' => $result['session']->check_out_at,
             'duration_minutes' => $result['session']->duration_minutes,
         ]))->response();
+    }
+
+    /**
+     * Void (soft-delete) an outsource attendance record — admin only.
+     * Deletes the record, all its sessions, and all its events within a transaction.
+     */
+    public function voidRecord(AttendanceRecord $record, Request $request): JsonResponse
+    {
+        if ($record->outsource_id === null || $record->attendable_type !== 'outsource') {
+            return response()->json(['success' => false, 'message' => 'Not an outsource attendance record.'], 422);
+        }
+
+        DB::transaction(function () use ($record, $request): void {
+            $snapshot = [
+                'attendance_date' => $record->attendance_date,
+                'outsource_id'    => $record->outsource_id,
+                'status'          => $record->status,
+            ];
+
+            // Delete sessions and events within a transaction.
+            $sessionIds = $record->sessions()->pluck('id');
+            if ($sessionIds->isNotEmpty()) {
+                \App\Models\AttendanceEvent::whereIn('attendance_session_id', $sessionIds)->delete();
+            }
+            $record->sessions()->delete();
+            $record->delete();
+
+            app(RecordAuditAction::class)->execute(
+                $request->user()?->getKey(),
+                'outsource_attendance.voided',
+                $record,
+                $snapshot,
+                null,
+                $request,
+            );
+        });
+
+        return response()->json(['success' => true], 200);
     }
 
     private function extractToken(Request $request): string
