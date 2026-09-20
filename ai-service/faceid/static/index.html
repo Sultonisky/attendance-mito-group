@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Face ID Lab</title>
+<style>
+  :root { --bg:#0b0f14; --card:#131a22; --line:#243040; --txt:#e8eef5; --dim:#8fa3b8; --acc:#4ade80; --warn:#f87171; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; min-height:100dvh; padding-bottom:env(safe-area-inset-bottom); }
+  .wrap { max-width:720px; margin:0 auto; padding:16px; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:12px 0 16px; }
+  h1 { font-size:20px; letter-spacing:2px; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--warn); }
+  .dot.on { background:var(--acc); box-shadow:0 0 8px var(--acc); }
+  .tabs { display:flex; gap:8px; margin-bottom:14px; }
+  .tab { flex:1; padding:12px; text-align:center; background:var(--card); border:1px solid var(--line); border-radius:12px; color:var(--dim); font-weight:600; cursor:pointer; }
+  .tab.active { color:var(--txt); border-color:var(--acc); background:#12241a; }
+  .cam { position:relative; border-radius:14px; overflow:hidden; background:#000; }
+  .cam video, .cam img { width:100%; height:auto; display:block; }
+  .cam canvas { position:absolute; left:0; top:0; width:100%; height:100%; }
+  .row { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; align-items:center; }
+  button { padding:12px 16px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--txt); font-weight:600; cursor:pointer; }
+  button.primary { background:var(--acc); color:#06220f; border:none; }
+  input[type=text] { padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--txt); font-size:16px; flex:1; min-width:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-top:14px; }
+  .face { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  .face:last-child { border:none; }
+  .del { color:var(--warn); background:none; border:none; padding:6px; font-size:18px; }
+  #result { font-size:22px; font-weight:700; text-align:center; }
+  .sub { color:var(--dim); text-align:center; margin-top:4px; font-size:13px; }
+  label.chk { display:flex; gap:6px; align-items:center; color:var(--dim); font-size:13px; }
+  .msg { color:var(--dim); font-size:13px; text-align:center; margin-top:10px; min-height:18px; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>👁 FACE ID LAB</h1>
+    <div class="dot" id="statusDot"></div>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" id="tabRecBtn">📷 Kenali</div>
+    <div class="tab" id="tabRegBtn">➕ Daftar Wajah</div>
+  </div>
+
+  <div class="cam" id="cam">
+    <video id="vid" autoplay muted playsinline></video>
+    <img id="img" class="hidden" alt="foto">
+    <canvas id="ov"></canvas>
+  </div>
+  <div class="row">
+    <button id="camBtn" class="primary">Nyalakan Kamera</button>
+    <button id="flipBtn" class="hidden">🔄 Ganti</button>
+    <input type="file" id="file" accept="image/*" class="hidden">
+    <button id="upBtn">🖼 Upload Foto</button>
+    <button id="clearImg" class="hidden">✕ Foto</button>
+  </div>
+  <div class="msg" id="msg">load model dulu...</div>
+
+  <div id="tabRec">
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="live"> live scan</label>
+      <label class="chk"><input type="checkbox" id="doMeta"> umur/gender/ekspresi</label>
+      <button id="recBtn">Kenali ▶</button>
+    </div>
+    <div class="card">
+      <div id="result">—</div>
+      <div class="sub" id="detail">&nbsp;</div>
+    </div>
+  </div>
+
+  <div id="tabReg" class="hidden">
+    <div class="row">
+      <input type="text" id="name" placeholder="Nama orangnya" autocomplete="off">
+      <button id="saveBtn" class="primary">Simpan</button>
+    </div>
+    <div class="card"><b style="color:var(--dim)">Wajah terdaftar (sync antar device)</b><div id="list"></div></div>
+  </div>
+</div>
+<script src="/static/face-api.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
+

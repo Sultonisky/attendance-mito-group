@@ -1,0 +1,1 @@
+"""MITO face pipeline: SCRFD detection, ArcFace recognition, MiniFASNet liveness, quality gate."""
