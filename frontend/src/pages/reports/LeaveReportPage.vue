@@ -26,6 +26,13 @@ const columnVisibility = ref<VisibilityState>()
 const statusFilter = ref('all')
 const search = ref('')
 
+// ── Reject modal ──────────────────────────────────────────────────────────────
+const showRejectModal = ref(false)
+const rejectTargetId  = ref<number | null>(null)
+const rejectReason    = ref('')
+const rejectBusy      = ref(false)
+const rejectError     = ref('')
+
 const filters = reactive({
   ...defaultReportDates(),
   employee_id: '',
@@ -60,14 +67,20 @@ const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
 const rowActions: AdminRowAction[] = [
   { key: 'approve', label: 'Approve', permission: 'leave.approve', icon: 'Check', variant: 'primary' },
-  { key: 'reject', label: 'Reject', permission: 'leave.reject', icon: 'X', variant: 'secondary', destructive: true },
-  { key: 'cancel', label: 'Cancel', permission: 'leave.cancel', icon: 'X', variant: 'ghost' },
+  { key: 'reject',  label: 'Reject',  permission: 'leave.reject',  icon: 'X', variant: 'secondary', destructive: true },
+  { key: 'cancel',  label: 'Cancel',  permission: 'leave.cancel',  icon: 'X', variant: 'ghost' },
 ]
 
+/** Actions valid per-status — only pending requests can be actioned. */
+function leaveActionsFor(status: string): AdminRowAction[] {
+  if (status === 'pending') return rowActions
+  return []
+}
+
 const statusColor: Record<string, 'success' | 'warning' | 'error' | 'neutral' | 'info'> = {
-  approved: 'success',
-  pending: 'warning',
-  rejected: 'error',
+  approved:  'success',
+  pending:   'warning',
+  rejected:  'error',
   cancelled: 'neutral',
 }
 
@@ -107,7 +120,7 @@ const columns = computed<TableColumn<LeaveReportRow>[]>(() => [
     enableSorting: false,
     enableHiding: false,
     cell: ({ row }) => h(AdminRowActions, {
-      actions: rowActions,
+      actions: leaveActionsFor(row.original.status),
       busy: actionBusyId.value === row.original.id,
       onAction: (key: string) => handleRowAction(key, row.original.id),
     }),
@@ -157,23 +170,46 @@ async function load(): Promise<void> {
 }
 
 async function handleRowAction(action: string, id: number): Promise<void> {
+  if (action === 'reject') {
+    rejectTargetId.value  = id
+    rejectReason.value    = ''
+    rejectError.value     = ''
+    showRejectModal.value = true
+    return
+  }
+
   actionBusyId.value = id
   error.value = ''
   try {
     if (action === 'approve') await approveLeaveRequest(id)
-    if (action === 'cancel') await cancelLeaveRequest(id)
-    if (action === 'reject') {
-      const reason = window.prompt('Reason for rejection')
-      if (reason === null) return
-      await rejectLeaveRequest(id, reason)
-    }
+    if (action === 'cancel')  await cancelLeaveRequest(id)
     await load()
-  }
-  catch {
-    error.value = 'Unable to update this leave request. Please try again.'
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : 'Unable to update this leave request. Please try again.'
   }
   finally {
     actionBusyId.value = null
+  }
+}
+
+async function submitReject(): Promise<void> {
+  if (!rejectReason.value.trim()) {
+    rejectError.value = 'A reason is required to reject this request.'
+    return
+  }
+  if (rejectTargetId.value === null) return
+
+  rejectBusy.value  = true
+  rejectError.value = ''
+  try {
+    await rejectLeaveRequest(rejectTargetId.value, rejectReason.value.trim())
+    showRejectModal.value = false
+    rejectTargetId.value  = null
+    await load()
+  } catch (e: unknown) {
+    rejectError.value = e instanceof Error ? e.message : 'Unable to reject this request. Please try again.'
+  } finally {
+    rejectBusy.value = false
   }
 }
 
@@ -239,4 +275,33 @@ onMounted(async () => {
       </div>
     </template>
   </UDashboardPanel>
+
+  <!-- ── Reject modal ───────────────────────────────────────────────────────── -->
+  <UModal v-model:open="showRejectModal" title="Reject leave request">
+    <template #body>
+      <div class="space-y-3">
+        <p class="text-sm text-muted">Provide a reason for rejecting this leave request.</p>
+        <UFormField label="Reason" required>
+          <UTextarea
+            v-model="rejectReason"
+            placeholder="Enter rejection reason…"
+            :rows="3"
+            class="w-full"
+            autofocus
+          />
+        </UFormField>
+        <UAlert v-if="rejectError" color="error" variant="subtle" :description="rejectError" />
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="rejectBusy" @click="showRejectModal = false">
+          Cancel
+        </UButton>
+        <UButton color="error" :loading="rejectBusy" @click="submitReject">
+          Reject
+        </UButton>
+      </div>
+    </template>
+  </UModal>
 </template>

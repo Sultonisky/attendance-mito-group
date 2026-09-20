@@ -19,12 +19,19 @@ import { defaultReportDates } from '../../types/reportDates'
 const route = useRoute()
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 
-const data = ref<OvertimeReportRow[]>([])
-const actionBusyId = ref<number | null>(null)
+const data          = ref<OvertimeReportRow[]>([])
+const actionBusyId  = ref<number | null>(null)
 const columnFilters = ref<ColumnFiltersState>([])
 const columnVisibility = ref<VisibilityState>()
-const statusFilter = ref('all')
-const search = ref('')
+const statusFilter  = ref('all')
+const search        = ref('')
+
+// ── Reject modal ──────────────────────────────────────────────────────────────
+const showRejectModal = ref(false)
+const rejectTargetId  = ref<number | null>(null)
+const rejectReason    = ref('')
+const rejectBusy      = ref(false)
+const rejectError     = ref('')
 
 const filters = reactive({
   ...defaultReportDates(),
@@ -40,35 +47,41 @@ const { sorting } = useDataTableSort(filters, () => {
 })
 
 const statusOptions = [
-  { label: 'All', value: 'all' },
-  { label: 'Pending', value: 'pending' },
-  { label: 'Approved', value: 'approved' },
-  { label: 'Rejected', value: 'rejected' },
+  { label: 'All',       value: 'all'       },
+  { label: 'Pending',   value: 'pending'   },
+  { label: 'Approved',  value: 'approved'  },
+  { label: 'Rejected',  value: 'rejected'  },
   { label: 'Cancelled', value: 'cancelled' },
 ]
 
 const hideableColumns = [
-  { id: 'employee_name', label: 'Employee' },
-  { id: 'date', label: 'Date' },
-  { id: 'potential_minutes', label: 'Potential' },
-  { id: 'requested_minutes', label: 'Requested' },
-  { id: 'approved_minutes', label: 'Approved' },
-  { id: 'actual_minutes', label: 'Actual' },
-  { id: 'status', label: 'Status' },
+  { id: 'employee_name',    label: 'Employee'  },
+  { id: 'date',             label: 'Date'      },
+  { id: 'potential_minutes',label: 'Potential' },
+  { id: 'requested_minutes',label: 'Requested' },
+  { id: 'approved_minutes', label: 'Approved'  },
+  { id: 'actual_minutes',   label: 'Actual'    },
+  { id: 'status',           label: 'Status'    },
 ]
 
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
 const rowActions: AdminRowAction[] = [
   { key: 'approve', label: 'Approve', permission: 'overtime.approve', icon: 'Check', variant: 'primary' },
-  { key: 'reject', label: 'Reject', permission: 'overtime.reject', icon: 'X', variant: 'secondary', destructive: true },
-  { key: 'cancel', label: 'Cancel', permission: 'overtime.cancel', icon: 'X', variant: 'ghost' },
+  { key: 'reject',  label: 'Reject',  permission: 'overtime.reject',  icon: 'X', variant: 'secondary', destructive: true },
+  { key: 'cancel',  label: 'Cancel',  permission: 'overtime.cancel',  icon: 'X', variant: 'ghost' },
 ]
 
+/** Actions valid per-status — only pending requests can be actioned. */
+function overtimeActionsFor(status: string): AdminRowAction[] {
+  if (status === 'pending') return rowActions
+  return []
+}
+
 const statusColor: Record<string, 'success' | 'warning' | 'error' | 'neutral'> = {
-  approved: 'success',
-  pending: 'warning',
-  rejected: 'error',
+  approved:  'success',
+  pending:   'warning',
+  rejected:  'error',
   cancelled: 'neutral',
 }
 
@@ -115,7 +128,7 @@ const columns = computed<TableColumn<OvertimeReportRow>[]>(() => [
       const oid = row.original.overtime_request_id
       if (!oid) return h('span', { class: 'text-xs text-[var(--ui-text-dimmed)]' }, 'No request')
       return h(AdminRowActions, {
-        actions: rowActions,
+        actions: overtimeActionsFor(row.original.status),
         busy: actionBusyId.value === oid,
         onAction: (key: string) => handleRowAction(key, oid),
       })
@@ -143,52 +156,72 @@ const ready = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
+  error.value   = ''
   try {
     const res = await fetchOvertimeReport({
-      from: filters.from,
-      to: filters.to,
+      from:        filters.from,
+      to:          filters.to,
       employee_id: filters.employee_id || null,
-      per_page: filters.per_page,
-      sort: filters.sort,
-      direction: filters.direction,
-      page: meta.current_page,
+      per_page:    filters.per_page,
+      sort:        filters.sort,
+      direction:   filters.direction,
+      page:        meta.current_page,
     })
     data.value = res.data
     applyMeta(res.meta)
-  }
-  catch (err) {
+  } catch (err) {
     await handleApiError(err, 'Unable to load overtime report. Please try again.')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
 
 async function handleRowAction(action: string, id: number): Promise<void> {
+  if (action === 'reject') {
+    rejectTargetId.value  = id
+    rejectReason.value    = ''
+    rejectError.value     = ''
+    showRejectModal.value = true
+    return
+  }
+
   actionBusyId.value = id
-  error.value = ''
+  error.value        = ''
   try {
     if (action === 'approve') await approveOvertimeRequest(id)
-    if (action === 'cancel') await cancelOvertimeRequest(id)
-    if (action === 'reject') {
-      const reason = window.prompt('Reason for rejection')
-      if (reason === null) return
-      await rejectOvertimeRequest(id, reason)
-    }
+    if (action === 'cancel')  await cancelOvertimeRequest(id)
     await load()
-  }
-  catch {
-    error.value = 'Unable to update this overtime request. Please try again.'
-  }
-  finally {
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : 'Unable to update this overtime request. Please try again.'
+  } finally {
     actionBusyId.value = null
+  }
+}
+
+async function submitReject(): Promise<void> {
+  if (!rejectReason.value.trim()) {
+    rejectError.value = 'A reason is required to reject this request.'
+    return
+  }
+  if (rejectTargetId.value === null) return
+
+  rejectBusy.value  = true
+  rejectError.value = ''
+  try {
+    await rejectOvertimeRequest(rejectTargetId.value, rejectReason.value.trim())
+    showRejectModal.value = false
+    rejectTargetId.value  = null
+    await load()
+  } catch (e: unknown) {
+    rejectError.value = e instanceof Error ? e.message : 'Unable to reject this request. Please try again.'
+  } finally {
+    rejectBusy.value = false
   }
 }
 
 onMounted(async () => {
   if (typeof route.query.from === 'string') filters.from = route.query.from
-  if (typeof route.query.to === 'string') filters.to = route.query.to
+  if (typeof route.query.to === 'string')   filters.to   = route.query.to
   await load()
   ready.value = true
 })
@@ -209,11 +242,19 @@ onMounted(async () => {
 
     <template #body>
       <div class="p-4 sm:p-6 space-y-4">
-        <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-triangle-alert" title="Failed to load" :description="error">
+        <UAlert
+          v-if="error"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="Failed to load"
+          :description="error"
+        >
           <template #actions>
             <UButton color="primary" variant="subtle" size="sm" icon="i-lucide-refresh-cw" @click="load">Retry</UButton>
           </template>
         </UAlert>
+
         <template v-else>
           <ReportDataToolbar :total="meta.total" :rows="data" filename="overtime-report" :loading="loading" />
           <DataTableToolbar
@@ -247,4 +288,33 @@ onMounted(async () => {
       </div>
     </template>
   </UDashboardPanel>
+
+  <!-- ── Reject modal ───────────────────────────────────────────────────────── -->
+  <UModal v-model:open="showRejectModal" title="Reject overtime request">
+    <template #body>
+      <div class="space-y-3">
+        <p class="text-sm text-muted">Provide a reason for rejecting this overtime request.</p>
+        <UFormField label="Reason" required>
+          <UTextarea
+            v-model="rejectReason"
+            placeholder="Enter rejection reason…"
+            :rows="3"
+            class="w-full"
+            autofocus
+          />
+        </UFormField>
+        <UAlert v-if="rejectError" color="error" variant="subtle" :description="rejectError" />
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="rejectBusy" @click="showRejectModal = false">
+          Cancel
+        </UButton>
+        <UButton color="error" :loading="rejectBusy" @click="submitReject">
+          Reject
+        </UButton>
+      </div>
+    </template>
+  </UModal>
 </template>
