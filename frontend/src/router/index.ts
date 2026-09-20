@@ -33,6 +33,7 @@ const router = createRouter({
         { path: 'outsource-persons', name: 'outsource.persons', component: () => import('../pages/reports/outsource/OutsourcePersonListPage.vue'), meta: { title: 'Outsource persons', permission: 'outsource_attendance.view' } },
         { path: 'outsource-work-locations', name: 'outsource.work-locations', component: () => import('../pages/reports/outsource/OutsourceWorkLocationPage.vue'), meta: { title: 'Work locations', permission: 'outsource_attendance.view' } },
         { path: 'reports/monthly-recaps', name: 'reports.monthly-recaps', component: () => import('../pages/reports/MonthlyRecapsReportPage.vue'), meta: { title: 'Monthly recap', permissionAny: ['monthly_recap.view', 'monthly_recap.generate', 'monthly_recap.review', 'monthly_recap.finalize', 'monthly_recap.export'] } },
+        { path: 'users', name: 'users', component: () => import('../pages/users/UserListPage.vue'), meta: { title: 'User management', permission: 'user.view' } },
       ],
     },
     {

@@ -66,12 +66,33 @@ const hideableColumns = [
 
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
-const rowActions: AdminRowAction[] = [
-  { key: 'review', label: 'Review', permission: 'monthly_recap.review', icon: 'Eye', variant: 'secondary' },
-  { key: 'finalize', label: 'Finalize', permission: 'monthly_recap.finalize', icon: 'Check', variant: 'primary' },
-  { key: 'export', label: 'Export', permission: 'monthly_recap.export', icon: 'Download', variant: 'secondary' },
-  { key: 'reopen', label: 'Reopen', permission: 'monthly_recap.finalize', icon: 'ArrowLeft', variant: 'ghost' },
+const allRecapActions: AdminRowAction[] = [
+  { key: 'review',   label: 'Review',   permission: 'monthly_recap.review',   icon: 'Eye',       variant: 'secondary' },
+  { key: 'finalize', label: 'Finalize', permission: 'monthly_recap.finalize', icon: 'Check',     variant: 'primary'   },
+  { key: 'export',   label: 'Export',   permission: 'monthly_recap.export',   icon: 'Download',  variant: 'secondary' },
+  { key: 'reopen',   label: 'Reopen',   permission: 'monthly_recap.finalize', icon: 'ArrowLeft', variant: 'ghost'     },
 ]
+
+/**
+ * State machine for monthly recap actions.
+ *
+ * draft      → review
+ * generated  → review, finalize
+ * reviewed   → finalize, reopen
+ * finalized  → export, reopen
+ * exported   → export (re-export), reopen
+ */
+function recapActionsFor(status: string): AdminRowAction[] {
+  const keys: Record<string, string[]> = {
+    draft:     ['review'],
+    generated: ['review', 'finalize'],
+    reviewed:  ['finalize', 'reopen'],
+    finalized: ['export', 'reopen'],
+    exported:  ['export', 'reopen'],
+  }
+  const allowed = keys[status] ?? []
+  return allRecapActions.filter(a => allowed.includes(a.key))
+}
 
 const statusColor: Record<string, 'success' | 'warning' | 'info' | 'neutral' | 'error'> = {
   finalized: 'success',
@@ -117,7 +138,7 @@ const columns = computed<TableColumn<MonthlyRecapRow>[]>(() => [
     enableSorting: false,
     enableHiding: false,
     cell: ({ row }) => h(AdminRowActions, {
-      actions: rowActions,
+      actions: recapActionsFor(row.original.status),
       busy: actionBusyId.value === row.original.id,
       onAction: (key: string) => handleRowAction(key, row.original.id),
     }),
@@ -200,16 +221,14 @@ async function handleRowAction(action: string, id: number): Promise<void> {
   actionBusyId.value = id
   error.value = ''
   try {
-    if (action === 'review') await reviewMonthlyRecap(id)
+    if (action === 'review')   await reviewMonthlyRecap(id)
     if (action === 'finalize') await finalizeMonthlyRecap(id)
-    if (action === 'export') await exportMonthlyRecap(id)
-    if (action === 'reopen') await reopenMonthlyRecap(id)
+    if (action === 'export')   await exportMonthlyRecap(id)
+    if (action === 'reopen')   await reopenMonthlyRecap(id)
     await load()
-  }
-  catch {
-    error.value = 'Unable to update this monthly recap. Please try again.'
-  }
-  finally {
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : 'Unable to update this monthly recap. Please try again.'
+  } finally {
     actionBusyId.value = null
   }
 }

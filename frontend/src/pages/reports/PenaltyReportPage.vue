@@ -19,12 +19,29 @@ import { defaultReportDates } from '../../types/reportDates'
 const route = useRoute()
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 
-const data = ref<PenaltyReportRow[]>([])
-const actionBusyId = ref<number | null>(null)
+const data          = ref<PenaltyReportRow[]>([])
+const actionBusyId  = ref<number | null>(null)
 const columnFilters = ref<ColumnFiltersState>([])
 const columnVisibility = ref<VisibilityState>()
-const statusFilter = ref('all')
-const search = ref('')
+const statusFilter  = ref('all')
+const search        = ref('')
+
+// ── Adjust modal ──────────────────────────────────────────────────────────────
+const showAdjustModal  = ref(false)
+const adjustTargetId   = ref<number | null>(null)
+const adjustTargetRow  = ref<PenaltyReportRow | null>(null)
+const adjustPoints     = ref<number | null>(null)
+const adjustReason     = ref('')
+const adjustBusy       = ref(false)
+const adjustError      = ref('')
+
+// ── Void modal ────────────────────────────────────────────────────────────────
+const showVoidModal  = ref(false)
+const voidTargetId   = ref<number | null>(null)
+const voidTargetRow  = ref<PenaltyReportRow | null>(null)
+const voidReason     = ref('')
+const voidBusy       = ref(false)
+const voidError      = ref('')
 
 const filters = reactive({
   ...defaultReportDates(),
@@ -40,35 +57,41 @@ const { sorting } = useDataTableSort(filters, () => {
 })
 
 const statusOptions = [
-  { label: 'All', value: 'all' },
-  { label: 'Active', value: 'active' },
+  { label: 'All',      value: 'all'      },
+  { label: 'Active',   value: 'active'   },
   { label: 'Adjusted', value: 'adjusted' },
-  { label: 'Voided', value: 'voided' },
+  { label: 'Voided',   value: 'voided'   },
 ]
 
 const hideableColumns = [
-  { id: 'employee_name', label: 'Employee' },
-  { id: 'penalty_rule_name', label: 'Rule' },
-  { id: 'source', label: 'Source' },
-  { id: 'violation_type', label: 'Violation' },
-  { id: 'original_points', label: 'Original' },
-  { id: 'adjusted_points', label: 'Adjusted' },
-  { id: 'final_points', label: 'Final' },
-  { id: 'status', label: 'Status' },
-  { id: 'occurred_at', label: 'Occurred At' },
+  { id: 'employee_name',    label: 'Employee'    },
+  { id: 'penalty_rule_name',label: 'Rule'        },
+  { id: 'source',           label: 'Source'      },
+  { id: 'violation_type',   label: 'Violation'   },
+  { id: 'original_points',  label: 'Original'    },
+  { id: 'adjusted_points',  label: 'Adjusted'    },
+  { id: 'final_points',     label: 'Final'       },
+  { id: 'status',           label: 'Status'      },
+  { id: 'occurred_at',      label: 'Occurred At' },
 ]
 
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
-const rowActions: AdminRowAction[] = [
+const allPenaltyActions: AdminRowAction[] = [
   { key: 'adjust', label: 'Adjust', permission: 'penalty.adjust', icon: 'ArrowRight', variant: 'secondary' },
-  { key: 'void', label: 'Void', permission: 'penalty.void', icon: 'X', variant: 'ghost', destructive: true },
+  { key: 'void',   label: 'Void',   permission: 'penalty.void',   icon: 'X', variant: 'ghost', destructive: true },
 ]
 
+/** Voided is a terminal state — no further actions allowed. */
+function penaltyActionsFor(status: string): AdminRowAction[] {
+  if (status === 'voided') return []
+  return allPenaltyActions
+}
+
 const statusColor: Record<string, 'success' | 'warning' | 'error' | 'neutral'> = {
-  active: 'error',
+  active:   'error',
   adjusted: 'warning',
-  voided: 'neutral',
+  voided:   'neutral',
 }
 
 const columns = computed<TableColumn<PenaltyReportRow>[]>(() => [
@@ -120,9 +143,9 @@ const columns = computed<TableColumn<PenaltyReportRow>[]>(() => [
     enableSorting: false,
     enableHiding: false,
     cell: ({ row }) => h(AdminRowActions, {
-      actions: rowActions,
+      actions: penaltyActionsFor(row.original.status),
       busy: actionBusyId.value === row.original.id,
-      onAction: (key: string) => handleRowAction(key, row.original.id),
+      onAction: (key: string) => handleRowAction(key, row.original),
     }),
   },
 ])
@@ -147,55 +170,98 @@ const ready = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
+  error.value   = ''
   try {
     const res = await fetchPenaltyReport({
-      from: filters.from,
-      to: filters.to,
+      from:        filters.from,
+      to:          filters.to,
       employee_id: filters.employee_id || null,
-      per_page: filters.per_page,
-      sort: filters.sort,
-      direction: filters.direction,
-      page: meta.current_page,
+      per_page:    filters.per_page,
+      sort:        filters.sort,
+      direction:   filters.direction,
+      page:        meta.current_page,
     })
     data.value = res.data
     applyMeta(res.meta)
-  }
-  catch (err) {
+  } catch (err) {
     await handleApiError(err, 'Unable to load penalty report. Please try again.')
-  }
-  finally {
+  } finally {
     loading.value = false
   }
 }
 
-async function handleRowAction(action: string, id: number): Promise<void> {
-  actionBusyId.value = id
-  error.value = ''
+function handleRowAction(action: string, row: PenaltyReportRow): void {
+  if (action === 'adjust') {
+    adjustTargetId.value  = row.id
+    adjustTargetRow.value = row
+    adjustPoints.value    = row.final_points ?? row.original_points ?? 0
+    adjustReason.value    = ''
+    adjustError.value     = ''
+    showAdjustModal.value = true
+    return
+  }
+
+  if (action === 'void') {
+    voidTargetId.value  = row.id
+    voidTargetRow.value = row
+    voidReason.value    = ''
+    voidError.value     = ''
+    showVoidModal.value = true
+  }
+}
+
+async function submitAdjust(): Promise<void> {
+  if (!adjustReason.value.trim()) {
+    adjustError.value = 'A reason is required.'
+    return
+  }
+  const points = adjustPoints.value
+  if (points === null || !Number.isFinite(points)) {
+    adjustError.value = 'Final points must be a valid number.'
+    return
+  }
+  if (adjustTargetId.value === null) return
+
+  adjustBusy.value  = true
+  adjustError.value = ''
   try {
-    const reason = window.prompt(action === 'adjust' ? 'Adjustment reason' : 'Void reason')
-    if (reason === null) return
-    if (action === 'adjust') {
-      const points = Number(window.prompt('Final points', '0'))
-      if (!Number.isFinite(points)) return
-      await adjustPenalty(id, points, reason)
-    }
-    else {
-      await voidPenalty(id, reason)
-    }
+    await adjustPenalty(adjustTargetId.value, points, adjustReason.value.trim())
+    showAdjustModal.value = false
+    adjustTargetId.value  = null
+    adjustTargetRow.value = null
     await load()
+  } catch (e: unknown) {
+    adjustError.value = e instanceof Error ? e.message : 'Unable to adjust this penalty. Please try again.'
+  } finally {
+    adjustBusy.value = false
   }
-  catch {
-    error.value = 'Unable to update this penalty. Please try again.'
+}
+
+async function submitVoid(): Promise<void> {
+  if (!voidReason.value.trim()) {
+    voidError.value = 'A reason is required to void this penalty.'
+    return
   }
-  finally {
-    actionBusyId.value = null
+  if (voidTargetId.value === null) return
+
+  voidBusy.value  = true
+  voidError.value = ''
+  try {
+    await voidPenalty(voidTargetId.value, voidReason.value.trim())
+    showVoidModal.value = false
+    voidTargetId.value  = null
+    voidTargetRow.value = null
+    await load()
+  } catch (e: unknown) {
+    voidError.value = e instanceof Error ? e.message : 'Unable to void this penalty. Please try again.'
+  } finally {
+    voidBusy.value = false
   }
 }
 
 onMounted(async () => {
   if (typeof route.query.from === 'string') filters.from = route.query.from
-  if (typeof route.query.to === 'string') filters.to = route.query.to
+  if (typeof route.query.to === 'string')   filters.to   = route.query.to
   await load()
   ready.value = true
 })
@@ -216,11 +282,19 @@ onMounted(async () => {
 
     <template #body>
       <div class="p-4 sm:p-6 space-y-4">
-        <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-triangle-alert" title="Failed to load" :description="error">
+        <UAlert
+          v-if="error"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="Failed to load"
+          :description="error"
+        >
           <template #actions>
             <UButton color="primary" variant="subtle" size="sm" icon="i-lucide-refresh-cw" @click="load">Retry</UButton>
           </template>
         </UAlert>
+
         <template v-else>
           <ReportDataToolbar :total="meta.total" :rows="data" filename="penalty-report" :loading="loading" />
           <DataTableToolbar
@@ -254,4 +328,84 @@ onMounted(async () => {
       </div>
     </template>
   </UDashboardPanel>
+
+  <!-- ── Adjust modal ───────────────────────────────────────────────────────── -->
+  <UModal v-model:open="showAdjustModal" title="Adjust penalty">
+    <template #body>
+      <div class="space-y-4">
+        <p class="text-sm text-muted">
+          Adjusting penalty for
+          <strong class="text-highlighted">{{ adjustTargetRow?.employee_name }}</strong>.
+          Original points: <strong class="text-highlighted">{{ adjustTargetRow?.original_points }}</strong>.
+        </p>
+
+        <UFormField label="Final points" required>
+          <UInput
+            v-model.number="adjustPoints"
+            type="number"
+            step="0.1"
+            min="0"
+            placeholder="0"
+            class="w-full"
+          />
+        </UFormField>
+
+        <UFormField label="Reason" required>
+          <UTextarea
+            v-model="adjustReason"
+            placeholder="Enter adjustment reason…"
+            :rows="3"
+            class="w-full"
+          />
+        </UFormField>
+
+        <UAlert v-if="adjustError" color="error" variant="subtle" :description="adjustError" />
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="adjustBusy" @click="showAdjustModal = false">
+          Cancel
+        </UButton>
+        <UButton color="primary" :loading="adjustBusy" @click="submitAdjust">
+          Save adjustment
+        </UButton>
+      </div>
+    </template>
+  </UModal>
+
+  <!-- ── Void modal ─────────────────────────────────────────────────────────── -->
+  <UModal v-model:open="showVoidModal" title="Void penalty">
+    <template #body>
+      <div class="space-y-3">
+        <p class="text-sm text-muted">
+          You are about to void the penalty for
+          <strong class="text-highlighted">{{ voidTargetRow?.employee_name }}</strong>
+          ({{ voidTargetRow?.final_points }} points). This cannot be undone.
+        </p>
+
+        <UFormField label="Reason" required>
+          <UTextarea
+            v-model="voidReason"
+            placeholder="Enter void reason…"
+            :rows="3"
+            class="w-full"
+            autofocus
+          />
+        </UFormField>
+
+        <UAlert v-if="voidError" color="error" variant="subtle" :description="voidError" />
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="voidBusy" @click="showVoidModal = false">
+          Cancel
+        </UButton>
+        <UButton color="error" :loading="voidBusy" @click="submitVoid">
+          Void penalty
+        </UButton>
+      </div>
+    </template>
+  </UModal>
 </template>
