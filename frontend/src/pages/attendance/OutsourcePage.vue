@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import AppButton from "../../components/AppButton.vue";
@@ -195,8 +195,14 @@ const isGpsAccuracyAcceptable = computed(
 );
 
 const now = ref(new Date());
+/** Option B: off by default — user opts into continuous distance updates. */
+const followDistance = ref(false);
+const isRefreshingDistance = ref(false);
 let clockTimer: number | null = null;
 let gpsWatchId: number | null = null;
+/** Separate from settle watch — only used when "Ikuti jarak" is on. */
+let proximityWatchId: number | null = null;
+let proximityLastUiAt = 0;
 let gpsSettleTimer: number | null = null;
 let gpsRequestId = 0;
 let activeGpsResolve:
@@ -208,6 +214,9 @@ let activeGpsResolve:
       } | null,
     ) => void)
   | null = null;
+
+/** Throttle proximity UI updates to reduce GPS jitter. */
+const PROXIMITY_UI_THROTTLE_MS = 2_500;
 
 const attendanceDurationSeconds = computed(() => {
   if (!isAttendanceOpen.value || !checkInAt.value) {
@@ -241,30 +250,108 @@ const isSessionActive = computed(
 );
 const isAttendanceOpen = computed(() => step.value === "attendance_open");
 
-const trackingStatusLabel = computed(() => {
-  if (locationStatus.value === "locating") return "Menstabilkan GPS";
-  if (locationStatus.value === "ready" && !isGpsAccuracyAcceptable.value)
-    return "GPS kurang akurat";
-  if (locationStatus.value === "ready") return "Lokasi valid";
-  if (locationStatus.value === "error") return "GPS error";
-  return "Menunggu lokasi";
+const STORE_GEOFENCE_RADIUS_METERS = 150;
+
+/** Straight-line distance (meters) from current GPS to selected store. */
+const distanceToStoreMeters = computed((): number | null => {
+  if (!selectedStoreLocation.value || !currentMapLocation.value) return null;
+
+  const earthRadius = 6371000;
+  const dLat =
+    ((currentMapLocation.value.latitude - selectedStoreLocation.value.lat) *
+      Math.PI) /
+    180;
+  const dLng =
+    ((currentMapLocation.value.longitude - selectedStoreLocation.value.lng) *
+      Math.PI) /
+    180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((selectedStoreLocation.value.lat * Math.PI) / 180) *
+      Math.cos((currentMapLocation.value.latitude * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+
+  return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+});
+
+const isInsideStoreRadius = computed(() => {
+  const distance = distanceToStoreMeters.value;
+  return distance !== null && distance <= STORE_GEOFENCE_RADIUS_METERS;
+});
+
+/** Big hero number for Live Tracking. */
+const distanceHeroValue = computed(() => {
+  const distance = distanceToStoreMeters.value;
+  if (distance === null) return "—";
+  if (distance < 1000) return `${Math.round(distance)}`;
+  return (distance / 1000).toFixed(1);
+});
+
+const distanceHeroUnit = computed(() => {
+  const distance = distanceToStoreMeters.value;
+  if (distance === null) return "m";
+  return distance < 1000 ? "m" : "km";
+});
+
+const distanceHeroCaption = computed(() => {
+  if (!selectedStoreLocation.value) {
+    return "Koordinat toko belum tersedia";
+  }
+  if (locationStatus.value === "locating") {
+    return "Mengukur jarak ke toko…";
+  }
+  if (locationStatus.value === "error" || distanceToStoreMeters.value === null) {
+    return "Aktifkan GPS untuk mengukur jarak";
+  }
+  if (isInsideStoreRadius.value) {
+    return "Sudah dalam radius absensi";
+  }
+  const remaining = Math.max(
+    0,
+    Math.round((distanceToStoreMeters.value ?? 0) - STORE_GEOFENCE_RADIUS_METERS),
+  );
+  return `${remaining} m lagi ke radius absensi`;
 });
 
 const trackerHint = computed(() => {
-  if (locationStatus.value === "ready" && isGpsAccuracyAcceptable.value) {
-    return "Sinyal GPS sudah cukup akurat untuk presensi.";
+  if (!selectedStoreLocation.value) {
+    return "Toko belum punya koordinat. Jarak absensi belum bisa dihitung.";
   }
-  if (locationStatus.value === "ready") {
-    return `Akurasi masih ±${locationAccuracy.value ?? 0} m. Target maksimal ±${maxGpsAccuracyMeters} m.`;
+  if (locationStatus.value === "error") {
+    return "Periksa izin GPS dan sinyal Anda agar jarak ke toko muncul.";
   }
-  if (locationStatus.value === "locating") {
-    return locationAccuracy.value !== null
-      ? `Menunggu sinyal lebih akurat (saat ini ±${locationAccuracy.value} m, target ±${maxGpsAccuracyMeters} m).`
-      : "Sedang menstabilkan sinyal GPS. Tetap di tempat terbuka.";
+  if (locationStatus.value === "locating" || isRefreshingDistance.value) {
+    return "Tetap di tempat terbuka sementara GPS menstabilkan sinyal.";
   }
-  if (locationStatus.value === "error")
-    return "Periksa izin GPS dan sinyal Anda.";
-  return "Sinyal GPS belum aktif untuk validasi.";
+  if (distanceToStoreMeters.value === null) {
+    return 'Tekan "Perbarui jarak" untuk mengukur jarak ke toko.';
+  }
+  if (followDistance.value) {
+    return "Mode ikuti jarak aktif (perkiraan). Angka bisa bergeser karena akurasi GPS.";
+  }
+  if (isInsideStoreRadius.value) {
+    if (!isGpsAccuracyAcceptable.value) {
+      return `Anda sudah dalam radius ${STORE_GEOFENCE_RADIUS_METERS} m. Tunggu akurasi GPS ≤ ±${maxGpsAccuracyMeters} m sebelum absen.`;
+    }
+    return `Anda berada dalam radius ${STORE_GEOFENCE_RADIUS_METERS} m toko. Siap untuk absensi.`;
+  }
+  return `Dekati toko hingga jarak ≤ ${STORE_GEOFENCE_RADIUS_METERS} m, lalu tekan "Perbarui jarak" bila perlu.`;
+});
+
+const distanceBadgeLabel = computed(() => {
+  if (locationStatus.value === "locating") return "Mengukur…";
+  if (locationStatus.value === "error") return "GPS error";
+  if (distanceToStoreMeters.value === null) return "Belum ada";
+  if (isInsideStoreRadius.value) return "Dalam radius";
+  return "Di luar radius";
+});
+
+const distanceBadgeClass = computed(() => {
+  if (locationStatus.value === "locating") return "badge-locating";
+  if (locationStatus.value === "error" || distanceToStoreMeters.value === null)
+    return "badge-error";
+  if (isInsideStoreRadius.value) return "badge-ready";
+  return "badge-outside";
 });
 
 const statusTitle = computed(() => {
@@ -327,30 +414,14 @@ const showStoreMap = computed(
 );
 
 const mapDistanceLabel = computed(() => {
-  if (!selectedStoreLocation.value || !currentMapLocation.value) return null;
+  const distance = distanceToStoreMeters.value;
+  if (distance === null) return null;
 
-  const earthRadius = 6371000;
-  const dLat =
-    ((currentMapLocation.value.latitude - selectedStoreLocation.value.lat) *
-      Math.PI) /
-    180;
-  const dLng =
-    ((currentMapLocation.value.longitude - selectedStoreLocation.value.lng) *
-      Math.PI) /
-    180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((selectedStoreLocation.value.lat * Math.PI) / 180) *
-      Math.cos((currentMapLocation.value.latitude * Math.PI) / 180) *
-      Math.sin(dLng / 2) ** 2;
-  const distanceMeters =
-    2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  if (distanceMeters < 1000) {
-    return `${Math.round(distanceMeters)} m dari toko`;
+  if (distance < 1000) {
+    return `${Math.round(distance)} m dari toko`;
   }
 
-  return `${(distanceMeters / 1000).toFixed(1)} km dari toko`;
+  return `${(distance / 1000).toFixed(1)} km dari toko`;
 });
 
 const actionButtonLabel = computed(() => {
@@ -499,7 +570,7 @@ function updateCartoMap(): void {
     ];
     if (!storeRadius) {
       storeRadius = L.circle(radiusCenter, {
-        radius: 150,
+        radius: STORE_GEOFENCE_RADIUS_METERS,
         color: "#f59e0b",
         weight: 2,
         opacity: 0.8,
@@ -561,6 +632,120 @@ function stopGpsWatch(): void {
     window.clearTimeout(gpsSettleTimer);
     gpsSettleTimer = null;
   }
+}
+
+function stopProximityWatch(): void {
+  if (proximityWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(proximityWatchId);
+    proximityWatchId = null;
+  }
+  proximityLastUiAt = 0;
+}
+
+function applyProximityReading(position: GeolocationPosition): void {
+  const accuracy = Number(position.coords.accuracy);
+  if (!Number.isFinite(accuracy) || accuracy < 0) {
+    return;
+  }
+
+  const nowMs = Date.now();
+  if (nowMs - proximityLastUiAt < PROXIMITY_UI_THROTTLE_MS) {
+    return;
+  }
+  proximityLastUiAt = nowMs;
+
+  locationAccuracy.value = Math.round(accuracy);
+  currentMapLocation.value = {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    accuracy,
+  };
+  updateCartoMap();
+}
+
+function startProximityWatch(): void {
+  if (!navigator.geolocation) {
+    followDistance.value = false;
+    error.value = "Browser ini tidak mendukung layanan lokasi.";
+    return;
+  }
+  if (!isSessionActive.value || !followDistance.value) {
+    return;
+  }
+  if (document.hidden) {
+    return;
+  }
+  // Don't stack with settle watch — settle owns GPS until ready.
+  if (locationStatus.value === "locating" || gpsWatchId !== null) {
+    return;
+  }
+  if (proximityWatchId !== null) {
+    return;
+  }
+
+  proximityWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      if (!followDistance.value || !isSessionActive.value) {
+        stopProximityWatch();
+        return;
+      }
+      applyProximityReading(position);
+    },
+    (geoErr) => {
+      if (geoErr.code === geoErr.PERMISSION_DENIED) {
+        followDistance.value = false;
+        stopProximityWatch();
+        locationStatus.value = "error";
+        error.value = geoErrorMessage(geoErr);
+      }
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 15_000,
+      maximumAge: 2_000,
+    },
+  );
+}
+
+function syncProximityWatch(): void {
+  if (followDistance.value && isSessionActive.value && !document.hidden) {
+    startProximityWatch();
+  } else {
+    stopProximityWatch();
+  }
+}
+
+async function refreshDistance(): Promise<void> {
+  if (isRefreshingDistance.value || locationStatus.value === "locating") {
+    return;
+  }
+
+  isRefreshingDistance.value = true;
+  // Pause continuous watch while we do a deliberate settle reading.
+  stopProximityWatch();
+  try {
+    await requestLocation();
+  } finally {
+    isRefreshingDistance.value = false;
+    syncProximityWatch();
+  }
+}
+
+function onFollowDistanceToggle(): void {
+  if (!followDistance.value) {
+    stopProximityWatch();
+    return;
+  }
+  // Kick one settle first so user gets a solid reading, then follow.
+  void refreshDistance();
+}
+
+function onVisibilityChange(): void {
+  if (document.hidden) {
+    stopProximityWatch();
+    return;
+  }
+  syncProximityWatch();
 }
 
 function cancelActiveGpsRequest(): void {
@@ -753,11 +938,16 @@ async function requestLocation(): Promise<{
 }
 
 async function refreshMapLocation(): Promise<void> {
-  if (locationStatus.value === "locating") {
+  if (locationStatus.value === "locating" || isRefreshingDistance.value) {
     return;
   }
 
-  await requestLocation();
+  stopProximityWatch();
+  try {
+    await requestLocation();
+  } finally {
+    syncProximityWatch();
+  }
 }
 
 async function loadCities(): Promise<void> {
@@ -779,6 +969,9 @@ async function loadCities(): Promise<void> {
 
 function invalidateSessionState(): void {
   cancelActiveGpsRequest();
+  stopProximityWatch();
+  followDistance.value = false;
+  isRefreshingDistance.value = false;
   sessionToken.value = null;
   expiresAt.value = null;
   attendanceId.value = null;
@@ -1093,6 +1286,7 @@ async function submitAttendance(): Promise<void> {
     }
   } finally {
     isSubmitting.value = false;
+    syncProximityWatch();
   }
 }
 
@@ -1116,14 +1310,24 @@ onMounted(() => {
     now.value = new Date();
   }, 1000);
 
+  document.addEventListener("visibilitychange", onVisibilityChange);
   loadCities();
+});
+
+watch(isSessionActive, (active) => {
+  if (!active) {
+    followDistance.value = false;
+    stopProximityWatch();
+  }
 });
 
 onUnmounted(() => {
   if (clockTimer !== null) {
     clearInterval(clockTimer);
   }
+  document.removeEventListener("visibilitychange", onVisibilityChange);
   cancelActiveGpsRequest();
+  stopProximityWatch();
   destroyCartoMap();
 });
 </script>
@@ -1602,47 +1806,79 @@ onUnmounted(() => {
       </section>
 
       <section class="geo-tracker-card">
-        <div class="geo-map">
-          <div class="map-outer-ring" />
-          <div class="map-inner-ring" />
-          <div class="map-pin" />
-          <div class="map-safe-zone" />
-          <div class="map-tag">Safe Zone 150m</div>
+        <div
+          class="distance-hero"
+          :class="{
+            'distance-hero--inside': isInsideStoreRadius,
+            'distance-hero--outside':
+              distanceToStoreMeters !== null && !isInsideStoreRadius,
+            'distance-hero--pending': distanceToStoreMeters === null,
+          }"
+        >
+          <p class="geo-label">Jarak ke toko</p>
+          <div class="distance-hero-value-row">
+            <span class="distance-hero-value">{{ distanceHeroValue }}</span>
+            <span class="distance-hero-unit">{{ distanceHeroUnit }}</span>
+          </div>
+          <p class="distance-hero-caption">{{ distanceHeroCaption }}</p>
         </div>
 
         <div class="geo-content">
           <div class="geo-header-row">
             <div>
-              <p class="geo-label">Live Tracking</p>
-              <h3>{{ trackingStatusLabel }}</h3>
+              <p class="geo-label">Jarak ke toko</p>
+              <h3>{{ selectedStoreName || "Toko penugasan" }}</h3>
             </div>
             <span
               class="status-indicator-badge"
-              :class="{
-                'badge-ready': locationStatus === 'ready',
-                'badge-locating': locationStatus === 'locating',
-                'badge-error': locationStatus === 'error',
-              }"
+              :class="distanceBadgeClass"
             >
-              {{
-                locationStatus === "locating"
-                  ? "Mencari..."
-                  : locationStatus === "ready"
-                    ? "Siap"
-                    : "GPS"
-              }}
+              {{ distanceBadgeLabel }}
             </span>
           </div>
 
           <p class="geo-hint">{{ trackerHint }}</p>
 
+          <div class="distance-actions">
+            <AppButton
+              type="button"
+              class="btn-secondary"
+              variant="secondary"
+              size="sm"
+              icon="RefreshCw"
+              icon-position="left"
+              :disabled="
+                isRefreshingDistance ||
+                locationStatus === 'locating' ||
+                isSubmitting
+              "
+              @click="refreshDistance"
+            >
+              {{
+                isRefreshingDistance || locationStatus === "locating"
+                  ? "Mengukur..."
+                  : "Perbarui jarak"
+              }}
+            </AppButton>
+
+            <label class="follow-distance-toggle">
+              <input
+                v-model="followDistance"
+                type="checkbox"
+                :disabled="isSubmitting"
+                @change="onFollowDistanceToggle"
+              />
+              <span>Ikuti jarak</span>
+            </label>
+          </div>
+
           <div class="geo-metrics">
             <div>
-              <span>Radius</span>
-              <strong>150 m</strong>
+              <span>Radius absensi</span>
+              <strong>{{ STORE_GEOFENCE_RADIUS_METERS }} m</strong>
             </div>
             <div>
-              <span>GPS</span>
+              <span>Akurasi GPS</span>
               <strong>{{
                 locationAccuracy !== null
                   ? `±${locationAccuracy} m`
@@ -2475,7 +2711,7 @@ onUnmounted(() => {
 
 .geo-tracker-card {
   display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
+  grid-template-columns: minmax(9.5rem, 11rem) minmax(0, 1fr);
   gap: 1rem;
   padding: 1rem;
   border-radius: 14px;
@@ -2489,63 +2725,74 @@ onUnmounted(() => {
   gap: 0.7rem;
 }
 
-.geo-map {
-  position: relative;
-  height: 120px;
+.distance-hero {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  gap: 0.2rem;
+  min-height: 120px;
+  padding: 0.85rem 0.65rem;
   border-radius: 18px;
-  overflow: hidden;
+  border: 1px solid rgba(17, 17, 17, 0.06);
+  background: linear-gradient(180deg, #f8f8fa 0%, #f1f1f4 100%);
+}
+
+.distance-hero--inside {
+  background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%);
+  border-color: rgba(21, 128, 61, 0.2);
+}
+
+.distance-hero--outside {
+  background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%);
+  border-color: rgba(194, 65, 12, 0.18);
+}
+
+.distance-hero--pending {
   background: linear-gradient(180deg, #f4f4f5 0%, #e8e8ec 100%);
-  border: 1px solid rgba(17, 17, 17, 0.05);
 }
 
-.map-outer-ring,
-.map-inner-ring,
-.map-safe-zone,
-.map-pin {
-  position: absolute;
-  border-radius: 50%;
+.distance-hero .geo-label {
+  margin: 0;
 }
 
-.map-outer-ring {
-  inset: 18px;
-  border: 1.5px solid rgba(235, 28, 36, 0.2);
+.distance-hero-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.28rem;
+  line-height: 1;
 }
 
-.map-inner-ring {
-  inset: 34px;
-  border: 1.5px solid rgba(235, 28, 36, 0.3);
+.distance-hero-value {
+  font-size: 2.35rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
 }
 
-.map-safe-zone {
-  width: 54px;
-  height: 54px;
-  top: 28px;
-  left: 28px;
-  background: rgba(23, 183, 92, 0.14);
-  border: 1px solid rgba(23, 183, 92, 0.3);
+.distance-hero--inside .distance-hero-value {
+  color: #15803d;
 }
 
-.map-pin {
-  width: 14px;
-  height: 14px;
-  top: 54px;
-  left: 62px;
-  background: var(--accent);
-  border: 3px solid #fff;
-  box-shadow: 0 0 0 6px rgba(235, 28, 36, 0.1);
+.distance-hero--outside .distance-hero-value {
+  color: #c2410c;
 }
 
-.map-tag {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  padding: 0.28rem 0.55rem;
-  border-radius: 999px;
-  background: rgba(17, 17, 17, 0.7);
-  color: #fff;
-  font-size: 0.58rem;
+.distance-hero-unit {
+  font-size: 0.95rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  color: var(--text);
+  text-transform: lowercase;
+}
+
+.distance-hero-caption {
+  margin: 0.15rem 0 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  max-width: 11rem;
 }
 
 .geo-content {
@@ -2580,6 +2827,31 @@ onUnmounted(() => {
   color: var(--text);
   font-size: 0.78rem;
   line-height: 1.5;
+}
+
+.distance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 0.9rem;
+}
+
+.follow-distance-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-h);
+  cursor: pointer;
+  user-select: none;
+}
+
+.follow-distance-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .geo-metrics {
@@ -2630,6 +2902,11 @@ onUnmounted(() => {
 .status-indicator-badge.badge-error {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.status-indicator-badge.badge-outside {
+  background: #ffedd5;
+  color: #c2410c;
 }
 
 .mini-summary-grid {
@@ -2908,6 +3185,15 @@ onUnmounted(() => {
 @media (max-width: 420px) {
   .outsource-app {
     padding-inline: 0.75rem;
+  }
+
+  .geo-tracker-card {
+    grid-template-columns: 1fr;
+  }
+
+  .distance-hero {
+    min-height: 0;
+    padding: 1rem 0.85rem;
   }
 
   .info-grid {
