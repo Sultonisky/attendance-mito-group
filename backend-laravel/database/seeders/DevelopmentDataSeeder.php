@@ -67,6 +67,13 @@ class DevelopmentDataSeeder extends Seeder
 
     public function run(): void
     {
+        // Defense in depth: this seeder is also guarded in DatabaseSeeder,
+        // but a direct `db:seed --class=DevelopmentDataSeeder` outside the
+        // local environment must never touch the database.
+        if (! app()->environment('local')) {
+            return;
+        }
+
         $context = $this->seedFoundationData();
         $this->seedLeaveTypesAndPenaltyRules();
 
