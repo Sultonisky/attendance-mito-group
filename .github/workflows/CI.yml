@@ -106,6 +106,20 @@ jobs:
       - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist --optimize-autoloader
 
+      - name: Prepare Laravel storage directories
+        # storage/* and bootstrap/cache are gitignored, so a fresh checkout
+        # has none of them. Anything that boots the view layer
+        # (e.g. GET /up rendering an exception page) throws
+        # "Please provide a valid cache path" without these.
+        # Mirrors what Dockerfile creates for the production image.
+        run: |
+          mkdir -p \
+            storage/framework/cache \
+            storage/framework/sessions \
+            storage/framework/views \
+            storage/logs \
+            bootstrap/cache
+
       - name: PHP Syntax Check
         run: find app routes config database -type f -name "*.php" -print0 | xargs -0 -n1 php -l
 
