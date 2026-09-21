@@ -19,7 +19,6 @@ concurrency:
 jobs:
   deploy:
     name: Deploy Production
-
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     runs-on: ubuntu-24.04
@@ -32,7 +31,7 @@ jobs:
       - name: Configure SSH
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -40,7 +39,7 @@ jobs:
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh-keyscan -H -t ed25519 "$VPS_HOST" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
       - name: Test SSH
@@ -48,14 +47,22 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
-          ssh "$VPS_USER@$VPS_HOST" "echo SSH-OK"
+          ssh \
+            -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "echo SSH-OK"
 
       - name: Deploy to VPS
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
-          ssh "$VPS_USER@$VPS_HOST" << 'EOF'
+          ssh \
+            -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" << 'EOF'
+
             set -e
 
             echo "======================================"
@@ -101,4 +108,5 @@ jobs:
             echo "======================================"
             echo "      DEPLOYMENT SUCCESSFUL"
             echo "======================================"
+
           EOF
