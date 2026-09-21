@@ -56,19 +56,18 @@ class UserController extends Controller
 
         $paginated = $query->paginate($perPage);
 
-        return UserResource::collection($paginated)
-            ->additional([
-                'success' => true,
-                'meta'    => [
-                    'current_page' => $paginated->currentPage(),
-                    'last_page'    => $paginated->lastPage(),
-                    'per_page'     => $paginated->perPage(),
-                    'total'        => $paginated->total(),
-                    'from'         => $paginated->firstItem(),
-                    'to'           => $paginated->lastItem(),
-                ],
-            ])
-            ->response();
+        return response()->json([
+            'success' => true,
+            'data' => UserResource::collection($paginated),
+            'meta' => [
+                'current_page' => $paginated->currentPage(),
+                'last_page'    => $paginated->lastPage(),
+                'per_page'     => $paginated->perPage(),
+                'total'        => $paginated->total(),
+                'from'         => $paginated->firstItem(),
+                'to'           => $paginated->lastItem(),
+            ],
+        ]);
     }
 
     public function show(User $user): JsonResponse
