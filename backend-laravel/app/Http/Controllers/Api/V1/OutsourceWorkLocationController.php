@@ -78,15 +78,18 @@ class OutsourceWorkLocationController extends Controller
 
         $paginated = $query->paginate($perPage);
 
-        return OutsourceWorkLocationResource::collection(collect($paginated->items()))
-            ->additional(['success' => true, 'meta' => [
+        return response()->json([
+            'success' => true,
+            'data' => OutsourceWorkLocationResource::collection(collect($paginated->items())),
+            'meta' => [
                 'current_page' => $paginated->currentPage(),
                 'last_page'    => $paginated->lastPage(),
                 'per_page'     => $paginated->perPage(),
                 'total'        => $paginated->total(),
                 'from'         => $paginated->firstItem(),
                 'to'           => $paginated->lastItem(),
-            ]])->response();
+            ],
+        ]);
     }
 
     public function show(WorkLocation $outsourceWorkLocation): JsonResponse

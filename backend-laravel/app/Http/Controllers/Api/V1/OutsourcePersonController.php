@@ -103,15 +103,18 @@ class OutsourcePersonController extends Controller
             return $row;
         });
 
-        return OutsourcePersonResource::collection($enriched)
-            ->additional(['success' => true, 'meta' => [
+        return response()->json([
+            'success' => true,
+            'data' => OutsourcePersonResource::collection($enriched),
+            'meta' => [
                 'current_page' => $paginated->currentPage(),
                 'last_page'    => $paginated->lastPage(),
                 'per_page'     => $paginated->perPage(),
                 'total'        => $paginated->total(),
                 'from'         => $paginated->firstItem(),
                 'to'           => $paginated->lastItem(),
-            ]])->response();
+            ],
+        ]);
     }
 
     public function show(Outsource $outsourcePerson): JsonResponse

@@ -115,42 +115,66 @@ class DevelopmentDataSeeder extends Seeder
     }
 
     /**
-     * @return array{hq: WorkLocation, stores: list<WorkLocation>, schedule: WorkSchedule, shift: Shift, policy: Policy}
+     * Foundation data for the demo dataset.
+     *
+     * Dummy cities & work locations (HQ + stores) are DISABLED: real data
+     * comes from the artisan import commands instead:
+     *   php artisan outsource:import ...           (cities + stores + outsources)
+     *   php artisan outsource:locations:import ... (store coordinates)
+     * The seeder reuses imported active work locations when available.
+     * Re-enable the commented blocks below to restore dummy data.
+     *
+     * @return array{hq: WorkLocation|null, stores: list<WorkLocation>, schedule: WorkSchedule, shift: Shift, policy: Policy}
      */
     protected function seedFoundationData(): array
     {
-        City::firstOrCreate(
-            ['code' => 'CITY-DEV-JKT'],
-            ['name' => 'Jakarta', 'status' => 'active'],
-        );
+        // City::firstOrCreate(
+        //     ['code' => 'CITY-DEV-JKT'],
+        //     ['name' => 'Jakarta', 'status' => 'active'],
+        // );
+        //
+        // if (City::count() < 3) {
+        //     City::factory()->count(2)->create();
+        // }
+        //
+        // $hq = WorkLocation::firstOrCreate(
+        //     ['code' => 'LOC-DEV-HQ'],
+        //     [
+        //         'name' => 'MITO HQ',
+        //         'latitude' => -6.1754,
+        //         'longitude' => 106.8272,
+        //         'radius_meters' => 150,
+        //         'status' => 'active',
+        //     ],
+        // );
+        //
+        // $stores = WorkLocation::query()
+        //     ->where('code', '!=', 'LOC-DEV-HQ')
+        //     ->where('status', 'active')
+        //     ->orderBy('id')
+        //     ->limit(3)
+        //     ->get();
+        //
+        // if ($stores->count() < 3) {
+        //     $stores = $stores->merge(
+        //         WorkLocation::factory()->count(3 - $stores->count())->create()
+        //     )->values();
+        // }
 
-        if (City::count() < 3) {
-            City::factory()->count(2)->create();
-        }
-
-        $hq = WorkLocation::firstOrCreate(
-            ['code' => 'LOC-DEV-HQ'],
-            [
-                'name' => 'MITO HQ',
-                'latitude' => -6.1754,
-                'longitude' => 106.8272,
-                'radius_meters' => 150,
-                'status' => 'active',
-            ],
-        );
-
-        $stores = WorkLocation::query()
-            ->where('code', '!=', 'LOC-DEV-HQ')
+        // Real work locations imported via artisan (may be empty until the
+        // import commands have run).
+        $hq = WorkLocation::query()
             ->where('status', 'active')
             ->orderBy('id')
-            ->limit(3)
-            ->get();
+            ->first();
 
-        if ($stores->count() < 3) {
-            $stores = $stores->merge(
-                WorkLocation::factory()->count(3 - $stores->count())->create()
-            )->values();
-        }
+        $stores = WorkLocation::query()
+            ->where('status', 'active')
+            ->when($hq !== null, fn ($query) => $query->whereKeyNot($hq->id))
+            ->orderBy('id')
+            ->limit(3)
+            ->get()
+            ->all();
 
         $schedule = WorkSchedule::firstOrCreate(
             ['code' => 'SCH-DEV-OFFICE'],
@@ -193,7 +217,7 @@ class DevelopmentDataSeeder extends Seeder
 
         return [
             'hq' => $hq,
-            'stores' => $stores->all(),
+            'stores' => $stores,
             'schedule' => $schedule,
             'shift' => $shift,
             'policy' => $policy,
@@ -316,6 +340,9 @@ class DevelopmentDataSeeder extends Seeder
     /**
      * @param array{hq: WorkLocation} $context
      */
+    /**
+     * @param array{hq: WorkLocation|null} $context
+     */
     protected function seedAttendanceHistory(array $context): void
     {
         $employees = Employee::where('employee_code', 'like', self::EMPLOYEE_PREFIX.'%')
@@ -350,7 +377,7 @@ class DevelopmentDataSeeder extends Seeder
     protected function seedAttendanceDay(
         Employee $employee,
         CarbonImmutable $date,
-        WorkLocation $hq,
+        ?WorkLocation $hq,
         int $employeeIndex,
         bool $isToday,
     ): void {
@@ -400,27 +427,33 @@ class DevelopmentDataSeeder extends Seeder
             ])
             ->create();
 
+        // Coordinates follow the (real, imported) work location when one
+        // exists; attendance_events.latitude/longitude are nullable.
+        $checkInState = ['occurred_at' => $checkInAt];
+        if ($hq !== null) {
+            $checkInState['latitude'] = $hq->latitude;
+            $checkInState['longitude'] = $hq->longitude;
+        }
+
         AttendanceEvent::factory()
             ->checkIn()
             ->forRecord($record)
             ->forSession($session)
-            ->state([
-                'occurred_at' => $checkInAt,
-                'latitude' => $hq->latitude,
-                'longitude' => $hq->longitude,
-            ])
+            ->state($checkInState)
             ->create();
 
         if (! $isIncomplete && $checkOutAt !== null) {
+            $checkOutState = ['occurred_at' => $checkOutAt];
+            if ($hq !== null) {
+                $checkOutState['latitude'] = $hq->latitude;
+                $checkOutState['longitude'] = $hq->longitude;
+            }
+
             AttendanceEvent::factory()
                 ->checkOut()
                 ->forRecord($record)
                 ->forSession($session)
-                ->state([
-                    'occurred_at' => $checkOutAt,
-                    'latitude' => $hq->latitude,
-                    'longitude' => $hq->longitude,
-                ])
+                ->state($checkOutState)
                 ->create();
         }
     }
@@ -448,7 +481,7 @@ class DevelopmentDataSeeder extends Seeder
     }
 
     /**
-     * @param array{hq: WorkLocation} $context
+     * @param array{hq: WorkLocation|null} $context
      */
     protected function seedLeaveOvertimePenaltyAndRecaps(array $context): void
     {
@@ -627,7 +660,7 @@ class DevelopmentDataSeeder extends Seeder
      * Uses existing outsource records imported via OutsourceMasterDataImportService.
      * Skips silently if no outsource data has been imported yet.
      *
-     * @param array{hq: WorkLocation, stores: list<WorkLocation>} $context
+     * @param array{hq: WorkLocation|null, stores: list<WorkLocation>} $context
      */
     protected function seedOutsourceAttendance(array $context): void
     {
@@ -648,7 +681,7 @@ class DevelopmentDataSeeder extends Seeder
 
         foreach ($outsources as $index => $outsource) {
             // Use the outsource worker's actual first active store assignment,
-            // falling back to the dev HQ location if none found.
+            // falling back to any imported active work location if none found.
             /** @var WorkLocation|null $store */
             $store = $outsource->stores()
                 ->wherePivot('status', 'active')
@@ -696,31 +729,38 @@ class DevelopmentDataSeeder extends Seeder
                     ])
                     ->create();
 
+                // Coordinates follow the assigned (real) store location when
+                // available; attendance_events.latitude/longitude are nullable.
+                $checkInState = [
+                    'attendance_id' => $record->id,
+                    'employee_id'   => null,
+                    'outsource_id'  => $outsource->id,
+                    'occurred_at'   => $checkInAt,
+                ];
+                $checkOutState = [
+                    'attendance_id' => $record->id,
+                    'employee_id'   => null,
+                    'outsource_id'  => $outsource->id,
+                    'occurred_at'   => $checkOutAt,
+                ];
+                if ($location !== null) {
+                    $checkInState['latitude'] = $location->latitude;
+                    $checkInState['longitude'] = $location->longitude;
+                    $checkOutState['latitude'] = $location->latitude;
+                    $checkOutState['longitude'] = $location->longitude;
+                }
+
                 AttendanceEvent::factory()
                     ->checkIn()
                     ->forSession($session)
-                    ->state([
-                        'attendance_id' => $record->id,
-                        'employee_id'   => null,
-                        'outsource_id'  => $outsource->id,
-                        'occurred_at'   => $checkInAt,
-                        'latitude'      => $location->latitude,
-                        'longitude'     => $location->longitude,
-                    ])
+                    ->state($checkInState)
                     ->create();
 
                 if (! $isIncomplete && $checkOutAt !== null) {
                     AttendanceEvent::factory()
                         ->checkOut()
                         ->forSession($session)
-                        ->state([
-                            'attendance_id' => $record->id,
-                            'employee_id'   => null,
-                            'outsource_id'  => $outsource->id,
-                            'occurred_at'   => $checkOutAt,
-                            'latitude'      => $location->latitude,
-                            'longitude'     => $location->longitude,
-                        ])
+                        ->state($checkOutState)
                         ->create();
                 }
             }
