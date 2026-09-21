@@ -34,7 +34,7 @@ class PermissionApiTest extends TestCase
     public function test_returns_permissions_list(): void
     {
         $this->actingAs($this->admin(), 'sanctum')
-            ->getJson('/api/v1/permissions')
+            ->getJson('/api/v1/permissions?per_page=100')
             ->assertOk()
             ->assertJson([
                 'success' => true,
