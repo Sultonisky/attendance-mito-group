@@ -176,6 +176,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Verify production seed data files exist
+        # Dockerfile COPY + deploy import depend on these paths.
+        run: |
+          test -f data/outsource_master_from_excel.csv
+          test -f data/stores.json
+
       - name: Build production image
         run: |
           docker build \

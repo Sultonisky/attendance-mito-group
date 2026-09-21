@@ -593,6 +593,18 @@ php artisan view:cache
 
 Do not blindly clear individual caches if optimize:clear is already used appropriately.
 
+### Production deploy bootstrap (automatic)
+
+After a successful CI run on `main`, [`.github/workflows/DEPLOY.yml`](.github/workflows/DEPLOY.yml) on the VPS:
+
+1. Builds the image (bundles `data/outsource_master_from_excel.csv` and `data/stores.json` at `/opt/seed-data/`).
+2. Recreates the attendance container and runs `php artisan migrate --force`.
+3. Seeds **roles and permissions only** (`RolesAndPermissionsSeeder`, idempotent).
+4. Imports outsource master data (`outsource:import /opt/seed-data/outsource_master.csv`).
+5. Imports store coordinates (`outsource:locations:import /opt/seed-data/stores.json --allow-partial`).
+
+Production **users are not seeded**. Create or manage admin accounts manually (or via your identity process). Never deploy the local `*@example.com` development accounts.
+
 ## 21. Important Development Principle
 
 Development speed must never override architecture.

@@ -130,6 +130,18 @@ jobs:
             docker compose exec -T attendance \
               php artisan migrate --force
 
+            echo "==> Seeding roles and permissions (idempotent)"
+            docker compose exec -T attendance \
+              php artisan db:seed --force --class=Database\\Seeders\\RolesAndPermissionsSeeder
+
+            echo "==> Importing outsource master data (idempotent)"
+            docker compose exec -T attendance \
+              php artisan outsource:import /opt/seed-data/outsource_master.csv
+
+            echo "==> Importing outsource store coordinates (allow-partial)"
+            docker compose exec -T attendance \
+              php artisan outsource:locations:import /opt/seed-data/stores.json --allow-partial
+
             echo "==> Waiting for application"
             for i in \$(seq 1 12); do
               if curl --fail --silent http://127.0.0.1:8081/health > /dev/null; then
