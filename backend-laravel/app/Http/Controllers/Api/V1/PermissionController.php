@@ -7,17 +7,50 @@ use App\Http\Requests\Permission\StorePermissionRequest;
 use App\Http\Requests\Permission\UpdatePermissionRequest;
 use App\Http\Resources\Permission\PermissionResource;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Spatie\Permission\Models\Permission;
 
 class PermissionController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $permissions = Permission::orderBy('name')->get();
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:255'],
+            'sort' => ['nullable', 'string', 'in:id,name,description,created_at'],
+            'direction' => ['nullable', 'string', 'in:asc,desc'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $query = Permission::query();
+
+        if (!empty($filters['search'])) {
+            $search = $filters['search'];
+            $query->where('name', 'like', "%{$search}%");
+        }
+
+        if (!empty($filters['sort'])) {
+            $direction = $filters['direction'] ?? 'asc';
+            $query->orderBy($filters['sort'], $direction);
+        } else {
+            $query->orderBy('name', 'asc');
+        }
+
+        $perPage = (int) ($filters['per_page'] ?? 25);
+
+        $permissions = $query->paginate($perPage);
 
         return response()->json([
             'success' => true,
             'data' => PermissionResource::collection($permissions),
+            'meta' => [
+                'current_page' => $permissions->currentPage(),
+                'last_page'    => $permissions->lastPage(),
+                'per_page'     => $permissions->perPage(),
+                'total'        => $permissions->total(),
+                'from'         => $permissions->firstItem(),
+                'to'           => $permissions->lastItem(),
+            ],
         ]);
     }
 

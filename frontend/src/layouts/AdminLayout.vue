@@ -26,6 +26,7 @@ const links = computed<NavigationMenuItem[][]>(() => [
         { label: 'Work locations',  icon: 'i-lucide-map-pin',          to: '/dashboard/outsource-work-locations', exact: true },
       ],
     },
+    can('employees.view') && { label: 'Employees', icon: 'i-lucide-users', to: '/dashboard/employees', exact: true },
     can('user.view') && { label: 'Users', icon: 'i-lucide-users-2', to: '/dashboard/users', exact: true },
     can('permission.view') && { label: 'Permissions', icon: 'i-lucide-shield-check', to: '/dashboard/permissions', exact: true },
   ].filter(Boolean) as NavigationMenuItem[],

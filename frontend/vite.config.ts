@@ -3,7 +3,10 @@ import tailwindcss from '@tailwindcss/vite'
 import ui from '@nuxt/ui/vite'
 import { defineConfig } from 'vite'
 
+// Asset URLs stay at site root (/assets/..., /images/...).
+// Vue routes also stay root (/outsource, /dashboard) — no /frontend/ prefix.
 export default defineConfig({
+  base: '/',
   plugins: [
     vue(),
     tailwindcss(),
