@@ -150,11 +150,14 @@ jobs:
             docker compose exec -T attendance \
               php artisan migrate --force
 
-            echo "==> Seeding roles and permissions (idempotent)"
-            # Use short class name — avoids SSH/heredoc backslash eating
-            # Database\Seeders\... into DatabaseSeeders...
+            echo "==> Seeding roles, permissions and initial dashboard users (idempotent)"
+            # Full DatabaseSeeder: RBAC baseline + initial dashboard accounts
+            # (superadmin@ / admin@ / user@mito.co.id). Dummy demo data
+            # (DevelopmentDataSeeder) is skipped outside APP_ENV=local.
+            # Set SEED_USER_PASSWORD in the container .env to override the
+            # default seeded password.
             docker compose exec -T attendance \
-              php artisan db:seed --force --class=RolesAndPermissionsSeeder
+              php artisan db:seed --force
 
             echo "==> Importing outsource master data (idempotent)"
             docker compose exec -T attendance \
