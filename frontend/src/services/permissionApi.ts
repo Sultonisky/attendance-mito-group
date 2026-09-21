@@ -21,6 +21,7 @@ export type PermissionMeta = {
 export type PermissionListResponse = {
   success: boolean
   data: PermissionRow[]
+  meta: PermissionMeta
 }
 
 export type CreatePermissionPayload = {
@@ -33,8 +34,22 @@ export type UpdatePermissionPayload = {
 
 // ── READ ──────────────────────────────────────────────────────────────────────
 
-export async function fetchPermissions(): Promise<PermissionListResponse> {
-  return apiFetch<PermissionListResponse>('/permissions')
+export async function fetchPermissions(filters?: {
+  search?: string
+  per_page?: number
+  sort?: string
+  direction?: 'asc' | 'desc'
+  page?: number
+}): Promise<PermissionListResponse> {
+  const params = new URLSearchParams()
+  if (filters?.search) params.set('search', filters.search)
+  if (filters?.per_page) params.set('per_page', String(filters.per_page))
+  if (filters?.sort) params.set('sort', filters.sort)
+  if (filters?.direction) params.set('direction', filters.direction)
+  if (filters?.page) params.set('page', String(filters.page))
+
+  const query = params.toString()
+  return apiFetch<PermissionListResponse>(`/permissions${query ? `?${query}` : ''}`)
 }
 
 // ── CREATE ────────────────────────────────────────────────────────────────────

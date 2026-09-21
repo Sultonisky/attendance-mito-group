@@ -35,6 +35,7 @@ const router = createRouter({
         { path: 'reports/monthly-recaps', name: 'reports.monthly-recaps', component: () => import('../pages/reports/MonthlyRecapsReportPage.vue'), meta: { title: 'Monthly recap', permissionAny: ['monthly_recap.view', 'monthly_recap.generate', 'monthly_recap.review', 'monthly_recap.finalize', 'monthly_recap.export'] } },
         { path: 'users', name: 'users', component: () => import('../pages/users/UserListPage.vue'), meta: { title: 'User management', permission: 'user.view' } },
         { path: 'permissions', name: 'permissions', component: () => import('../pages/users/PermissionsPage.vue'), meta: { title: 'Permissions', permission: 'permission.view' } },
+        { path: 'employees', name: 'employees', component: () => import('../pages/employees/EmployeeListPage.vue'), meta: { title: 'Employees', permission: 'employees.view' } },
       ],
     },
     {
