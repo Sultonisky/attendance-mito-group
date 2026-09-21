@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: https://attendance.mito.co.id/api/v1
+          VITE_GPS_MAX_ACCURACY_METERS: 100
+        run: npm run build
+
+  backend:
+    name: Backend Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate Composer
+        run: |
+          docker run --rm \
+            -v "$PWD/backend-laravel:/app" \
+            -w /app \
+            composer:2 \
+            composer validate --strict
+
+      - name: PHP Syntax Check
+        run: |
+          docker run --rm \
+            -v "$PWD/backend-laravel:/app" \
+            -w /app \
+            php:8.3-cli-bookworm \
+            sh -lc 'find app routes config database -type f -name "*.php" -print0 | xargs -0 -n1 php -l'
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build production image
+        run: |
+          docker build \
+            --build-arg VITE_API_BASE_URL=https://attendance.mito.co.id/api/v1 \
+            --build-arg VITE_GPS_MAX_ACCURACY_METERS=100 \
+            -t hris-attendance:ci \
+            .
