@@ -40,13 +40,13 @@ const router = createRouter({
       path: '/employee',
       name: 'employee-app',
       component: () => import('../pages/attendance/EmployeeAppPage.vue'),
-      meta: { requiresAuth: true, employeeOnly: true },
+      meta: { requiresAuth: true, employeeOnly: true, title: 'Employee App' },
     },
     {
       path: '/attendance',
       name: 'attendance',
       component: () => import('../pages/attendance/AttendancePage.vue'),
-      meta: { requiresAuth: true, employeeOnly: true },
+      meta: { requiresAuth: true, employeeOnly: true, title: 'Attendance Check-in' },
     },
     {
       path: '/login',
@@ -57,21 +57,35 @@ const router = createRouter({
       path: '/login/admin',
       name: 'login.admin',
       component: () => import('../pages/auth/AdminLoginPage.vue'),
-      meta: { loginAudience: 'admin' },
+      meta: { loginAudience: 'admin', title: 'Admin Login' },
     },
     {
       path: '/login/employee',
       name: 'login.employee',
       component: () => import('../pages/auth/EmployeeLoginPage.vue'),
-      meta: { loginAudience: 'employee' },
+      meta: { loginAudience: 'employee', title: 'Employee Login' },
     },
     {
       path: '/outsource',
       name: 'outsource',
       component: () => import('../pages/attendance/OutsourcePage.vue'),
-      meta: { requiresAuth: false },
+      meta: { requiresAuth: false, title: 'Presensi Outsource' },
     },
   ],
+})
+
+/**
+ * Per-page document titles.
+ *
+ * Every route declares its own `meta.title`; this hook applies it as the
+ * HTML <title> so each page (and browser tab / bookmark) gets its own
+ * title instead of the static one in index.html. The favicon stays
+ * global (/images/mito.png, set in index.html).
+ */
+router.afterEach((to) => {
+  document.title = typeof to.meta.title === 'string' && to.meta.title
+    ? `${to.meta.title} | MITO Group`
+    : 'MITO Group Attendance'
 })
 
 /**
