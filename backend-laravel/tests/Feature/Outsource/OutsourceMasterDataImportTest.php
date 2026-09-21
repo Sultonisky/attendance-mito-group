@@ -89,4 +89,34 @@ class OutsourceMasterDataImportTest extends TestCase
         $this->assertSame(0, $exitCode);
         $this->assertStringContainsString('DRY RUN', Artisan::output());
     }
+
+    public function test_require_min_passes_when_rows_imported(): void
+    {
+        $path = $this->fixturePath('outsource_sample.csv');
+
+        $exitCode = Artisan::call('outsource:import', [
+            'file' => $path,
+            '--require-min' => 1,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertDatabaseCount('outsources', 8);
+    }
+
+    public function test_require_min_fails_when_threshold_not_met(): void
+    {
+        $path = $this->fixturePath('outsource_sample.csv');
+
+        // Import once so rows exist, then force an impossible threshold via a
+        // second call that only reuses existing rows — still count >= 8.
+        Artisan::call('outsource:import', ['file' => $path]);
+
+        $exitCode = Artisan::call('outsource:import', [
+            'file' => $path,
+            '--require-min' => 9999,
+        ]);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('Import guard failed', Artisan::output());
+    }
 }
