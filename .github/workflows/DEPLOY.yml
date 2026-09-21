@@ -16,14 +16,45 @@ concurrency:
   group: attendance-production
   cancel-in-progress: false
 
+env:
+  VITE_API_BASE_URL: https://attendance.mito.co.id/api/v1
+  VITE_GPS_MAX_ACCURACY_METERS: 100
+
 jobs:
   deploy:
     name: Deploy Production
+    # workflow_run fires when the CI run *completes* (success OR failure),
+    # so the conclusion check below is the real gate. All four CI jobs
+    # (frontend, backend, ai-service, docker) must pass before this runs.
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     environment: production
+    timeout-minutes: 20
 
     steps:
+      # Pin the exact commit CI tested. The old script ran
+      # `git reset --hard origin/main`, which races with newer pushes:
+      # a commit pushed after CI passed could be deployed untested.
+      # `github.event.workflow_run.head_sha` is the tested commit.
+      - name: Checkout tested commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Verify CI commit matches branch tip
+        id: pin
+        run: |
+          TESTED_SHA="${{ github.event.workflow_run.head_sha }}"
+          echo "Tested commit: $TESTED_SHA"
+          git fetch origin main --quiet
+          MAIN_SHA="$(git rev-parse origin/main)"
+          echo "Main tip:      $MAIN_SHA"
+          if [ "$TESTED_SHA" != "$MAIN_SHA" ]; then
+            echo "::warning::Tested commit ($TESTED_SHA) is behind main ($MAIN_SHA). Refusing to deploy untested code."
+            exit 1
+          fi
+          echo "sha=$TESTED_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Configure SSH
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -46,6 +77,7 @@ jobs:
           ssh \
             -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
             "$VPS_USER@$VPS_HOST" \
             "echo SSH-OK"
 
@@ -53,28 +85,36 @@ jobs:
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
+          TESTED_SHA: ${{ steps.pin.outputs.sha }}
+          VITE_API_BASE_URL: ${{ env.VITE_API_BASE_URL }}
+          VITE_GPS_MAX_ACCURACY_METERS: ${{ env.VITE_GPS_MAX_ACCURACY_METERS }}
         run: |
           ssh \
             -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=yes \
-            "$VPS_USER@$VPS_HOST" << 'EOF'
+            "$VPS_USER@$VPS_HOST" << EOF
 
             set -e
 
             echo "======================================"
             echo "      MITO ATTENDANCE DEPLOY"
+            echo "      Tested commit: $TESTED_SHA"
             echo "======================================"
 
-            echo "==> Updating source"
+            echo "==> Updating source to tested commit"
             cd /opt/attendance-src
 
             git fetch origin main
-            git reset --hard origin/main
+            git reset --hard "$TESTED_SHA"
+
+            echo "==> Verifying checkout"
+            test "\$(git rev-parse HEAD)" = "$TESTED_SHA"
 
             echo "==> Building production image"
             docker build \
-              --build-arg VITE_API_BASE_URL=https://attendance.mito.co.id/api/v1 \
-              --build-arg VITE_GPS_MAX_ACCURACY_METERS=100 \
+              --build-arg VITE_API_BASE_URL="$VITE_API_BASE_URL" \
+              --build-arg VITE_GPS_MAX_ACCURACY_METERS="$VITE_GPS_MAX_ACCURACY_METERS" \
+              -t "hris-attendance:$TESTED_SHA" \
               -t hris-attendance:latest \
               /opt/attendance-src
 
@@ -86,15 +126,35 @@ jobs:
               --force-recreate \
               attendance
 
-            echo "==> Waiting for application"
-            sleep 10
+            echo "==> Running database migrations"
+            docker compose exec -T attendance \
+              php artisan migrate --force
 
-            echo "==> Health check"
-            curl --fail --silent \
-              http://127.0.0.1:8081/health
+            echo "==> Waiting for application"
+            for i in \$(seq 1 12); do
+              if curl --fail --silent http://127.0.0.1:8081/health > /dev/null; then
+                echo "Health check passed (attempt \$i)."
+                break
+              fi
+              if [ "\$i" -eq 12 ]; then
+                echo "Health check FAILED after 12 attempts."
+                docker compose logs --tail=100 attendance
+                exit 1
+              fi
+              sleep 5
+            done
 
             echo
+            echo "==> Laravel API health"
+            curl --fail --silent http://127.0.0.1:8081/api/v1/health
+            echo
 
+            echo
+            echo "==> Laravel -> AI health"
+            curl --fail --silent http://127.0.0.1:8081/api/v1/ai-health
+            echo
+
+            echo
             echo "==> Container status"
             docker ps \
               --filter name=hris-attendance \
@@ -102,7 +162,8 @@ jobs:
 
             echo
             echo "======================================"
-            echo "      DEPLOYMENT SUCCESSFUL"
+            echo "      DEPLOYMENT SUCCESSFUL ($TESTED_SHA)"
             echo "======================================"
 
           EOF
+

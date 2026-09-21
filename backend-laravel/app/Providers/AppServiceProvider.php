@@ -54,14 +54,28 @@ class AppServiceProvider extends ServiceProvider
             return null;
         });
 
-        if (! Schema::hasTable(config('permission.table_names.permissions'))) {
+        // artisan/composer tooling boots the app outside a request lifecycle
+        // (package:discover, config:cache, migrate, ...). The database may
+        // not exist or be unreachable at that point (e.g. fresh CI runner
+        // with no sqlite file yet). Never let gate registration crash boot:
+        // fail closed (deny) and let the test/request lifecycle decide.
+        try {
+            if (! Schema::hasTable(config('permission.table_names.permissions'))) {
+                return;
+            }
+        } catch (\Throwable) {
             return;
         }
 
-        foreach (app(PermissionRegistrar::class)->getPermissions() as $permission) {
-            Gate::define($permission->name, function (User $user) use ($permission): bool {
-                return $user->hasPermissionTo($permission->name);
-            });
+        try {
+            foreach (app(PermissionRegistrar::class)->getPermissions() as $permission) {
+                Gate::define($permission->name, function (User $user) use ($permission): bool {
+                    return $user->hasPermissionTo($permission->name);
+                });
+            }
+        } catch (\Throwable) {
+            // Permission table unreadable during boot — gates stay denied
+            // until a lifecycle with a working database re-registers them.
         }
     }
 }

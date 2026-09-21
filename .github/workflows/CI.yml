@@ -54,6 +54,30 @@ jobs:
       run:
         working-directory: backend-laravel
 
+    # Job-level env applies to EVERY step (composer install included), so
+    # artisan tooling that boots the app (package:discover on
+    # post-autoload-dump) always sees sqlite :memory: instead of falling
+    # back to config/database.php's database.sqlite file default or a
+    # stray local .env (which is gitignored and absent on runners, but the
+    # env below makes that irrelevant either way).
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:L798DnI+AaGiIccxWqMOHoi6U2Jqh90QyKVxYRFyNmc=
+      APP_MAINTENANCE_DRIVER: file
+      BCRYPT_ROUNDS: 4
+      BROADCAST_CONNECTION: 'null'
+      CACHE_STORE: array
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      DB_URL: ''
+      MAIL_MAILER: array
+      QUEUE_CONNECTION: sync
+      SESSION_DRIVER: array
+      SANCTUM_STATEFUL_DOMAINS: localhost:5173,127.0.0.1:5173
+      PULSE_ENABLED: 'false'
+      TELESCOPE_ENABLED: 'false'
+      NIGHTWATCH_ENABLED: 'false'
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -86,10 +110,9 @@ jobs:
         run: find app routes config database -type f -name "*.php" -print0 | xargs -0 -n1 php -l
 
       - name: Run PHPUnit (sqlite in-memory)
-        env:
-          # phpunit.xml already forces sqlite :memory: + array cache/session/queue,
-          # so this job needs no external DB/Redis service.
-          APP_ENV: testing
+        # phpunit.xml already forces the same sqlite :memory: + array
+        # cache/session/queue values, so this job needs no external
+        # DB/Redis service.
         run: vendor/bin/phpunit --colors=never
 
   ai-service:

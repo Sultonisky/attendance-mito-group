@@ -21,7 +21,7 @@ from PIL import Image
 
 from app.ai.engine.mito_ai_engine import MitoAiResult, QualityResult, LivenessResult
 from app.api.face import router as face_router
-from app.core.biometric_storage import PostgreSQLBiometricStorage, create_storage, generate_reference
+from app.core.biometric_storage import PostgreSQLBiometricStorage, generate_reference
 from app.core.config import get_settings
 from app.main import app
 
@@ -131,21 +131,8 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-@pytest.fixture()
-def storage():
-    storage = create_storage(TEST_DATABASE_URL)
-    conn = storage._connection()
-    try:
-        conn.autocommit = True
-        with conn.cursor() as cur:
-            cur.execute("TRUNCATE TABLE biometric.embeddings CASCADE")
-    finally:
-        storage._put_connection(conn)
-    yield storage
-
-
 class TestEnrollmentIdempotency:
-    def test_same_key_same_image_returns_same_reference(self, client: TestClient, storage: PostgreSQLBiometricStorage, monkeypatch: pytest.MonkeyPatch):
+    def test_same_key_same_image_returns_same_reference(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         _mock_engine(monkeypatch)
         image_bytes, mime = _png_bytes(_make_test_image(seed=1))
         key = "same-key-same-image"
