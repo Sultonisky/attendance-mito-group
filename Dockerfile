@@ -96,7 +96,12 @@ COPY backend-laravel/ ./
 
 COPY --from=composer /build/vendor ./vendor
 
-COPY --from=frontend /build/frontend/dist ./public/frontend
+# Vue dist at site root (no /frontend/ URL prefix). Keep Laravel index.php;
+# SPA shell is stored as spa.html and served by routes/web.php.
+COPY --from=frontend /build/frontend/dist/assets ./public/assets
+COPY --from=frontend /build/frontend/dist/images ./public/images
+COPY --from=frontend /build/frontend/dist/manifest.webmanifest ./public/manifest.webmanifest
+COPY --from=frontend /build/frontend/dist/index.html ./public/spa.html
 
 COPY ai-service /opt/ai-service
 
@@ -136,6 +141,18 @@ RUN printf '%s\n' \
 '    root /var/www/html/public;' \
 '    index index.php;' \
 '    client_max_body_size 20M;' \
+'' \
+'    # Static Vite build output. Never fall back to PHP/HTML (breaks JS module MIME).' \
+'    location ^~ /assets/ {' \
+'        try_files $uri =404;' \
+'        expires 7d;' \
+'        add_header Cache-Control "public";' \
+'    }' \
+'' \
+'    location = /manifest.webmanifest {' \
+'        default_type application/manifest+json;' \
+'        try_files $uri =404;' \
+'    }' \
 '' \
 '    location / {' \
 '        try_files $uri $uri/ /index.php?$query_string;' \
