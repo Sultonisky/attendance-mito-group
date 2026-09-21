@@ -41,9 +41,15 @@
 }
 
 /* ─────────────────────────────────────────────
-   MITO CSS TOKENS — light
+   MITO CSS TOKENS — light (app is LIGHT-ONLY)
+   NOTE: do not add a `.dark { ... }` token block here.
+   Employee pages use hard-coded light surfaces; dark token
+   overrides previously turned all text white/slate while the
+   backgrounds stayed light (invisible-text bug).
 ───────────────────────────────────────────── */
 :root {
+  color-scheme: light; /* keep native <select>/scrollbars light too */
+
   --mito-red:          #eb1c24;
   --mito-red-dark:     #ae0e15;
   --mito-navy:         #1a2845;
@@ -59,28 +65,6 @@
 
   /* compat aliases */
   --accent:        var(--mito-red);
-  --accent-bg:     var(--mito-accent-bg);
-  --accent-border: var(--mito-accent-border);
-  --text:          var(--mito-muted);
-  --text-h:        var(--mito-text);
-  --shadow:        var(--mito-shadow);
-  --code-bg:       var(--mito-code-bg);
-}
-
-/* ─────────────────────────────────────────────
-   MITO CSS TOKENS — dark
-───────────────────────────────────────────── */
-.dark {
-  --mito-bg:           #020817;
-  --mito-text:         #f8fafc;
-  --mito-muted:        #94a3b8;
-  --mito-border:       #1e2d45;
-  --mito-accent-bg:    rgba(235, 28, 36, 0.12);
-  --mito-accent-border:rgba(248, 113, 113, 0.28);
-  --mito-active-text:  #fca5a5;
-  --mito-shadow:       0 8px 24px rgba(0, 0, 0, 0.28);
-  --mito-code-bg:      rgba(30, 41, 59, 0.72);
-
   --accent-bg:     var(--mito-accent-bg);
   --accent-border: var(--mito-accent-border);
   --text:          var(--mito-muted);

@@ -184,15 +184,18 @@ RBAC uses spatie/laravel-permission with roles SUPER_ADMIN, ADMIN, and USER:
 * Permissions use the module.action naming convention and are seeded by
   Database\Seeders\RolesAndPermissionsSeeder (idempotent).
 
-Development-only credentials (local environment only, password: "password"):
+Initial dashboard login accounts (seeded by `DatabaseSeeder` in every
+environment — idempotent; default password: `Mahakarya2026`, override via
+`SEED_USER_PASSWORD`):
 
-* superadmin@example.com (SUPER_ADMIN)
-* admin@example.com (ADMIN)
-* user@example.com (USER)
-* permless@example.com (no role, no permissions — used to verify denials)
+* superadmin@mito.co.id (SUPER_ADMIN)
+* admin@mito.co.id (ADMIN)
+* user@mito.co.id (USER — also receives an Employee record and the full
+  permission set)
 
-These accounts exist only after running `php artisan db:seed` in a
-non-production environment. Never reuse them in staging/production.
+Dummy demo data (cities, stores, schedules, policies, employees, outsource
+workers, attendance history) is seeded ONLY when `APP_ENV=local`
+(`DevelopmentDataSeeder`).
 
 Route protection should prefer Gate abilities:
 
@@ -605,7 +608,12 @@ After a successful CI run on `main`, [`.github/workflows/DEPLOY.yml`](.github/wo
 6. Imports outsource master data (`outsource:import /opt/seed-data/outsource_master.csv --require-min=1`) — deploy fails if zero outsources remain.
 7. Imports store coordinates (`outsource:locations:import /opt/seed-data/stores.json --allow-partial`).
 
-Production **users are not seeded**. Create or manage admin accounts manually (or via your identity process). Never deploy the local `*@example.com` development accounts.
+Production seeding: the deploy runs the full `php artisan db:seed --force`,
+which seeds roles & permissions **and** the initial dashboard accounts
+(superadmin@ / admin@ / user@mito.co.id). Dummy demo data
+(`DevelopmentDataSeeder`) is skipped outside `APP_ENV=local`. Set a strong
+`SEED_USER_PASSWORD` in the deployment environment before the first seed,
+or rotate the seeded passwords immediately afterwards.
 
 If master data is missing after a green deploy, check the Deploy job logs for the import table (Cities/Stores/Outsources/Assignments) and the `--require-min` guard.
 

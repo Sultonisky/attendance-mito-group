@@ -318,6 +318,20 @@ input {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
+/* Browser autofill (saved credentials) paints its own slate background and
+   light text that override our styles — force autofilled fields back to the
+   white surface with dark text. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:autofill {
+  -webkit-text-fill-color: var(--text-h);
+  caret-color: var(--text-h);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+  box-shadow: 0 0 0 1000px var(--surface) inset;
+  transition: background-color 99999s ease-in-out 0s;
+}
+
 input::placeholder {
   color: #aaaab1;
 }

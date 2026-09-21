@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { DropdownMenuItem } from '@nuxt/ui'
-import { useColorMode } from '@vueuse/core'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
@@ -9,9 +8,8 @@ defineProps<{
   collapsed?: boolean
 }>()
 
-const auth     = useAuthStore()
-const router   = useRouter()
-const colorMode = useColorMode({ storageKey: 'mito-theme' })
+const auth   = useAuthStore()
+const router = useRouter()
 
 const userInitial = computed(() =>
   auth.user?.name?.charAt(0).toUpperCase() ?? '?',
@@ -31,14 +29,6 @@ const items = computed<DropdownMenuItem[][]>(() => [
     avatar: { text: userInitial.value },
     // show role below name
     slot: 'user-label',
-  }],
-  [{
-    label: colorMode.value === 'dark' ? 'Light mode' : 'Dark mode',
-    icon: colorMode.value === 'dark' ? 'i-lucide-sun' : 'i-lucide-moon',
-    onSelect(e: Event) {
-      e.preventDefault()
-      colorMode.value = colorMode.value === 'dark' ? 'light' : 'dark'
-    },
   }],
   [{
     label: 'Sign out',

@@ -8,15 +8,19 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
-class DevAdminSeederTest extends TestCase
+class InitialUserSeederTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_seed_creates_developer_admin_with_all_permissions(): void
+    public function test_seed_creates_initial_dashboard_accounts(): void
     {
+        // Initial dashboard users are seeded in every environment (see
+        // DatabaseSeeder) — no environment opt-in needed here. Dummy demo
+        // data (DevelopmentDataSeeder) stays local-only and is skipped in
+        // this testing environment.
         $this->seed(DatabaseSeeder::class);
 
-        $user = User::query()->where('email', 'developer@example.com')->first();
+        $user = User::query()->where('email', 'admin@mito.co.id')->first();
 
         $this->assertNotNull($user);
         $this->assertTrue($user->hasRole('ADMIN'));

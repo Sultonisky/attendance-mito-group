@@ -155,7 +155,7 @@ const columns = computed<TableColumn<UserRow>[]>(() => [
   },
   {
     id: 'actions',
-    header: '',
+    header: 'Actions',
     cell: ({ row }) => {
       const user = row.original
       const isSelf = user.id === auth.user?.id
