@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\FaceVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\LeaveController;
@@ -165,6 +166,16 @@ Route::prefix('v1')->group(function () {
             Route::delete('/{user}',         [UserController::class, 'destroy'])      ->middleware('can:user.delete');
             Route::post('/{user}/permissions', [UserController::class, 'permissions']) ->middleware('can:user.update');
             Route::get('/{user}/permissions', [UserController::class, 'listPermissions']) ->middleware('can:user.view');
+        });
+
+        // ── Employees (admin CRUD) ────────────────────────────────────────────────
+        Route::prefix('employees')->group(function () {
+            Route::get('/',                  [EmployeeController::class, 'index'])   ->middleware('can:employees.view');
+            Route::post('/',                 [EmployeeController::class, 'store'])   ->middleware('can:employees.create');
+            Route::get('/{employee}',        [EmployeeController::class, 'show'])    ->middleware('can:employees.view');
+            Route::put('/{employee}',        [EmployeeController::class, 'update'])  ->middleware('can:employees.update');
+            Route::patch('/{employee}',      [EmployeeController::class, 'update'])  ->middleware('can:employees.update');
+            Route::delete('/{employee}',     [EmployeeController::class, 'destroy']) ->middleware('can:employees.delete');
         });
 
         // ── Permissions (admin CRUD) ────────────────────────────────────────────
