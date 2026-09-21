@@ -148,4 +148,27 @@ class UserController extends Controller
 
         return response()->json(['success' => true]);
     }
+
+    public function listPermissions(Request $request, User $user): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $user->getDirectPermissions()->pluck('name')->values()->all(),
+        ]);
+    }
+
+    public function permissions(Request $request, User $user): JsonResponse
+    {
+        $request->validate([
+            'permissions' => ['required', 'array'],
+            'permissions.*' => ['string', 'exists:permissions,name'],
+        ]);
+
+        $user->syncPermissions($request->input('permissions', []));
+
+        return response()->json([
+            'success' => true,
+            'data' => $user->getDirectPermissions()->pluck('name')->values()->all(),
+        ]);
+    }
 }

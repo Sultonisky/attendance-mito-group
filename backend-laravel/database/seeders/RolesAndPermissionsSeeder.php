@@ -22,6 +22,56 @@ class RolesAndPermissionsSeeder extends Seeder
     use WithoutModelEvents;
 
     /**
+     * Permission metadata: name => description.
+     *
+     * @var array<string, string>
+     */
+    protected const PERMISSION_DESCRIPTIONS = [
+        'dashboard.view' => 'View the main dashboard and KPI widgets.',
+        'employees.view' => 'View employee master data.',
+        'employees.manage-faces' => 'Enroll and manage employee face biometrics.',
+        'face.verify' => 'Run face verification/liveness checks.',
+        'penalty.view' => 'View penalty records.',
+        'penalty.create' => 'Create manual penalty records.',
+        'penalty.adjust' => 'Adjust penalty points or amounts.',
+        'penalty.void' => 'Void a penalty record.',
+        'leave.view' => 'View leave requests and balances.',
+        'leave.create' => 'Create leave requests.',
+        'leave.approve' => 'Approve pending leave requests.',
+        'leave.reject' => 'Reject pending leave requests.',
+        'leave.cancel' => 'Cancel approved leave requests.',
+        'overtime.view' => 'View overtime records and requests.',
+        'overtime.create' => 'Submit overtime requests.',
+        'overtime.approve' => 'Approve overtime requests.',
+        'overtime.reject' => 'Reject overtime requests.',
+        'overtime.cancel' => 'Cancel approved overtime requests.',
+        'monthly_recap.view' => 'View monthly recap reports.',
+        'monthly_recap.generate' => 'Generate a new monthly recap.',
+        'monthly_recap.review' => 'Review draft monthly recaps.',
+        'monthly_recap.finalize' => 'Finalize monthly recaps.',
+        'monthly_recap.export' => 'Export finalized monthly recaps.',
+        'attendance.view' => 'View internal attendance records.',
+        'outsource_attendance.view' => 'View outsource attendance reports.',
+        'outsource_attendance.void' => 'Void outsource attendance records.',
+        'outsource_person.view' => 'View outsource persons.',
+        'outsource_person.create' => 'Create outsource persons.',
+        'outsource_person.update' => 'Update outsource persons.',
+        'outsource_person.delete' => 'Delete outsource persons.',
+        'outsource_work_location.view' => 'View outsource work locations.',
+        'outsource_work_location.create' => 'Create work locations.',
+        'outsource_work_location.update' => 'Update work locations.',
+        'outsource_work_location.delete' => 'Delete work locations.',
+        'user.view' => 'View users.',
+        'user.create' => 'Create new users.',
+        'user.update' => 'Update user data, role, status, and permissions.',
+        'user.delete' => 'Delete users.',
+        'permission.view' => 'View available permissions.',
+        'permission.create' => 'Create new permissions.',
+        'permission.update' => 'Edit permission names.',
+        'permission.delete' => 'Delete permissions.',
+    ];
+
+    /**
      * Minimal permission foundation for Phase 3 (module.action convention).
      *
      * @var list<string>
@@ -65,6 +115,10 @@ class RolesAndPermissionsSeeder extends Seeder
         'user.create',
         'user.update',
         'user.delete',
+        'permission.view',
+        'permission.create',
+        'permission.update',
+        'permission.delete',
     ];
 
     /**
@@ -115,6 +169,10 @@ class RolesAndPermissionsSeeder extends Seeder
             'user.create',
             'user.update',
             'user.delete',
+            'permission.view',
+            'permission.create',
+            'permission.update',
+            'permission.delete',
         ],
         'USER' => [
             'dashboard.view',
@@ -135,7 +193,10 @@ class RolesAndPermissionsSeeder extends Seeder
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         foreach (self::PERMISSIONS as $permission) {
-            Permission::firstOrCreate(['name' => $permission]);
+            Permission::updateOrCreate(
+                ['name' => $permission, 'guard_name' => 'web'],
+                ['description' => self::PERMISSION_DESCRIPTIONS[$permission] ?? null],
+            );
         }
 
         $superAdminRole = Role::firstOrCreate(['name' => 'SUPER_ADMIN']);
