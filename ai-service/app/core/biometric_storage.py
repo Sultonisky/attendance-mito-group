@@ -447,6 +447,11 @@ def create_storage(database_url: str | None = None) -> BiometricStorage:
         settings = get_settings()
         database_url = settings.biometric_database_url
 
+    # Treat empty/whitespace-only values as unset so CI can force the
+    # deterministic in-memory store via AI_BIOMETRIC_DATABASE_URL=''.
+    if isinstance(database_url, str) and not database_url.strip():
+        database_url = None
+
     if database_url is not None:
         return PostgreSQLBiometricStorage(database_url)
 
