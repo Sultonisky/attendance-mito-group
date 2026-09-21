@@ -113,5 +113,28 @@ export async function toggleUserStatus(
 export async function deleteUser(
   id: number,
 ): Promise<{ success: boolean; message?: string }> {
-  return apiFetch(`/users/${id}`, { method: 'DELETE' })
+  return apiFetch<{ success: boolean; message?: string }>(`/users/${id}`, { method: 'DELETE' })
 }
+
+export async function fetchPermissions(): Promise<{ success: boolean; data: { id: number; name: string; description: string | null }[] }> {
+  return apiFetch<{ success: boolean; data: { id: number; name: string; description: string | null }[] }>('/permissions')
+}
+
+export async function fetchUserPermissions(
+  id: number,
+): Promise<{ success: boolean; data: string[] }> {
+  return apiFetch<{ success: boolean; data: string[] }>(`/users/${id}/permissions`, {
+    method: 'GET',
+  })
+}
+
+export async function syncUserPermissions(
+  id: number,
+  permissions: string[],
+): Promise<{ success: boolean; data: string[] }> {
+  return apiFetch<{ success: boolean; data: string[] }>(`/users/${id}/permissions`, {
+    method: 'POST',
+    body: JSON.stringify({ permissions }),
+  })
+}
+
