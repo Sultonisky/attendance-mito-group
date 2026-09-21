@@ -4,6 +4,7 @@ import ui from '@nuxt/ui/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
+base: '/frontend/',
   plugins: [
     vue(),
     tailwindcss(),
