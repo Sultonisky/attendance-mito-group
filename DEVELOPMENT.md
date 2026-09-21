@@ -598,12 +598,16 @@ Do not blindly clear individual caches if optimize:clear is already used appropr
 After a successful CI run on `main`, [`.github/workflows/DEPLOY.yml`](.github/workflows/DEPLOY.yml) on the VPS:
 
 1. Builds the image (bundles `data/outsource_master_from_excel.csv` and `data/stores.json` at `/opt/seed-data/`).
-2. Recreates the attendance container and runs `php artisan migrate --force`.
-3. Seeds **roles and permissions only** (`RolesAndPermissionsSeeder`, idempotent).
-4. Imports outsource master data (`outsource:import /opt/seed-data/outsource_master.csv`).
-5. Imports store coordinates (`outsource:locations:import /opt/seed-data/stores.json --allow-partial`).
+2. Recreates the attendance container and waits until `php artisan about` responds.
+3. Verifies `/opt/seed-data/*` exists inside the container.
+4. Runs `php artisan migrate --force`.
+5. Seeds **roles and permissions only** (`RolesAndPermissionsSeeder`, idempotent).
+6. Imports outsource master data (`outsource:import /opt/seed-data/outsource_master.csv --require-min=1`) — deploy fails if zero outsources remain.
+7. Imports store coordinates (`outsource:locations:import /opt/seed-data/stores.json --allow-partial`).
 
 Production **users are not seeded**. Create or manage admin accounts manually (or via your identity process). Never deploy the local `*@example.com` development accounts.
+
+If master data is missing after a green deploy, check the Deploy job logs for the import table (Cities/Stores/Outsources/Assignments) and the `--require-min` guard.
 
 ## 21. Important Development Principle
 

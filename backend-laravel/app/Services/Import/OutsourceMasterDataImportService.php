@@ -338,22 +338,31 @@ class OutsourceMasterDataImportService
 
     protected function resolveCity(string $name): City
     {
-        $city = City::query()->firstOrCreate(
+        $city = City::withTrashed()->firstOrCreate(
             ['name' => $name],
             ['code' => $this->generateCityCode($name), 'status' => 'active'],
         );
+
+        if ($city->trashed()) {
+            $city->restore();
+        }
 
         if (empty($city->code)) {
             $city->code = $this->generateCityCode($name);
             $city->save();
         }
 
-        return $city;
+        if ($city->status !== 'active') {
+            $city->status = 'active';
+            $city->save();
+        }
+
+        return $city->refresh();
     }
 
     protected function resolveStore(City $city, string $storeName): WorkLocation
     {
-        return WorkLocation::query()->firstOrCreate(
+        $store = WorkLocation::withTrashed()->firstOrCreate(
             ['city_id' => $city->id, 'name' => $storeName],
             [
                 'code' => $this->generateLocationCode($city->name, $storeName),
@@ -363,22 +372,55 @@ class OutsourceMasterDataImportService
                 'status' => 'active',
             ],
         );
+
+        if ($store->trashed()) {
+            $store->restore();
+        }
+
+        if ($store->status !== 'active') {
+            $store->status = 'active';
+            $store->save();
+        }
+
+        return $store->refresh();
     }
 
     protected function resolveOutsource(string $name): Outsource
     {
-        return Outsource::query()->firstOrCreate(
+        $outsource = Outsource::withTrashed()->firstOrCreate(
             ['name' => $name],
             ['outsource_code' => $this->generateOutsourceCode($name), 'status' => 'active'],
         );
+
+        if ($outsource->trashed()) {
+            $outsource->restore();
+        }
+
+        if ($outsource->status !== 'active') {
+            $outsource->status = 'active';
+            $outsource->save();
+        }
+
+        return $outsource->refresh();
     }
 
     protected function resolveAssignment(int $outsourceId, int $storeId): OutsourceStoreAssignment
     {
-        return OutsourceStoreAssignment::query()->firstOrCreate(
+        $assignment = OutsourceStoreAssignment::withTrashed()->firstOrCreate(
             ['outsource_id' => $outsourceId, 'store_id' => $storeId],
             ['status' => 'active'],
         );
+
+        if ($assignment->trashed()) {
+            $assignment->restore();
+        }
+
+        if ($assignment->status !== 'active') {
+            $assignment->status = 'active';
+            $assignment->save();
+        }
+
+        return $assignment->refresh();
     }
 
     protected function generateCityCode(string $name): string

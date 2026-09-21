@@ -8,7 +8,10 @@ use RuntimeException;
 
 class ImportOutsourceMasterData extends Command
 {
-    protected $signature = 'outsource:import {file : Path to the Excel/CSV file} {--dry-run : Validate and report what would be imported without saving changes}';
+    protected $signature = 'outsource:import
+                            {file : Path to the Excel/CSV file}
+                            {--dry-run : Validate and report what would be imported without saving changes}
+                            {--require-min=0 : Fail after import when active outsource count is below this (deploy guard)}';
 
     protected $description = 'Import outsource master data from Excel/CSV into City, WorkLocation, Outsource, and assignment tables.';
 
@@ -16,6 +19,7 @@ class ImportOutsourceMasterData extends Command
     {
         $file = $this->argument('file');
         $dryRun = (bool) $this->option('dry-run');
+        $requireMin = max(0, (int) $this->option('require-min'));
 
         try {
             $result = $service->import($file, $dryRun);
@@ -56,6 +60,16 @@ class ImportOutsourceMasterData extends Command
             $this->info('Status: SUCCESS (dry run)');
 
             return self::SUCCESS;
+        }
+
+        if ($requireMin > 0) {
+            $count = \App\Models\Outsource::query()->count();
+            $this->line("Active outsources in database: {$count}");
+            if ($count < $requireMin) {
+                $this->error("Import guard failed: expected at least {$requireMin} outsource row(s), found {$count}.");
+
+                return self::FAILURE;
+            }
         }
 
         $this->info('Status: SUCCESS');

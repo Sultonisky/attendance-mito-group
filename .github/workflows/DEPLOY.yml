@@ -126,23 +126,45 @@ jobs:
               --force-recreate \
               attendance
 
+            echo "==> Waiting for artisan inside container"
+            for i in \$(seq 1 24); do
+              if docker compose exec -T attendance php artisan about > /dev/null 2>&1; then
+                echo "Artisan ready (attempt \$i)."
+                break
+              fi
+              if [ "\$i" -eq 24 ]; then
+                echo "Artisan NOT ready after 24 attempts."
+                docker compose logs --tail=100 attendance
+                exit 1
+              fi
+              sleep 5
+            done
+
+            echo "==> Verifying seed data files in image"
+            docker compose exec -T attendance \
+              test -f /opt/seed-data/outsource_master.csv
+            docker compose exec -T attendance \
+              test -f /opt/seed-data/stores.json
+
             echo "==> Running database migrations"
             docker compose exec -T attendance \
               php artisan migrate --force
 
             echo "==> Seeding roles and permissions (idempotent)"
+            # Use short class name — avoids SSH/heredoc backslash eating
+            # Database\Seeders\... into DatabaseSeeders...
             docker compose exec -T attendance \
-              php artisan db:seed --force --class=Database\\Seeders\\RolesAndPermissionsSeeder
+              php artisan db:seed --force --class=RolesAndPermissionsSeeder
 
             echo "==> Importing outsource master data (idempotent)"
             docker compose exec -T attendance \
-              php artisan outsource:import /opt/seed-data/outsource_master.csv
+              php artisan outsource:import /opt/seed-data/outsource_master.csv --require-min=1
 
             echo "==> Importing outsource store coordinates (allow-partial)"
             docker compose exec -T attendance \
               php artisan outsource:locations:import /opt/seed-data/stores.json --allow-partial
 
-            echo "==> Waiting for application"
+            echo "==> Waiting for application HTTP health"
             for i in \$(seq 1 12); do
               if curl --fail --silent http://127.0.0.1:8081/health > /dev/null; then
                 echo "Health check passed (attempt \$i)."
