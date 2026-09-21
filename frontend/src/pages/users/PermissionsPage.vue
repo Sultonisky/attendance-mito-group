@@ -18,7 +18,7 @@ import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
 import { createSortableHeader } from '../../utils/dataTable'
 
-const { loading, error, meta, handleApiError, applyMeta } = useReportPage()
+const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 const { can } = usePermission()
 
 // ── Table data ────────────────────────────────────────────────────────────────
@@ -32,7 +32,6 @@ const filters = reactive({
   per_page: 25,
   sort: 'name',
   direction: 'asc' as 'asc' | 'desc',
-  page: 1,
 })
 
 const { sorting } = useDataTableSort(filters, () => {
@@ -142,9 +141,12 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetchPermissions()
+    const res = await fetchPermissions({
+      ...filters,
+      page: meta.current_page,
+    })
     data.value = res.data
-    applyMeta({ current_page: 1, per_page: filters.per_page, total: res.data.length, last_page: 1 })
+    applyMeta(res.meta)
   } catch (err) {
     await handleApiError(err, 'Unable to load permissions. Please try again.')
   } finally {
@@ -276,6 +278,7 @@ onMounted(async () => {
             manual-sorting
             empty-icon="i-lucide-shield-x"
             empty-message="No permissions found."
+            @update:page="goToPage($event, load)"
           />
         </template>
       </div>
