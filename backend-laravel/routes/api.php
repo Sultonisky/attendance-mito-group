@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\OvertimeController;
 use App\Http\Controllers\Api\V1\OutsourceAttendanceController;
 use App\Http\Controllers\Api\V1\OutsourcePersonController;
 use App\Http\Controllers\Api\V1\OutsourceWorkLocationController;
+use App\Http\Controllers\Api\V1\PermissionController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\PenaltyController;
 use App\Http\Controllers\Api\V1\ReportController;
@@ -162,6 +163,17 @@ Route::prefix('v1')->group(function () {
             Route::patch('/{user}',          [UserController::class, 'update'])       ->middleware('can:user.update');
             Route::post('/{user}/toggle-status', [UserController::class, 'toggleStatus'])->middleware('can:user.update');
             Route::delete('/{user}',         [UserController::class, 'destroy'])      ->middleware('can:user.delete');
+            Route::post('/{user}/permissions', [UserController::class, 'permissions']) ->middleware('can:user.update');
+            Route::get('/{user}/permissions', [UserController::class, 'listPermissions']) ->middleware('can:user.view');
+        });
+
+        // ── Permissions (admin CRUD) ────────────────────────────────────────────
+        Route::prefix('permissions')->group(function () {
+            Route::get('/',                     [PermissionController::class, 'index'])   ->middleware('can:permission.view');
+            Route::post('/',                    [PermissionController::class, 'store'])   ->middleware('can:permission.create');
+            Route::get('/{permission}',         [PermissionController::class, 'show'])    ->middleware('can:permission.view');
+            Route::put('/{permission}',         [PermissionController::class, 'update'])  ->middleware('can:permission.update');
+            Route::delete('/{permission}',      [PermissionController::class, 'destroy']) ->middleware('can:permission.delete');
         });
 
         // ── Outsource persons (admin CRUD) ─────────────────────────────────────
