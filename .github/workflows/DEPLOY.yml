@@ -1,0 +1,104 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: attendance-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Production
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    runs-on: ubuntu-24.04
+
+    environment:
+      name: production
+      url: https://attendance.mito.co.id
+
+    steps:
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Test SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh "$VPS_USER@$VPS_HOST" "echo SSH-OK"
+
+      - name: Deploy to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh "$VPS_USER@$VPS_HOST" << 'EOF'
+            set -e
+
+            echo "======================================"
+            echo "      MITO ATTENDANCE DEPLOY"
+            echo "======================================"
+
+            echo "==> Updating source"
+            cd /opt/attendance-src
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "==> Building production image"
+            docker build \
+              --build-arg VITE_API_BASE_URL=https://attendance.mito.co.id/api/v1 \
+              --build-arg VITE_GPS_MAX_ACCURACY_METERS=100 \
+              -t hris-attendance:latest \
+              /opt/attendance-src
+
+            echo "==> Recreating attendance container"
+            cd /opt/attendance
+
+            docker compose up -d \
+              --no-deps \
+              --force-recreate \
+              attendance
+
+            echo "==> Waiting for application"
+            sleep 10
+
+            echo "==> Health check"
+            curl --fail --silent \
+              http://127.0.0.1:8081/health
+
+            echo
+
+            echo "==> Container status"
+            docker ps \
+              --filter name=hris-attendance \
+              --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.ID}}'
+
+            echo
+            echo "======================================"
+            echo "      DEPLOYMENT SUCCESSFUL"
+            echo "======================================"
+          EOF
