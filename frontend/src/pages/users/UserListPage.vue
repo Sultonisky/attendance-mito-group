@@ -14,6 +14,9 @@ import {
   updateUser,
   toggleUserStatus,
   deleteUser,
+  fetchUserPermissions,
+  syncUserPermissions,
+  fetchPermissions,
   type UserRow,
   type UserFilters,
   type UserRole,
@@ -109,6 +112,15 @@ const deleteTarget    = ref<UserRow | null>(null)
 const deleteBusy      = ref(false)
 const deleteError     = ref('')
 
+// ── Modal — assign permissions ────────────────────────────────────────────────
+const showPermissionsModal = ref(false)
+const permissionsTarget    = ref<UserRow | null>(null)
+const permissionsBusy      = ref(false)
+const permissionsError     = ref('')
+interface PermissionOption { id: number; name: string; description: string | null }
+const allPermissions       = ref<PermissionOption[]>([])
+const selectedPermissions  = ref<string[]>([])
+
 // ── Columns ───────────────────────────────────────────────────────────────────
 const columns = computed<TableColumn<UserRow>[]>(() => [
   {
@@ -165,6 +177,11 @@ const columns = computed<TableColumn<UserRow>[]>(() => [
           label: 'Edit',
           icon: 'i-lucide-pencil',
           onSelect: () => openEdit(user),
+        },
+        can('user.update') && {
+          label: 'Permissions',
+          icon: 'i-lucide-shield-check',
+          onSelect: () => openPermissions(user),
         },
         can('user.update') && !isSelf && {
           label: user.status === 'active' ? 'Deactivate' : 'Activate',
@@ -352,6 +369,42 @@ async function executeDelete(): Promise<void> {
   }
 }
 
+// ── Permissions assignment ────────────────────────────────────────────────────
+async function openPermissions(user: UserRow): Promise<void> {
+  permissionsTarget.value = user
+  selectedPermissions.value = []
+  permissionsError.value = ''
+  permissionsBusy.value = true
+  showPermissionsModal.value = true
+
+  try {
+    const [userPerms, allPerms] = await Promise.all([
+      fetchUserPermissions(user.id),
+      fetchPermissions(),
+    ])
+    selectedPermissions.value = userPerms.data
+    allPermissions.value = allPerms.data
+  } catch (e: unknown) {
+    permissionsError.value = e instanceof Error ? e.message : 'Failed to load permissions.'
+  } finally {
+    permissionsBusy.value = false
+  }
+}
+
+async function submitPermissions(): Promise<void> {
+  if (!permissionsTarget.value) return
+  permissionsBusy.value = true
+  permissionsError.value = ''
+  try {
+    await syncUserPermissions(permissionsTarget.value.id, selectedPermissions.value)
+    showPermissionsModal.value = false
+  } catch (e: unknown) {
+    permissionsError.value = e instanceof Error ? e.message : 'Failed to save permissions.'
+  } finally {
+    permissionsBusy.value = false
+  }
+}
+
 onMounted(async () => {
   await load()
   ready.value = true
@@ -525,6 +578,64 @@ onMounted(async () => {
         </UButton>
         <UButton color="error" :loading="deleteBusy" @click="executeDelete">
           Delete
+        </UButton>
+      </div>
+    </template>
+  </UModal>
+
+  <!-- ── Assign permissions modal ────────────────────────────────────────────── -->
+  <UModal v-model:open="showPermissionsModal" :title="`Permissions: ${permissionsTarget?.name ?? ''}`">
+    <template #body>
+      <div class="space-y-4">
+        <p class="text-sm text-muted">
+          Select the permissions to assign to this user.
+        </p>
+
+        <div v-if="permissionsBusy" class="space-y-2">
+          <div v-for="n in 6" :key="n" class="h-8 animate-pulse rounded bg-[var(--ui-bg-elevated)]" />
+        </div>
+
+        <template v-else>
+          <div class="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-[var(--ui-border)] p-3">
+            <label
+              v-for="item in allPermissions"
+              :key="item.id"
+              class="flex items-start gap-3 rounded-md px-2 py-2 hover:bg-[var(--ui-bg-elevated)]"
+            >
+              <UCheckbox
+                :model-value="selectedPermissions.includes(item.name)"
+                @update:model-value="(checked: boolean) => {
+                  selectedPermissions = checked
+                    ? [...selectedPermissions, item.name]
+                    : selectedPermissions.filter((p) => p !== item.name)
+                }"
+                class="mt-0.5"
+              />
+              <span class="flex flex-col gap-0.5">
+                <span class="text-sm font-mono">{{ item.name }}</span>
+                <span v-if="item.description" class="text-xs text-[var(--ui-text-muted)]">
+                  {{ item.description }}
+                </span>
+              </span>
+            </label>
+
+            <p v-if="!allPermissions.length" class="text-sm text-muted">
+              No permissions available.
+            </p>
+          </div>
+
+          <UAlert v-if="permissionsError" color="error" variant="subtle" :description="permissionsError" />
+        </template>
+      </div>
+    </template>
+
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="permissionsBusy" @click="showPermissionsModal = false">
+          Cancel
+        </UButton>
+        <UButton color="primary" :loading="permissionsBusy" @click="submitPermissions">
+          Save permissions
         </UButton>
       </div>
     </template>

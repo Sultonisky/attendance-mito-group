@@ -33,6 +33,9 @@ export const useAuthStore = defineStore('auth', {
      * UX-level permission check. Never use it as a security boundary.
      */
     can(permission: string): boolean {
+      if (this.roles.includes('SUPER_ADMIN')) {
+        return true
+      }
       return this.permissions.includes(permission)
     },
 
