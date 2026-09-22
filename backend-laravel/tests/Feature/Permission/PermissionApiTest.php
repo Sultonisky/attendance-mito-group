@@ -161,6 +161,43 @@ class PermissionApiTest extends TestCase
     }
 
     // ========================
+    // Users for a permission
+    // ========================
+
+    public function test_returns_users_with_permission(): void
+    {
+        $permission = Permission::where('name', 'dashboard.view')->first();
+        $user = $this->admin();
+        $user->syncPermissions([$permission->name]);
+
+        $this->actingAs($this->admin(), 'sanctum')
+            ->getJson("/api/v1/permissions/{$permission->id}/users")
+            ->assertOk()
+            ->assertJson([
+                'success' => true,
+            ])
+            ->assertJsonStructure([
+                'success',
+                'data' => [
+                    '*' => ['id', 'name', 'email', 'status'],
+                ],
+            ]);
+    }
+
+    public function test_requires_permission_view_for_users_list(): void
+    {
+        $permission = Permission::first();
+        $user = User::factory()->create();
+        $role = Role::findByName('USER');
+        $role->syncPermissions(['dashboard.view']);
+        $user->assignRole('USER');
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson("/api/v1/permissions/{$permission->id}/users")
+            ->assertForbidden();
+    }
+
+    // ========================
     // Destroy
     // ========================
 

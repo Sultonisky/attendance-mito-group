@@ -9,10 +9,12 @@ import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
 import { usePermission } from '../../features/auth/composables/usePermission'
 import {
   fetchPermissions,
+  fetchPermissionUsers,
   createPermission,
   updatePermission,
   deletePermission,
   type PermissionRow,
+  type PermissionUser,
 } from '../../services/permissionApi'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
@@ -40,10 +42,10 @@ const { sorting } = useDataTableSort(filters, () => {
 })
 
 const hideableColumns = [
-  { id: 'name',        label: 'Name'       },
-  { id: 'description', label: 'Description' },
-  { id: 'created_at',  label: 'Created'    },
-  { id: 'actions',     label: 'Actions'    },
+  { id: 'name',            label: 'Name'            },
+  { id: 'description',     label: 'Description'     },
+  { id: 'created_at',      label: 'Created'         },
+  { id: 'actions',         label: 'Actions'         },
 ]
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
@@ -65,6 +67,13 @@ const deleteTarget    = ref<PermissionRow | null>(null)
 const deleteBusy      = ref(false)
 const deleteError     = ref('')
 
+// ── Modal — assigned users ────────────────────────────────────────────────────
+const showUsersModal = ref(false)
+const usersTarget    = ref<PermissionRow | null>(null)
+const usersBusy      = ref(false)
+const usersError     = ref('')
+const assignedUsers  = ref<PermissionUser[]>([])
+
 // ── Columns ───────────────────────────────────────────────────────────────────
 const columns = computed<TableColumn<PermissionRow>[]>(() => [
   {
@@ -76,6 +85,20 @@ const columns = computed<TableColumn<PermissionRow>[]>(() => [
     accessorKey: 'description',
     header: ({ column }) => createSortableHeader(column, 'Description'),
     cell: ({ row }) => h('span', { class: 'text-xs text-[var(--ui-text-muted)]' }, row.original.description ?? '—'),
+  },
+  {
+    id: 'assigned_users',
+    header: 'Assigned Users',
+    cell: ({ row }) => {
+      return h('UButton', {
+        size: 'xs',
+        color: 'neutral',
+        variant: 'ghost',
+        icon: 'i-lucide-users',
+        'aria-label': 'View assigned users',
+        onClick: () => openUsers(row.original),
+      })
+    },
   },
   {
     accessorKey: 'created_at',
@@ -219,6 +242,27 @@ async function executeDelete(): Promise<void> {
   }
 }
 
+function openUsers(permission: PermissionRow): void {
+  usersTarget.value = permission
+  usersError.value = ''
+  assignedUsers.value = []
+  showUsersModal.value = true
+  loadUsers(permission.id)
+}
+
+async function loadUsers(permissionId: number): Promise<void> {
+  usersBusy.value = true
+  usersError.value = ''
+  try {
+    const res = await fetchPermissionUsers(permissionId)
+    assignedUsers.value = res.data
+  } catch (e: unknown) {
+    usersError.value = e instanceof Error ? e.message : 'Failed to load assigned users.'
+  } finally {
+    usersBusy.value = false
+  }
+}
+
 onMounted(async () => {
   await load()
   ready.value = true
@@ -336,6 +380,44 @@ onMounted(async () => {
         </UButton>
         <UButton color="error" :loading="deleteBusy" @click="executeDelete">
           Delete
+        </UButton>
+      </div>
+    </template>
+  </UModal>
+
+  <!-- ── Assigned users modal ───────────────────────────────────────────────── -->
+  <UModal v-model:open="showUsersModal" :title="`Assigned users — ${usersTarget?.name ?? ''}`">
+    <template #body>
+      <div class="space-y-3">
+        <UAlert v-if="usersError" color="error" variant="subtle" :description="usersError" />
+        <div v-else-if="usersBusy" class="py-6 flex justify-center">
+          <USpinner size="md" />
+        </div>
+        <div v-else-if="assignedUsers.length === 0" class="py-4 text-sm text-muted text-center">
+          No users assigned to this permission.
+        </div>
+        <div v-else class="space-y-2 max-h-80 overflow-y-auto">
+          <div
+            v-for="user in assignedUsers"
+            :key="user.id"
+            class="flex items-center justify-between rounded-lg border border-default p-3"
+          >
+            <div>
+              <p class="text-sm font-medium">{{ user.name }}</p>
+              <p class="text-xs text-[var(--ui-text-muted)]">{{ user.email }}</p>
+            </div>
+            <UBadge :color="user.status === 'active' ? 'success' : 'error'" variant="subtle" size="sm">
+              {{ user.status }}
+            </UBadge>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <template #footer>
+      <div class="flex justify-end">
+        <UButton color="neutral" variant="outline" @click="showUsersModal = false">
+          Close
         </UButton>
       </div>
     </template>

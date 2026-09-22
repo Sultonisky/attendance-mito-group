@@ -72,6 +72,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'permission.create' => 'Create new permissions.',
         'permission.update' => 'Edit permission names.',
         'permission.delete' => 'Delete permissions.',
+        'audit.view' => 'View system audit log records.',
     ];
 
     /**
@@ -125,6 +126,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'permission.create',
         'permission.update',
         'permission.delete',
+        'audit.view',
     ];
 
     /**
@@ -182,6 +184,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'permission.create',
             'permission.update',
             'permission.delete',
+            'audit.view',
         ],
         'USER' => [
             'dashboard.view',

@@ -91,4 +91,21 @@ class PermissionController extends Controller
 
         return response()->json(['success' => true]);
     }
+
+    public function users(Request $request, Permission $permission): JsonResponse
+    {
+        $users = $permission->users()
+            ->select('users.id', 'users.name', 'users.email', 'users.status')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $users->map(fn ($user) => [
+                'id'      => $user->id,
+                'name'    => $user->name,
+                'email'   => $user->email,
+                'status'  => $user->status,
+            ])->values()->all(),
+        ]);
+    }
 }

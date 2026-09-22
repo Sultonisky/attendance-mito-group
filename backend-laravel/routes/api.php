@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\PermissionController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\PenaltyController;
 use App\Http\Controllers\Api\V1\ReportController;
+use App\Http\Controllers\Api\V1\AuditController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -183,6 +184,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/',                     [PermissionController::class, 'index'])   ->middleware('can:permission.view');
             Route::post('/',                    [PermissionController::class, 'store'])   ->middleware('can:permission.create');
             Route::get('/{permission}',         [PermissionController::class, 'show'])    ->middleware('can:permission.view');
+            Route::get('/{permission}/users',   [PermissionController::class, 'users'])   ->middleware('can:permission.view');
             Route::put('/{permission}',         [PermissionController::class, 'update'])  ->middleware('can:permission.update');
             Route::delete('/{permission}',      [PermissionController::class, 'destroy']) ->middleware('can:permission.delete');
         });
@@ -223,5 +225,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/overtime', [ReportController::class, 'overtime'])->middleware('can:overtime.view')->name('overtime');
             Route::get('/penalties', [ReportController::class, 'penalty'])->middleware('can:penalty.view')->name('penalty');
         });
+
+        // Audit logs (read-only)
+        Route::get('/audit-logs', [AuditController::class, 'index'])->middleware('can:audit.view')->name('audit-logs.index');
     });
 });

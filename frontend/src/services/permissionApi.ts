@@ -32,6 +32,18 @@ export type UpdatePermissionPayload = {
   name: string
 }
 
+export type PermissionUser = {
+  id: number
+  name: string
+  email: string
+  status: string
+}
+
+export type PermissionUsersResponse = {
+  success: boolean
+  data: PermissionUser[]
+}
+
 // ── READ ──────────────────────────────────────────────────────────────────────
 
 export async function fetchPermissions(filters?: {
@@ -50,6 +62,12 @@ export async function fetchPermissions(filters?: {
 
   const query = params.toString()
   return apiFetch<PermissionListResponse>(`/permissions${query ? `?${query}` : ''}`)
+}
+
+export async function fetchPermissionUsers(
+  id: number,
+): Promise<PermissionUsersResponse> {
+  return apiFetch<PermissionUsersResponse>(`/permissions/${id}/users`)
 }
 
 // ── CREATE ────────────────────────────────────────────────────────────────────
