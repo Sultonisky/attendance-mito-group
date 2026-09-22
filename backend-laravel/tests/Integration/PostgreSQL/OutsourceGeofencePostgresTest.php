@@ -36,6 +36,7 @@ class OutsourceGeofencePostgresTest extends TestCase
             new \App\Domain\Attendance\Rules\LateDetectionRule,
             new \App\Domain\Attendance\Rules\EarlyCheckoutRule,
             new \App\Domain\Attendance\Rules\AttendanceStateRule,
+            new \App\Domain\Attendance\Services\OutsourceSessionExpiry,
         );
     }
 

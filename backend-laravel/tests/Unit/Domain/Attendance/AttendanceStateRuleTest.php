@@ -40,4 +40,9 @@ class AttendanceStateRuleTest extends TestCase
     {
         $this->assertSame(AttendanceStatus::Present, $this->rule->determine(true, true, false, false, false));
     }
+
+    public function test_incomplete_takes_precedence_over_late_while_session_open(): void
+    {
+        $this->assertSame(AttendanceStatus::Incomplete, $this->rule->determine(true, true, true, true, false));
+    }
 }

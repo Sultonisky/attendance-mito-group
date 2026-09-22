@@ -64,6 +64,7 @@ class DomainAttendanceEngineContractTest extends TestCase
             new LateDetectionRule,
             new EarlyCheckoutRule,
             new AttendanceStateRule,
+            new \App\Domain\Attendance\Services\OutsourceSessionExpiry,
         );
     }
 
@@ -144,10 +145,10 @@ class DomainAttendanceEngineContractTest extends TestCase
         $this->makePolicy($employee);
         $engine = $this->makeEngine();
 
-        $result = $engine->checkIn($employee, $this->makeOperationData($employee, CarbonImmutable::create(2026, 9, 12, 7, 59, 0)));
+        $result = $engine->checkIn($employee, $this->makeOperationData($employee, CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta')));
 
         $this->assertNotNull($result->attendanceRecord);
-        $this->assertSame('present', $result->attendanceRecord->status);
+        $this->assertSame('incomplete', $result->attendanceRecord->status);
     }
 
     public function test_domain_engine_allows_outsource_employee_with_future_end_date(): void
@@ -247,7 +248,7 @@ class DomainAttendanceEngineContractTest extends TestCase
 
         $engine = $this->makeEngine();
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 11, 22, 5, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 11, 22, 5, 0, 'Asia/Jakarta');
         $workLocation = $this->makeWorkLocation();
 
         $data = new AttendanceOperationData(
