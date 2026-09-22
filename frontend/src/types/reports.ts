@@ -116,3 +116,27 @@ export type OutsourceAttendanceReportFilters = {
   sort: string
   direction: 'asc' | 'desc'
 }
+
+export type AuditLogRow = {
+  id: number
+  action: string
+  actor: { id: number; name: string; email: string } | null
+  auditable_type: string | null
+  auditable_id: number | null
+  ip_address: string | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
+
+export type AuditLogMeta = {
+  current_page: number
+  per_page: number
+  total: number
+  last_page: number
+}
+
+export type AuditLogListResponse = {
+  success: boolean
+  data: AuditLogRow[]
+  meta: AuditLogMeta
+}
