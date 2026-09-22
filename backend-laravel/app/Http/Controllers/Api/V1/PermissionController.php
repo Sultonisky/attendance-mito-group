@@ -94,8 +94,11 @@ class PermissionController extends Controller
 
     public function users(Request $request, Permission $permission): JsonResponse
     {
-        $users = $permission->users()
+        $users = \App\Models\User::query()
             ->select('users.id', 'users.name', 'users.email', 'users.status')
+            ->whereHas('permissions', fn ($q) => $q->where('permissions.id', $permission->id))
+            ->orWhereHas('roles.permissions', fn ($q) => $q->where('permissions.id', $permission->id))
+            ->distinct()
             ->get();
 
         return response()->json([

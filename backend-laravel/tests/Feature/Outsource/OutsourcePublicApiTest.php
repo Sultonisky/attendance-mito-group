@@ -330,6 +330,43 @@ class OutsourcePublicApiTest extends TestCase
 
         $initAgain->assertStatus(201);
         $this->assertNotEquals($tokenA, $initAgain->getCookie($this->cookieName(), false)?->getValue());
+        $initAgain->assertJsonPath('data.status', 'ACTIVE');
+        $this->assertNotEmpty($initAgain->json('data.attendance.check_in_at'));
+    }
+
+    public function test_current_session_returns_none_without_cookie(): void
+    {
+        $response = $this->getJson('/api/v1/outsource/session/current');
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.status', 'NONE');
+        $response->assertJsonPath('data.attendance', null);
+    }
+
+    public function test_current_session_restores_active_open_attendance(): void
+    {
+        $city = City::factory()->create();
+        $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $this->makeActiveAssignment($outsource, $store);
+
+        $init = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
+        $sessionId = (string) $init->getCookie($this->cookieName(), false)?->getValue();
+
+        $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-in', [
+            'latitude' => -6.2001,
+            'longitude' => 106.8001,
+            'accuracy_meters' => 10,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ])->assertStatus(201);
+
+        $current = $this->withOutsourceSession($sessionId)->getJson('/api/v1/outsource/session/current');
+
+        $current->assertStatus(200);
+        $current->assertJsonPath('data.status', 'ACTIVE');
+        $current->assertJsonPath('data.outsource.id', $outsource->id);
+        $current->assertJsonPath('data.store.id', $store->id);
+        $this->assertNotEmpty($current->json('data.attendance.check_in_at'));
     }
 
     // ============================================================

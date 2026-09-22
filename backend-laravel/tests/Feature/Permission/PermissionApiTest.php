@@ -184,6 +184,26 @@ class PermissionApiTest extends TestCase
             ]);
     }
 
+    public function test_returns_users_with_permission_through_role(): void
+    {
+        $permission = Permission::where('name', 'dashboard.view')->first();
+        $user = User::factory()->create();
+        $user->assignRole('ADMIN');
+
+        $this->actingAs($this->admin(), 'sanctum')
+            ->getJson("/api/v1/permissions/{$permission->id}/users")
+            ->assertOk()
+            ->assertJson([
+                'success' => true,
+            ])
+            ->assertJsonStructure([
+                'success',
+                'data' => [
+                    '*' => ['id', 'name', 'email', 'status'],
+                ],
+            ]);
+    }
+
     public function test_requires_permission_view_for_users_list(): void
     {
         $permission = Permission::first();

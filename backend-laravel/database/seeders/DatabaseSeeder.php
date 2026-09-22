@@ -64,10 +64,12 @@ class DatabaseSeeder extends Seeder
 
             $user->assignRole($dashboardUser['role']);
 
-            if (
-                in_array($dashboardUser['role'], ['ADMIN', 'SUPER_ADMIN'], true)
-            ) {
+            // Only SUPER_ADMIN may hold (or bypass) the full permission set.
+            // ADMIN must keep explicit, selectable permissions — never auto-grant all.
+            if ($dashboardUser['role'] === 'SUPER_ADMIN') {
                 $user->syncPermissions(Permission::all());
+            } elseif ($dashboardUser['role'] === 'ADMIN') {
+                $user->syncPermissions([]);
             }
 
             if (! in_array($dashboardUser['role'], ['ADMIN', 'SUPER_ADMIN'], true)) {

@@ -9,6 +9,7 @@ import {
   fetchOutsourceCities,
   fetchOutsourceStores,
   fetchOutsourceOutsources,
+  fetchOutsourceSessionCurrent,
   initOutsourceSession,
   outsourceCheckIn,
   outsourceCheckOut,
@@ -16,6 +17,7 @@ import {
   type Store,
   type Outsource,
   type OutsourceAttendanceResponse,
+  type OutsourceSessionPayload,
 } from "../../services/outsourceService";
 
 type Step =
@@ -1164,8 +1166,11 @@ async function startSession(): Promise<void> {
 
     hasServerSession.value = true;
     expiresAt.value = response.data.expires_at;
-    step.value = "session";
-    message.value = `Sesi individu aktif untuk ${response.data.outsource.name}.`;
+    applySessionPayload(response.data);
+    message.value =
+      response.data.status === "ACTIVE"
+        ? `Sesi aktif dipulihkan untuk ${response.data.outsource?.name ?? "personel"}. Lanjutkan clock-out bila sudah selesai.`
+        : `Sesi individu aktif untuk ${response.data.outsource?.name ?? "personel"}.`;
   } catch (e: unknown) {
     const err = e as Error;
     if (err instanceof ApiError) {
@@ -1190,6 +1195,88 @@ async function startSession(): Promise<void> {
     }
   } finally {
     isSubmitting.value = false;
+  }
+}
+
+function applySessionPayload(payload: OutsourceSessionPayload): void {
+  if (!payload.outsource || !payload.store) {
+    return;
+  }
+
+  selectedOutsource.value = payload.outsource;
+  selectedStore.value = payload.store.id;
+  selectedStoreName.value = payload.store.name;
+  if (payload.store.city_id != null) {
+    selectedCity.value = payload.store.city_id;
+  }
+
+  hasServerSession.value = true;
+  expiresAt.value = payload.expires_at;
+
+  const attendance = payload.attendance;
+  if (payload.status === "ACTIVE" && attendance?.check_in_at) {
+    attendanceId.value = attendance.attendance_id;
+    attendanceStatus.value = attendance.status;
+    attendanceDate.value = attendance.attendance_date;
+    checkInAt.value = attendance.check_in_at;
+    checkOutAt.value = attendance.check_out_at;
+    durationMinutes.value = attendance.duration_minutes;
+    step.value = "attendance_open";
+    return;
+  }
+
+  attendanceId.value = null;
+  attendanceStatus.value = null;
+  attendanceDate.value = null;
+  checkInAt.value = null;
+  checkOutAt.value = null;
+  durationMinutes.value = null;
+  step.value = "session";
+}
+
+async function restoreSessionFromServer(): Promise<void> {
+  try {
+    const response = await fetchOutsourceSessionCurrent();
+    if (!response?.data || response.data.status === "NONE") {
+      return;
+    }
+
+    applySessionPayload(response.data);
+
+    if (selectedCity.value !== null) {
+      try {
+        stores.value = await fetchOutsourceStores(selectedCity.value);
+      } catch {
+        // Selection restore is enough for active session UI.
+      }
+    }
+
+    if (selectedStore.value !== null) {
+      try {
+        outsources.value = await fetchOutsourceOutsources(selectedStore.value);
+        const matched = outsources.value.find(
+          (item) => item.id === selectedOutsource.value?.id,
+        );
+        if (matched) {
+          selectedOutsource.value = matched;
+        }
+      } catch {
+        // Keep payload outsource identity if list fetch fails.
+      }
+    }
+
+    if (selectedMapLocation.value) {
+      await nextTick();
+      await ensureCartoMapReady();
+      void refreshMapLocation();
+    }
+
+    message.value =
+      response.data.status === "ACTIVE"
+        ? `Sesi clock-in dipulihkan untuk ${response.data.outsource?.name ?? "personel"}.`
+        : `Sesi siap presensi dipulihkan untuk ${response.data.outsource?.name ?? "personel"}.`;
+  } catch {
+    // No cookie / network — stay on wizard.
   }
 }
 
@@ -1337,7 +1424,10 @@ onMounted(() => {
   }, 1000);
 
   document.addEventListener("visibilitychange", onVisibilityChange);
-  loadCities();
+  void (async () => {
+    await loadCities();
+    await restoreSessionFromServer();
+  })();
 });
 
 watch(isSessionActive, (active) => {
@@ -1968,18 +2058,6 @@ onUnmounted(() => {
           <small>Penugasan hari ini</small>
         </div>
       </section>
-
-      <div class="session-reset-row">
-        <AppButton
-          type="button"
-          class="btn-link-reset"
-          variant="ghost"
-          icon="ArrowRight"
-          @click="resetSelection"
-        >
-          Ganti Personel / Akhiri Sesi
-        </AppButton>
-      </div>
     </template>
 
     <template v-if="step === 'completed'">

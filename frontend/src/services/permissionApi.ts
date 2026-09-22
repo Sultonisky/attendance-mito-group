@@ -5,6 +5,7 @@ export type PermissionRow = {
   name: string
   guard_name: string
   description: string | null
+  users_count: number
   created_at: string | null
   updated_at: string | null
 }
