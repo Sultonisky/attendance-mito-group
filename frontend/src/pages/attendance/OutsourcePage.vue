@@ -192,11 +192,13 @@ const maxGpsAccuracyMeters = Number(
   import.meta.env.VITE_GPS_MAX_ACCURACY_METERS ?? 100,
 );
 /** Hard stop for GPS settle so UI never stays on "Menstabilkan" forever. */
-const GPS_SETTLE_TIMEOUT_MS = 20_000;
+const GPS_SETTLE_TIMEOUT_MS = 25_000;
 /** First-fix budget; Safari/iOS needs longer than Chrome desktop. */
-const GPS_QUICK_TIMEOUT_MS = 12_000;
-/** Allow a short cached reading on Safari so the permission prompt can succeed. */
-const GPS_SAFARI_MAX_AGE_MS = 15_000;
+const GPS_QUICK_TIMEOUT_MS = 15_000;
+/** Cached reading window — Safari often fails with maximumAge:0 before a fix exists. */
+const GPS_SAFARI_MAX_AGE_MS = 60_000;
+/** Safari settle: poll getCurrentPosition (do NOT use watchPosition — known WebKit conflict). */
+const GPS_SAFARI_POLL_MS = 2_500;
 
 function isSafariOrIOS(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -222,9 +224,13 @@ function buildGeoOptions(highAccuracy: boolean): PositionOptions {
   const safari = isSafariOrIOS();
   return {
     enableHighAccuracy: highAccuracy,
-    timeout: safari ? Math.max(GPS_QUICK_TIMEOUT_MS, 20_000) : GPS_QUICK_TIMEOUT_MS,
-    // Safari often fails immediately with maximumAge:0 before the chip warms up.
-    maximumAge: safari ? GPS_SAFARI_MAX_AGE_MS : highAccuracy ? 0 : 5_000,
+    timeout: safari ? 30_000 : GPS_QUICK_TIMEOUT_MS,
+    // MDN: maximumAge 0 forces a fresh fix; Safari frequently fails before GPS warms up.
+    maximumAge: safari
+      ? (highAccuracy ? GPS_SAFARI_MAX_AGE_MS / 2 : GPS_SAFARI_MAX_AGE_MS)
+      : highAccuracy
+        ? 0
+        : 5_000,
   };
 }
 
@@ -246,6 +252,8 @@ let gpsWatchId: number | null = null;
 let proximityWatchId: number | null = null;
 let proximityLastUiAt = 0;
 let gpsSettleTimer: number | null = null;
+/** Safari-only: interval id for getCurrentPosition polling (avoid watchPosition). */
+let safariPollTimer: number | null = null;
 let gpsRequestId = 0;
 let activeGpsResolve:
   | ((
@@ -652,18 +660,14 @@ function stopGpsWatch(): void {
     navigator.geolocation.clearWatch(gpsWatchId);
     gpsWatchId = null;
   }
+  if (safariPollTimer !== null) {
+    window.clearInterval(safariPollTimer);
+    safariPollTimer = null;
+  }
   if (gpsSettleTimer !== null) {
     window.clearTimeout(gpsSettleTimer);
     gpsSettleTimer = null;
   }
-}
-
-function stopProximityWatch(): void {
-  if (proximityWatchId !== null && navigator.geolocation) {
-    navigator.geolocation.clearWatch(proximityWatchId);
-    proximityWatchId = null;
-  }
-  proximityLastUiAt = 0;
 }
 
 function applyProximityReading(position: GeolocationPosition): void {
@@ -700,10 +704,39 @@ function startProximityWatch(): void {
     return;
   }
   // Don't stack with settle watch — settle owns GPS until ready.
-  if (locationStatus.value === "locating" || gpsWatchId !== null) {
+  if (locationStatus.value === "locating" || gpsWatchId !== null || safariPollTimer !== null) {
     return;
   }
   if (proximityWatchId !== null) {
+    return;
+  }
+
+  // Safari/iOS: avoid watchPosition (conflicts with later getCurrentPosition).
+  if (isSafariOrIOS()) {
+    proximityWatchId = window.setInterval(() => {
+      if (!followDistance.value || !isSessionActive.value) {
+        stopProximityWatch();
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => applyProximityReading(position),
+        (geoErr) => {
+          if (geoErr.code === geoErr.PERMISSION_DENIED) {
+            followDistance.value = false;
+            stopProximityWatch();
+            locationStatus.value = "error";
+            error.value = geoErrorMessage(geoErr);
+          }
+        },
+        buildGeoOptions(false),
+      );
+    }, 5_000) as unknown as number;
+    // Seed one reading immediately.
+    navigator.geolocation.getCurrentPosition(
+      (position) => applyProximityReading(position),
+      () => {},
+      buildGeoOptions(false),
+    );
     return;
   }
 
@@ -725,9 +758,21 @@ function startProximityWatch(): void {
     },
     {
       ...buildGeoOptions(true),
-      maximumAge: isSafariOrIOS() ? GPS_SAFARI_MAX_AGE_MS : 2_000,
+      maximumAge: 2_000,
     },
   );
+}
+
+function stopProximityWatch(): void {
+  if (proximityWatchId !== null) {
+    if (isSafariOrIOS()) {
+      window.clearInterval(proximityWatchId);
+    } else if (navigator.geolocation) {
+      navigator.geolocation.clearWatch(proximityWatchId);
+    }
+    proximityWatchId = null;
+  }
+  proximityLastUiAt = 0;
 }
 
 function syncProximityWatch(): void {
@@ -786,7 +831,12 @@ function cancelActiveGpsRequest(): void {
 function geoErrorMessage(geoErr: GeolocationPositionError): string {
   if (geoErr.code === geoErr.PERMISSION_DENIED) {
     if (isSafariOrIOS()) {
-      return "Izin lokasi ditolak di Safari. Buka Settings → Safari → Location (atau Site Settings untuk situs ini), pilih Allow, lalu ketuk Aktifkan lokasi di halaman ini. Pastikan Location Services iPhone/iPad juga aktif.";
+      return [
+        "Safari masih menolak lokasi untuk situs ini (bukan hanya setting HP).",
+        "Dengan tab situs terbuka: ketuk ikon aA (kiri address bar) → Website Settings → Location → Allow,",
+        "lalu ketuk Aktifkan lokasi lagi.",
+        "Pastikan juga Settings → Privacy & Security → Location Services → Safari Websites = While Using.",
+      ].join(" ");
     }
     return "Izin lokasi ditolak. Izinkan akses lokasi pada browser lalu ketuk Aktifkan lokasi.";
   }
@@ -797,6 +847,21 @@ function geoErrorMessage(geoErr: GeolocationPositionError): string {
     return "Pengambilan lokasi terlalu lama. Pastikan GPS/lokasi aktif, berada di area terbuka, lalu ketuk Aktifkan lokasi lagi.";
   }
   return "Gagal mendeteksi lokasi GPS. Pastikan GPS aktif dan berada di area terbuka.";
+}
+
+/**
+ * Start GPS from a direct user tap. Must remain synchronous until geolocation
+ * is invoked (Safari user-gesture / MDN secure-context requirement).
+ */
+function activateLocation(): void {
+  if (locationStatus.value === "locating" || isRefreshingDistance.value) {
+    return;
+  }
+  stopProximityWatch();
+  // Invoke requestLocation in this same turn (no await before geolocation starts).
+  void requestLocation().finally(() => {
+    syncProximityWatch();
+  });
 }
 
 async function requestLocation(): Promise<{
@@ -827,6 +892,7 @@ async function requestLocation(): Promise<{
       longitude: number;
       accuracy: number;
     } | null = null;
+    let denied = false;
 
     const isCurrent = () =>
       requestId === gpsRequestId && activeGpsResolve === resolve;
@@ -924,24 +990,71 @@ async function requestLocation(): Promise<{
           if (!isCurrent()) return;
           if (geoErr.code === geoErr.PERMISSION_DENIED) {
             finish(null, "error", geoErrorMessage(geoErr));
-            return;
           }
-          // Keep waiting until settle timeout — Safari often reports transient errors.
         },
         buildGeoOptions(highAccuracy),
       );
     };
 
+    /**
+     * Safari/iOS WebKit: prefer repeated getCurrentPosition only.
+     * Mixing watchPosition often yields PERMISSION_DENIED / stuck fixes
+     * even when Settings already allow location (MDN + WebKit reports).
+     */
+    const startSafariPoll = () => {
+      if (!isCurrent() || safariPollTimer !== null) return;
+
+      let highAccuracy = false;
+
+      const pollOnce = () => {
+        if (!isCurrent() || denied) return;
+
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            if (!isCurrent()) return;
+            const done = acceptReading(position);
+            // After a coarse fix, tighten accuracy on subsequent polls.
+            if (!done && !highAccuracy) {
+              highAccuracy = true;
+            }
+          },
+          (geoErr) => {
+            if (!isCurrent()) return;
+            if (geoErr.code === geoErr.PERMISSION_DENIED) {
+              denied = true;
+              finish(null, "error", geoErrorMessage(geoErr));
+              return;
+            }
+            // TIMEOUT / UNAVAILABLE: keep polling until settle timeout.
+            if (!highAccuracy) {
+              highAccuracy = true;
+            }
+          },
+          buildGeoOptions(highAccuracy),
+        );
+      };
+
+      // First call MUST be sync in the user-gesture turn.
+      pollOnce();
+      safariPollTimer = window.setInterval(pollOnce, GPS_SAFARI_POLL_MS);
+    };
+
     gpsSettleTimer = window.setTimeout(() => {
       completeWithBestOrError(
-        "GPS belum mendapatkan sinyal akurat. Pastikan lokasi aktif, berada di area terbuka, lalu ketuk Aktifkan lokasi lagi.",
+        denied
+          ? geoErrorMessage({
+              code: 1,
+              PERMISSION_DENIED: 1,
+              POSITION_UNAVAILABLE: 2,
+              TIMEOUT: 3,
+              message: "User denied Geolocation",
+            } as GeolocationPositionError)
+          : "GPS belum mendapatkan sinyal akurat. Pastikan lokasi aktif, berada di area terbuka, lalu ketuk Aktifkan lokasi lagi.",
       );
     }, GPS_SETTLE_TIMEOUT_MS);
 
-    // Must start geolocation synchronously in this turn (Safari user-gesture).
-    // Do not await anything before this call.
     if (isSafariOrIOS()) {
-      startWatchImprove(true);
+      startSafariPoll();
       return;
     }
 
@@ -1804,7 +1917,7 @@ onUnmounted(() => {
             type="button"
             class="location-retry-button"
             :disabled="locationStatus === 'locating'"
-            @click="refreshMapLocation"
+            @click="activateLocation"
           >
             {{
               locationStatus === "locating"
