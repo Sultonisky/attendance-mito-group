@@ -22,14 +22,27 @@ export interface Outsource {
   outsource_code: string
 }
 
+export interface OutsourceAttendanceSnapshot {
+  attendance_id: number
+  status: string
+  attendance_date: string
+  check_in_at: string | null
+  check_out_at: string | null
+  duration_minutes: number | null
+}
+
+export interface OutsourceSessionPayload {
+  status: 'NONE' | 'READY' | 'ACTIVE' | string
+  expires_at: string | null
+  outsource: Outsource | null
+  store: (Pick<Store, 'id' | 'name'> & { city_id?: number | null }) | null
+  attendance: OutsourceAttendanceSnapshot | null
+  code?: string
+}
+
 export interface OutsourceSessionResponse {
   success: boolean
-  data: {
-    status: string
-    expires_at: string
-    outsource: Outsource
-    store: Store
-  }
+  data: OutsourceSessionPayload
 }
 
 export interface OutsourceAttendanceResponse {
@@ -59,6 +72,10 @@ export async function fetchOutsourceOutsources(storeId?: number): Promise<Outsou
   const query = storeId ? `?store_id=${storeId}` : ''
   const response = await apiFetch<{ success: boolean; data: Outsource[] }>(`/outsource/outsources${query}`)
   return Array.isArray(response?.data) ? response.data : []
+}
+
+export async function fetchOutsourceSessionCurrent(): Promise<OutsourceSessionResponse> {
+  return apiFetch<OutsourceSessionResponse>('/outsource/session/current')
 }
 
 export async function initOutsourceSession(
