@@ -10,9 +10,12 @@ use App\Policies\MonthlyRecapPolicy;
 use App\Services\Outsource\Session\ArrayOutsourceSessionStore;
 use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
 use App\Services\Outsource\Session\RedisOutsourceSessionStore;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Events\ConnectionEstablished;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use Spatie\Permission\PermissionRegistrar;
@@ -52,7 +55,24 @@ class AppServiceProvider extends ServiceProvider
 
         Gate::policy(LeaveRequest::class, LeaveRequestPolicy::class);
         Gate::policy(MonthlyRecap::class, MonthlyRecapPolicy::class);
+        $this->registerRateLimiters();
         $this->registerAuthorizationGates();
+    }
+
+    /**
+     * Named HTTP rate limiters for public outsource endpoints.
+     *
+     * Limits read from config so ops can loosen/tighten without code changes,
+     * and tests can lower the ceiling without hammering production defaults.
+     */
+    protected function registerRateLimiters(): void
+    {
+        RateLimiter::for('outsource-session-init', function (Request $request) {
+            $maxAttempts = (int) config('outsource_session.init_rate_limit_per_second', 50);
+            $decaySeconds = (int) config('outsource_session.init_rate_limit_decay_seconds', 1);
+
+            return Limit::perSecond($maxAttempts, $decaySeconds)->by($request->ip());
+        });
     }
 
     /**

@@ -806,12 +806,19 @@ class OutsourcePublicApiTest extends TestCase
 
     public function test_session_init_rate_limited(): void
     {
+        // Keep a small ceiling but a long decay so the test is not flaky when
+        // PHPUnit is slower than a 1-second window.
+        config([
+            'outsource_session.init_rate_limit_per_second' => 5,
+            'outsource_session.init_rate_limit_decay_seconds' => 60,
+        ]);
+
         $city = City::factory()->create();
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
         $this->makeActiveAssignment($outsource, $store);
 
-        for ($i = 0; $i < 10; $i++) {
+        for ($i = 0; $i < 5; $i++) {
             $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
         }
 

@@ -47,7 +47,7 @@ Route::prefix('v1')->group(function () {
             ->name('outsource.outsources');
 
         Route::post('/session/init', [OutsourceAttendanceController::class, 'initSession'])
-            ->middleware('throttle:10,5')
+            ->middleware('throttle:outsource-session-init')
             ->name('outsource.session.init');
 
         Route::get('/session/current', [OutsourceAttendanceController::class, 'currentSession'])
