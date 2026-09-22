@@ -50,6 +50,10 @@ Route::prefix('v1')->group(function () {
             ->middleware('throttle:10,5')
             ->name('outsource.session.init');
 
+        Route::get('/session/current', [OutsourceAttendanceController::class, 'currentSession'])
+            ->middleware('throttle:60,1')
+            ->name('outsource.session.current');
+
         Route::post('/attendance/check-in', [OutsourceAttendanceController::class, 'checkIn'])
             ->middleware('throttle:20,1')
             ->name('outsource.attendance.check-in');
