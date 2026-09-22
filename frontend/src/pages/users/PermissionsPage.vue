@@ -88,16 +88,20 @@ const columns = computed<TableColumn<PermissionRow>[]>(() => [
   },
   {
     id: 'assigned_users',
-    header: 'Assigned Users',
+    header: () => h('div', { class: 'flex justify-center' }, 'Assigned Users'),
     cell: ({ row }) => {
-      return h('UButton', {
-        size: 'xs',
-        color: 'neutral',
-        variant: 'ghost',
-        icon: 'i-lucide-users',
-        'aria-label': 'View assigned users',
-        onClick: () => openUsers(row.original),
-      })
+      const count = row.original.users_count ?? 0
+      return h('div', { class: 'flex items-center justify-center gap-2' }, [
+        h('span', { class: 'text-xs text-[var(--ui-text-muted)]' }, `${count} user${count !== 1 ? 's' : ''}`),
+        h(resolveComponent('UButton'), {
+          size: 'xs',
+          color: 'neutral',
+          variant: 'ghost',
+          icon: 'i-lucide-users',
+          'aria-label': 'View assigned users',
+          onClick: () => openUsers(row.original),
+        }),
+      ])
     },
   },
   {
