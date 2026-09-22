@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Report;
 
+use App\Support\AttendanceDateTime;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -26,9 +27,10 @@ class OutsourceAttendanceReportResource extends JsonResource
             ] : null,
             'attendance_date' => $this->attendance_date?->toDateString(),
             'status' => $this->status,
-            'check_in_at' => $this->first_check_in,
-            'check_out_at' => $this->last_check_out,
+            'check_in_at' => AttendanceDateTime::toApi($this->first_check_in),
+            'check_out_at' => AttendanceDateTime::toApi($this->last_check_out),
             'duration_minutes' => $this->total_duration ? (int) $this->total_duration : null,
+            'session_count' => isset($this->session_count) ? (int) $this->session_count : null,
         ];
     }
 }

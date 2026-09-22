@@ -19,7 +19,7 @@ class OutsourceAttendanceReportRequest extends FormRequest
             'city_id' => ['nullable', 'integer', 'exists:cities,id'],
             'store_id' => ['nullable', 'integer', 'exists:work_locations,id'],
             'outsource_id' => ['nullable', 'integer', 'exists:outsources,id'],
-            'status' => ['nullable', 'string', 'max:50'],
+            'status' => ['nullable', 'string', 'in:present,incomplete'],
             'search' => ['nullable', 'string', 'max:255'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
             'sort' => ['nullable', 'string', 'max:50'],

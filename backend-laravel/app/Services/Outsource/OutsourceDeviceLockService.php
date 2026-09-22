@@ -2,14 +2,17 @@
 
 namespace App\Services\Outsource;
 
+use App\Domain\Attendance\Services\OutsourceSessionExpiry;
 use App\Enums\AttendanceSessionStatus;
 use App\Models\AttendanceSession;
 use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
+use Carbon\CarbonImmutable;
 
 class OutsourceDeviceLockService
 {
     public function __construct(
         protected OutsourceSessionStoreInterface $sessions,
+        protected OutsourceSessionExpiry $sessionExpiry,
     ) {}
 
     /**
@@ -22,21 +25,30 @@ class OutsourceDeviceLockService
             return null;
         }
 
+        $now = CarbonImmutable::now('UTC');
+
         foreach ($this->sessions->findActiveByDevice($fingerprint) as $session) {
             if ($exceptOutsourceId !== null && $session->outsourceId === $exceptOutsourceId) {
                 continue;
             }
 
-            $hasOpenAttendance = AttendanceSession::query()
+            $openAttendance = AttendanceSession::query()
                 ->where('status', AttendanceSessionStatus::Open->value)
                 ->whereHas('attendanceRecord', function ($query) use ($session) {
                     $query->where('outsource_id', $session->outsourceId);
                 })
-                ->exists();
+                ->orderByDesc('check_in_at')
+                ->first();
 
-            if ($hasOpenAttendance) {
-                return $session->outsourceId;
+            if ($openAttendance === null) {
+                continue;
             }
+
+            if ($this->sessionExpiry->expireIfPastLimit($openAttendance, $now)) {
+                continue;
+            }
+
+            return $session->outsourceId;
         }
 
         return null;
