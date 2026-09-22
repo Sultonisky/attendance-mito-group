@@ -1642,37 +1642,73 @@ onUnmounted(() => {
       </p>
     </section>
 
-    <section v-if="error" class="app-banner banner-error" role="alert">
-      <div class="banner-content">
-        <AppIcon
-          name="TriangleAlert"
-          class="banner-icon"
-          :size="18"
-          :stroke-width="2.2"
-          aria-hidden="true"
-        />
-        <p>{{ error }}</p>
-      </div>
-      <button type="button" class="banner-dismiss" @click="error = ''">
-        <AppIcon name="X" :size="14" :stroke-width="2.5" aria-hidden="true" />
-      </button>
-    </section>
+    <Teleport to="body">
+      <div
+        v-if="error || message"
+        class="outsource-toast-stack"
+        aria-live="polite"
+      >
+        <section
+          v-if="error"
+          class="outsource-toast outsource-toast--error"
+          role="alert"
+        >
+          <div class="outsource-toast__content">
+            <AppIcon
+              name="TriangleAlert"
+              class="outsource-toast__icon"
+              :size="18"
+              :stroke-width="2.2"
+              aria-hidden="true"
+            />
+            <p>{{ error }}</p>
+          </div>
+          <button
+            type="button"
+            class="outsource-toast__dismiss"
+            aria-label="Tutup peringatan"
+            @click="error = ''"
+          >
+            <AppIcon
+              name="X"
+              :size="14"
+              :stroke-width="2.5"
+              aria-hidden="true"
+            />
+          </button>
+        </section>
 
-    <section v-if="message" class="app-banner banner-success" role="status">
-      <div class="banner-content">
-        <AppIcon
-          name="CircleCheckBig"
-          class="banner-icon"
-          :size="18"
-          :stroke-width="2.2"
-          aria-hidden="true"
-        />
-        <p>{{ message }}</p>
+        <section
+          v-if="message"
+          class="outsource-toast outsource-toast--success"
+          role="status"
+        >
+          <div class="outsource-toast__content">
+            <AppIcon
+              name="CircleCheckBig"
+              class="outsource-toast__icon"
+              :size="18"
+              :stroke-width="2.2"
+              aria-hidden="true"
+            />
+            <p>{{ message }}</p>
+          </div>
+          <button
+            type="button"
+            class="outsource-toast__dismiss"
+            aria-label="Tutup pesan"
+            @click="message = ''"
+          >
+            <AppIcon
+              name="X"
+              :size="14"
+              :stroke-width="2.5"
+              aria-hidden="true"
+            />
+          </button>
+        </section>
       </div>
-      <button type="button" class="banner-dismiss" @click="message = ''">
-        <AppIcon name="X" :size="14" :stroke-width="2.5" aria-hidden="true" />
-      </button>
-    </section>
+    </Teleport>
 
     <template v-if="!isSessionActive && step !== 'completed'">
       <div class="wizard-stepper" aria-label="Langkah Inisiasi Sesi">
@@ -2375,15 +2411,46 @@ onUnmounted(() => {
   line-height: 1.5;
 }
 
-/* App Notification Banners */
-.app-banner {
+/* Floating toasts — fixed to viewport, manual dismiss only (no auto-hide) */
+.outsource-toast-stack {
+  position: fixed;
+  top: max(0.85rem, env(safe-area-inset-top, 0px));
+  left: 50%;
+  z-index: 1200;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 0.55rem;
+  width: min(26rem, calc(100vw - 1.5rem));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.outsource-toast {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 0.75rem 1rem;
-  border-radius: 10px;
-  margin-bottom: 1.25rem;
+  gap: 0.5rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
   font-size: 0.85rem;
+  line-height: 1.45;
+  box-shadow:
+    0 12px 28px rgba(15, 23, 42, 0.14),
+    0 2px 8px rgba(15, 23, 42, 0.08);
+  pointer-events: auto;
+  animation: outsource-toast-in 0.22s ease-out;
+}
+
+@keyframes outsource-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.45rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .map-card {
@@ -2468,32 +2535,53 @@ onUnmounted(() => {
   color: var(--text);
 }
 
-.banner-content {
+.outsource-toast__content {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.6rem;
   flex: 1;
+  min-width: 0;
 }
 
-.banner-error {
+.outsource-toast__content p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.outsource-toast__icon {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.outsource-toast--error {
   background: #fef2f2;
   border: 1px solid #fecaca;
   color: #b91c1c;
 }
 
-.banner-success {
+.outsource-toast--success {
   background: #f0fdf4;
   border: 1px solid #bbf7d0;
   color: #15803d;
 }
 
-.banner-dismiss {
+.outsource-toast__dismiss {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: -0.15rem -0.2rem 0 0;
   border: none;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
-  font-size: 0.9rem;
   cursor: pointer;
-  padding: 0 0.25rem;
+}
+
+.outsource-toast__dismiss:hover {
+  background: rgba(15, 23, 42, 0.06);
 }
 
 /* Wizard Stepper */
@@ -2784,7 +2872,7 @@ onUnmounted(() => {
 
 .btn-primary:focus-visible,
 .btn-secondary:focus-visible,
-.banner-dismiss:focus-visible,
+.outsource-toast__dismiss:focus-visible,
 .btn-link-reset:focus-visible,
 .hero-action-button:focus-visible {
   outline: 3px solid rgba(235, 28, 36, 0.18);
