@@ -6,11 +6,13 @@ use App\Actions\Audit\RecordAuditAction;
 use App\Enums\OutsourceAttendanceSessionStatus;
 use App\Exceptions\Domain\OutsourceDeviceBusyException;
 use App\Models\Outsource;
-use App\Models\OutsourceAttendanceSession;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\WorkLocation;
 use App\Services\Outsource\OutsourceDeviceLockService;
-use Illuminate\Support\Facades\DB;
+use App\Services\Outsource\Session\OutsourceSessionData;
+use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
+use App\Services\Outsource\Session\OutsourceSessionStoreUnavailableException;
+use Carbon\CarbonImmutable;
 use InvalidArgumentException;
 
 class InitializeOutsourceAttendanceSession
@@ -18,12 +20,12 @@ class InitializeOutsourceAttendanceSession
     public function __construct(
         protected RecordAuditAction $audit,
         protected OutsourceDeviceLockService $deviceLock,
+        protected OutsourceSessionStoreInterface $sessions,
     ) {}
 
     /**
      * @return array{
-     *   session_token: string,
-     *   session: OutsourceAttendanceSession,
+     *   session: OutsourceSessionData,
      *   outsource: Outsource,
      *   store: WorkLocation
      * }
@@ -77,33 +79,42 @@ class InitializeOutsourceAttendanceSession
             );
         }
 
-        $rawToken = bin2hex(random_bytes(32));
-        $tokenHash = hash('sha256', $rawToken);
+        // One active browser session per outsource (invalidate old tabs).
+        $this->deviceLock->revokeActiveSessionsForOutsource($outsource->id);
 
-        $session = DB::transaction(function () use ($outsource, $store, $tokenHash, $fingerprint, $userAgent, $ipAddress) {
-            // One active browser session per outsource (invalidate old tabs/tokens).
-            $this->deviceLock->revokeActiveSessionsForOutsource($outsource->id);
+        // Drop stale active sessions on this device that never checked in.
+        $this->deviceLock->revokeActiveSessionsForDevice($fingerprint, $outsource->id);
 
-            // Drop stale active sessions on this device that never checked in.
-            $this->deviceLock->revokeActiveSessionsForDevice($fingerprint, $outsource->id);
+        $now = CarbonImmutable::now();
+        $ttlHours = max(1, (int) config('outsource_session.ttl_hours', 12));
+        $session = new OutsourceSessionData(
+            id: bin2hex(random_bytes(32)),
+            outsourceId: $outsource->id,
+            storeId: $store->id,
+            status: OutsourceAttendanceSessionStatus::Active->value,
+            deviceFingerprint: $fingerprint,
+            ipAddress: $ipAddress,
+            userAgent: $userAgent !== null ? mb_substr($userAgent, 0, 1000) : null,
+            createdAt: $now,
+            expiresAt: $now->addHours($ttlHours),
+            lastUsedAt: $now,
+        );
 
-            return OutsourceAttendanceSession::create([
-                'outsource_id' => $outsource->id,
-                'work_location_id' => $store->id,
-                'token_hash' => $tokenHash,
-                'device_fingerprint' => $fingerprint,
-                'ip_address' => $ipAddress,
-                'user_agent' => $userAgent !== null ? mb_substr($userAgent, 0, 1000) : null,
-                'status' => OutsourceAttendanceSessionStatus::Active->value,
-                'expires_at' => now()->addHours(12),
-                'last_used_at' => now(),
-            ]);
-        });
+        try {
+            $this->sessions->put($session);
+        } catch (OutsourceSessionStoreUnavailableException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            throw new OutsourceSessionStoreUnavailableException(
+                'Outsource session store is temporarily unavailable.',
+                previous: $e,
+            );
+        }
 
         $this->audit->execute(
             null,
             'outsource.session.init',
-            $session,
+            $outsource,
             null,
             [
                 'outsource_id' => $outsource->id,
@@ -115,8 +126,7 @@ class InitializeOutsourceAttendanceSession
         );
 
         return [
-            'session_token' => $rawToken,
-            'session' => $session->fresh('outsource', 'workLocation'),
+            'session' => $session,
             'outsource' => $outsource,
             'store' => $store,
         ];
