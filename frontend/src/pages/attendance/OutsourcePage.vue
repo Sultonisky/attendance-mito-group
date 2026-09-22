@@ -19,6 +19,12 @@ import {
   type OutsourceAttendanceResponse,
   type OutsourceSessionPayload,
 } from "../../services/outsourceService";
+import {
+  formatAttendanceLongDate,
+  formatAttendanceShortDate,
+  formatAttendanceTime,
+  formatAttendanceTimeWithSeconds,
+} from "../../utils/attendanceDateTime";
 
 type Step =
   | "city"
@@ -186,8 +192,42 @@ const maxGpsAccuracyMeters = Number(
   import.meta.env.VITE_GPS_MAX_ACCURACY_METERS ?? 100,
 );
 /** Hard stop for GPS settle so UI never stays on "Menstabilkan" forever. */
-const GPS_SETTLE_TIMEOUT_MS = 12_000;
-const GPS_QUICK_TIMEOUT_MS = 6_000;
+const GPS_SETTLE_TIMEOUT_MS = 20_000;
+/** First-fix budget; Safari/iOS needs longer than Chrome desktop. */
+const GPS_QUICK_TIMEOUT_MS = 12_000;
+/** Allow a short cached reading on Safari so the permission prompt can succeed. */
+const GPS_SAFARI_MAX_AGE_MS = 15_000;
+
+function isSafariOrIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const iOS = /iPad|iPhone|iPod/.test(ua)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const safariDesktop = /Safari/i.test(ua)
+    && !/Chrome|Chromium|CriOS|Edg|EdgiOS|Firefox|FxiOS|OPR|Opera/i.test(ua);
+  return iOS || safariDesktop;
+}
+
+function geolocationBlockReason(): string | null {
+  if (typeof window !== "undefined" && window.isSecureContext === false) {
+    return "Lokasi hanya bisa dipakai lewat HTTPS. Buka ulang halaman dengan alamat https:// (bukan http://).";
+  }
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    return "Browser ini tidak mendukung layanan lokasi.";
+  }
+  return null;
+}
+
+function buildGeoOptions(highAccuracy: boolean): PositionOptions {
+  const safari = isSafariOrIOS();
+  return {
+    enableHighAccuracy: highAccuracy,
+    timeout: safari ? Math.max(GPS_QUICK_TIMEOUT_MS, 20_000) : GPS_QUICK_TIMEOUT_MS,
+    // Safari often fails immediately with maximumAge:0 before the chip warms up.
+    maximumAge: safari ? GPS_SAFARI_MAX_AGE_MS : highAccuracy ? 0 : 5_000,
+  };
+}
+
 
 const isGpsAccuracyAcceptable = computed(
   () =>
@@ -433,20 +473,11 @@ const actionButtonLabel = computed(() => {
 });
 
 function formatCurrentDate(): string {
-  return now.value.toLocaleDateString("id-ID", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return formatAttendanceLongDate(now.value)
 }
 
 function formatCurrentTime(): string {
-  return now.value.toLocaleTimeString("id-ID", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  return formatAttendanceTimeWithSeconds(now.value)
 }
 
 function formatDurationSeconds(totalSeconds: number | null): string {
@@ -465,20 +496,11 @@ function formatDurationSeconds(totalSeconds: number | null): string {
 }
 
 function formatTime(iso: string | null): string {
-  if (!iso) return "--:--";
-  const date = new Date(iso);
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return formatAttendanceTime(iso, "--:--");
 }
 
 function formatDate(iso: string | null): string {
-  if (!iso) return "--";
-  const date = new Date(iso);
-  return date.toLocaleDateString("id-ID", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return formatAttendanceShortDate(iso, "--");
 }
 
 function createDivIcon(
@@ -702,9 +724,8 @@ function startProximityWatch(): void {
       }
     },
     {
-      enableHighAccuracy: true,
-      timeout: 15_000,
-      maximumAge: 2_000,
+      ...buildGeoOptions(true),
+      maximumAge: isSafariOrIOS() ? GPS_SAFARI_MAX_AGE_MS : 2_000,
     },
   );
 }
@@ -764,13 +785,16 @@ function cancelActiveGpsRequest(): void {
 
 function geoErrorMessage(geoErr: GeolocationPositionError): string {
   if (geoErr.code === geoErr.PERMISSION_DENIED) {
-    return "Izin lokasi ditolak. Izinkan akses lokasi pada browser lalu coba lagi.";
+    if (isSafariOrIOS()) {
+      return "Izin lokasi ditolak di Safari. Buka Settings → Safari → Location (atau Site Settings untuk situs ini), pilih Allow, lalu ketuk Aktifkan lokasi di halaman ini. Pastikan Location Services iPhone/iPad juga aktif.";
+    }
+    return "Izin lokasi ditolak. Izinkan akses lokasi pada browser lalu ketuk Aktifkan lokasi.";
   }
   if (geoErr.code === geoErr.POSITION_UNAVAILABLE) {
     return "Lokasi tidak tersedia. Pastikan GPS/lokasi perangkat aktif lalu coba lagi.";
   }
   if (geoErr.code === geoErr.TIMEOUT) {
-    return "Pengambilan lokasi terlalu lama. Pastikan GPS/lokasi aktif lalu coba lagi.";
+    return "Pengambilan lokasi terlalu lama. Pastikan GPS/lokasi aktif, berada di area terbuka, lalu ketuk Aktifkan lokasi lagi.";
   }
   return "Gagal mendeteksi lokasi GPS. Pastikan GPS aktif dan berada di area terbuka.";
 }
@@ -780,14 +804,16 @@ async function requestLocation(): Promise<{
   longitude: number;
   accuracy?: number;
 } | null> {
-  if (!navigator.geolocation) {
-    error.value = "Browser ini tidak mendukung layanan lokasi.";
+  const blocked = geolocationBlockReason();
+  if (blocked) {
+    error.value = blocked;
     locationStatus.value = "error";
     return null;
   }
 
   // End any previous settle immediately so retries cannot stack forever.
   cancelActiveGpsRequest();
+  stopProximityWatch();
 
   const requestId = ++gpsRequestId;
   locationStatus.value = "locating";
@@ -878,7 +904,7 @@ async function requestLocation(): Promise<{
       if (best) {
         const accuracyNote =
           best.accuracy > maxGpsAccuracyMeters
-            ? `Akurasi GPS ±${Math.round(best.accuracy)} m masih kurang. Pindah ke area terbuka lalu tekan Coba lagi (maksimal ±${maxGpsAccuracyMeters} m).`
+            ? `Akurasi GPS ±${Math.round(best.accuracy)} m masih kurang. Pindah ke area terbuka lalu tekan Aktifkan lokasi (maksimal ±${maxGpsAccuracyMeters} m).`
             : undefined;
         finish(best, "ready", accuracyNote);
         return;
@@ -887,7 +913,7 @@ async function requestLocation(): Promise<{
       finish(null, "error", fallbackMessage);
     };
 
-    const startWatchImprove = () => {
+    const startWatchImprove = (highAccuracy: boolean) => {
       if (!isCurrent() || gpsWatchId !== null) return;
 
       gpsWatchId = navigator.geolocation.watchPosition(
@@ -898,28 +924,33 @@ async function requestLocation(): Promise<{
           if (!isCurrent()) return;
           if (geoErr.code === geoErr.PERMISSION_DENIED) {
             finish(null, "error", geoErrorMessage(geoErr));
+            return;
           }
+          // Keep waiting until settle timeout — Safari often reports transient errors.
         },
-        {
-          enableHighAccuracy: true,
-          timeout: GPS_QUICK_TIMEOUT_MS,
-          maximumAge: 0,
-        },
+        buildGeoOptions(highAccuracy),
       );
     };
 
     gpsSettleTimer = window.setTimeout(() => {
       completeWithBestOrError(
-        "GPS belum mendapatkan sinyal akurat. Pastikan lokasi aktif, berada di area terbuka, lalu coba lagi.",
+        "GPS belum mendapatkan sinyal akurat. Pastikan lokasi aktif, berada di area terbuka, lalu ketuk Aktifkan lokasi lagi.",
       );
     }, GPS_SETTLE_TIMEOUT_MS);
+
+    // Must start geolocation synchronously in this turn (Safari user-gesture).
+    // Do not await anything before this call.
+    if (isSafariOrIOS()) {
+      startWatchImprove(true);
+      return;
+    }
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
         if (!isCurrent()) return;
         const done = acceptReading(position);
         if (!done) {
-          startWatchImprove();
+          startWatchImprove(true);
         }
       },
       (geoErr) => {
@@ -928,13 +959,9 @@ async function requestLocation(): Promise<{
           finish(null, "error", geoErrorMessage(geoErr));
           return;
         }
-        startWatchImprove();
+        startWatchImprove(true);
       },
-      {
-        enableHighAccuracy: true,
-        timeout: GPS_QUICK_TIMEOUT_MS,
-        maximumAge: 0,
-      },
+      buildGeoOptions(true),
     );
   });
 }
@@ -944,6 +971,7 @@ async function refreshMapLocation(): Promise<void> {
     return;
   }
 
+  // Keep this path tap-driven: start GPS in the same user-gesture turn.
   stopProximityWatch();
   try {
     await requestLocation();
@@ -1119,11 +1147,12 @@ async function onOutsourceSelected(): Promise<void> {
 
   step.value = "outsource";
 
-  // Activate GPS only after the employee name is chosen. Re-selecting
-  // another name clears the previous reading and settles a fresh one.
-  if (selectedMapLocation.value) {
-    await refreshMapLocation();
-  }
+  // Do NOT auto-request GPS here. Safari/iOS requires a direct user tap
+  // (Aktifkan lokasi) — select/change events are not a reliable gesture.
+  error.value = "";
+  locationStatus.value = "idle";
+  locationAccuracy.value = null;
+  currentMapLocation.value = null;
 }
 
 async function startSession(): Promise<void> {
@@ -1135,7 +1164,7 @@ async function startSession(): Promise<void> {
 
   if (locationStatus.value !== "ready") {
     error.value =
-      "Lokasi wajib diaktifkan untuk presensi. Izinkan akses lokasi lalu tekan Coba lagi.";
+      "Lokasi wajib diaktifkan untuk presensi. Ketuk Aktifkan lokasi, izinkan akses, lalu lanjutkan.";
     return;
   }
 
@@ -1268,7 +1297,8 @@ async function restoreSessionFromServer(): Promise<void> {
     if (selectedMapLocation.value) {
       await nextTick();
       await ensureCartoMapReady();
-      void refreshMapLocation();
+      // Safari: wait for an explicit "Aktifkan lokasi" tap — do not auto-request.
+      locationStatus.value = "idle";
     }
 
     message.value =
@@ -1762,9 +1792,9 @@ onUnmounted(() => {
                     : locationStatus === "ready"
                       ? `Akurasi ±${locationAccuracy ?? 0} m (maksimal ±${maxGpsAccuracyMeters} m). Radius toko tetap 150 m.`
                       : locationStatus === "error"
-                        ? "Aktifkan izin lokasi untuk melanjutkan presensi."
+                        ? "Ketuk Aktifkan lokasi setelah mengizinkan akses di browser/Safari."
                         : selectedOutsource
-                          ? "Aktifkan izin lokasi untuk melanjutkan presensi."
+                          ? "Ketuk Aktifkan lokasi agar Safari/Chrome meminta izin GPS."
                           : "Pilih nama personel terlebih dahulu untuk mengaktifkan lokasi."
               }}
             </span>
@@ -1777,7 +1807,11 @@ onUnmounted(() => {
             @click="refreshMapLocation"
           >
             {{
-              locationStatus === "locating" ? "Menstabilkan..." : "Coba lagi"
+              locationStatus === "locating"
+                ? "Menstabilkan..."
+                : locationStatus === "ready"
+                  ? "Perbaiki akurasi"
+                  : "Aktifkan lokasi"
             }}
           </button>
         </div>

@@ -7,6 +7,7 @@ import { useAuthStore } from '../../stores/auth'
 import { fetchAttendanceToday } from '../../services/attendanceService'
 import { ApiError } from '../../services/apiClient'
 import type { AttendanceRecord } from '../../types/attendance'
+import { formatAttendanceLongDate, formatAttendanceTime } from '../../utils/attendanceDateTime'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -27,16 +28,11 @@ const statusLabel = computed(() => {
 const actionLabel = computed(() => hasOpenSession.value ? 'Check out' : 'Check in')
 
 function formatDate(): string {
-  return today.toLocaleDateString([], {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  })
+  return formatAttendanceLongDate(today)
 }
 
 function formatTime(value: string | null): string {
-  if (!value) return '--:--'
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return formatAttendanceTime(value, '--:--')
 }
 
 async function load(): Promise<void> {

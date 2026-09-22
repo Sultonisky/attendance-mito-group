@@ -11,6 +11,7 @@ import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
 import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
+import { formatAttendanceDateTime } from '../../utils/attendanceDateTime'
 import type { AttendanceReportRow } from '../../types/reports'
 import { defaultReportDates } from '../../types/reportDates'
 
@@ -83,9 +84,7 @@ const columns = computed<TableColumn<AttendanceReportRow>[]>(() => [
     header: ({ column }) => createSortableHeader(column, 'Created At'),
     cell: ({ row }) => {
       const value = row.getValue<string>('created_at')
-      if (!value) return '—'
-      const date = new Date(value)
-      return isNaN(date.getTime()) ? '—' : date.toLocaleString()
+      return formatAttendanceDateTime(value)
     },
   },
 ])
