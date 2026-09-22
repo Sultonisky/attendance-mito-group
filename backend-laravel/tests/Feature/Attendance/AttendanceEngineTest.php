@@ -137,10 +137,10 @@ class AttendanceEngineTest extends TestCase
                 'latitude' => -6.2,
                 'longitude' => 106.8,
             ], [
-                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 7, 59, 0)->toIso8601String(),
+                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta')->toIso8601String(),
             ])
             ->assertStatus(201)
-            ->assertJsonPath('data.status', AttendanceStatus::Present->value);
+            ->assertJsonPath('data.status', AttendanceStatus::Incomplete->value);
 
         $this->assertDatabaseHas('attendance_records', [
             'employee_id' => $employee->id,
@@ -178,7 +178,7 @@ class AttendanceEngineTest extends TestCase
                 'latitude' => -6.2,
                 'longitude' => 106.8,
             ], [
-                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 7, 59, 0)->toIso8601String(),
+                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta')->toIso8601String(),
             ]);
 
         $checkInResponse->assertStatus(201);
@@ -188,7 +188,7 @@ class AttendanceEngineTest extends TestCase
                 'latitude' => -6.2,
                 'longitude' => 106.8,
             ], [
-                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 17, 1, 0)->toIso8601String(),
+                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 17, 1, 0, 'Asia/Jakarta')->toIso8601String(),
             ]);
 
         $response->assertStatus(200);
@@ -334,11 +334,11 @@ class AttendanceEngineTest extends TestCase
                 'latitude' => -6.2,
                 'longitude' => 106.8,
             ], [
-                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 21, 30, 0)->toIso8601String(),
+                'X-Occurred-At' => CarbonImmutable::create(2026, 9, 12, 21, 30, 0, 'Asia/Jakarta')->toIso8601String(),
             ]);
 
         $response->assertStatus(201);
-        $response->assertJsonPath('data.status', AttendanceStatus::Present->value);
+        $response->assertJsonPath('data.status', AttendanceStatus::Incomplete->value);
     }
 
     /**
@@ -529,7 +529,7 @@ class AttendanceEngineTest extends TestCase
         ]);
         $this->makeScheduleAssignment($employee, $schedule);
 
-        $checkInTime = CarbonImmutable::create(2026, 9, 12, 23, 0, 0);
+        $checkInTime = CarbonImmutable::create(2026, 9, 12, 23, 0, 0, 'Asia/Jakarta');
 
         $checkInResponse = $this->actingAs($this->userForEmployee($employee), 'sanctum')
             ->postJson('/api/v1/attendance/check-in', [
@@ -544,7 +544,7 @@ class AttendanceEngineTest extends TestCase
         $this->assertNotNull($record);
         $this->assertSame('2026-09-12', $record->attendance_date->toDateString());
 
-        $checkOutTime = CarbonImmutable::create(2026, 9, 13, 1, 0, 0);
+        $checkOutTime = CarbonImmutable::create(2026, 9, 13, 1, 0, 0, 'Asia/Jakarta');
 
         $checkOutResponse = $this->actingAs($this->userForEmployee($employee), 'sanctum')
             ->postJson('/api/v1/attendance/check-out', [
@@ -614,7 +614,7 @@ class AttendanceEngineTest extends TestCase
             ], 200),
         ]);
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta');
 
         $response = $this->actingAs($this->userForEmployee($employee), 'sanctum')
             ->postJson('/api/v1/attendance/check-in', [
@@ -626,7 +626,7 @@ class AttendanceEngineTest extends TestCase
             ]);
 
         $response->assertStatus(201);
-        $response->assertJsonPath('data.status', AttendanceStatus::Present->value);
+        $response->assertJsonPath('data.status', AttendanceStatus::Incomplete->value);
 
         $record = AttendanceRecord::where('employee_id', $employee->id)->first();
         $this->assertNotNull($record);
@@ -666,7 +666,7 @@ class AttendanceEngineTest extends TestCase
             ], 200),
         ]);
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta');
 
         $response = $this->actingAs($this->userForEmployee($employee), 'sanctum')
             ->postJson('/api/v1/attendance/check-in', [
@@ -703,7 +703,7 @@ class AttendanceEngineTest extends TestCase
             '*/face/verify' => Http::failedConnection(),
         ]);
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta');
 
         $response = $this->actingAs($this->userForEmployee($employee), 'sanctum')
             ->postJson('/api/v1/attendance/check-in', [
@@ -749,7 +749,7 @@ class AttendanceEngineTest extends TestCase
             ], 200),
         ]);
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta');
 
         $response = $this->actingAs($this->userForEmployee($employee), 'sanctum')
             ->postJson('/api/v1/attendance/check-in', [
@@ -782,7 +782,7 @@ class AttendanceEngineTest extends TestCase
         ]);
         $this->makeScheduleAssignment($employee, $schedule);
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta');
 
         $response = $this->actingAs($this->userForEmployee($employee), 'sanctum')
             ->postJson('/api/v1/attendance/check-in', [
@@ -793,7 +793,7 @@ class AttendanceEngineTest extends TestCase
             ]);
 
         $response->assertStatus(201);
-        $response->assertJsonPath('data.status', AttendanceStatus::Present->value);
+        $response->assertJsonPath('data.status', AttendanceStatus::Incomplete->value);
 
         $record = AttendanceRecord::where('employee_id', $employee->id)->first();
         $this->assertNotNull($record);

@@ -155,7 +155,7 @@ class FaceVerificationTest extends TestCase
         $this->faceProfileFor($employee);
         $this->fakeFaceApiSuccess();
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta');
 
         $response = $this->postCheckIn($employee, [
             'face_image' => $this->test_image(),
@@ -184,7 +184,7 @@ class FaceVerificationTest extends TestCase
         $this->faceProfileFor($employee);
         $this->fakeFaceApiFailure();
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta');
 
         $response = $this->postCheckIn($employee, [
             'face_image' => $this->test_image(),
@@ -208,7 +208,7 @@ class FaceVerificationTest extends TestCase
         $this->faceProfileFor($employee);
         $this->fakeFaceApiFailure();
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta');
 
         $this->postCheckIn($employee, [
             'face_image' => $this->test_image(),
@@ -230,7 +230,7 @@ class FaceVerificationTest extends TestCase
         $this->faceProfileFor($employee);
         $this->fakeFaceApiUnavailable();
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta');
 
         $response = $this->postCheckIn($employee, [
             'face_image' => $this->test_image(),
@@ -253,7 +253,7 @@ class FaceVerificationTest extends TestCase
         $this->makeScheduleAndPolicy($employee);
         // No face profile created
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta');
 
         $response = $this->postCheckIn($employee, [
             'face_image' => $this->test_image(),
