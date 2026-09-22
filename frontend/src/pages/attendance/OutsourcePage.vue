@@ -57,8 +57,8 @@ function resolveBasemap(): { url: string; attribution: string; subdomains: strin
 }
 
 const step = ref<Step>("city");
-const sessionToken = ref<string | null>(null);
 const expiresAt = ref<string | null>(null);
+const hasServerSession = ref(false);
 const mapContainer = ref<HTMLElement | null>(null);
 const mapError = ref("");
 const currentMapLocation = ref<{
@@ -972,7 +972,7 @@ function invalidateSessionState(): void {
   stopProximityWatch();
   followDistance.value = false;
   isRefreshingDistance.value = false;
-  sessionToken.value = null;
+  hasServerSession.value = false;
   expiresAt.value = null;
   attendanceId.value = null;
   attendanceStatus.value = null;
@@ -1041,8 +1041,10 @@ async function onStoreSelected(): Promise<void> {
       mapError.value = "";
     }
 
+    // Map only — GPS starts after the employee profile is selected
+    // so the user is not asked for location twice on this step.
     if (selectedMapLocation.value) {
-      await Promise.all([ensureCartoMapReady(), refreshMapLocation()]);
+      await ensureCartoMapReady();
     }
   } catch (e: unknown) {
     const err = e as Error;
@@ -1061,12 +1063,19 @@ function goToStep(target: Step): void {
   step.value = target;
 
   if (target === "city") {
+    cancelActiveGpsRequest();
+    stopProximityWatch();
+    followDistance.value = false;
+    isRefreshingDistance.value = false;
+    locationAccuracy.value = null;
+    locationStatus.value = "idle";
+    currentMapLocation.value = null;
     selectedStore.value = null;
     selectedStoreName.value = "";
     stores.value = [];
     selectedOutsource.value = null;
     outsources.value = [];
-    sessionToken.value = null;
+    hasServerSession.value = false;
     expiresAt.value = null;
     attendanceId.value = null;
     attendanceStatus.value = null;
@@ -1078,9 +1087,16 @@ function goToStep(target: Step): void {
   }
 
   if (target === "store") {
+    cancelActiveGpsRequest();
+    stopProximityWatch();
+    followDistance.value = false;
+    isRefreshingDistance.value = false;
+    locationAccuracy.value = null;
+    locationStatus.value = "idle";
+    currentMapLocation.value = null;
     selectedOutsource.value = null;
     outsources.value = [];
-    sessionToken.value = null;
+    hasServerSession.value = false;
     expiresAt.value = null;
     attendanceId.value = null;
     attendanceStatus.value = null;
@@ -1092,10 +1108,19 @@ function goToStep(target: Step): void {
   }
 }
 
-function onOutsourceSelected(): void {
+async function onOutsourceSelected(): Promise<void> {
   invalidateSessionState();
-  if (selectedOutsource.value) {
-    step.value = "outsource";
+
+  if (!selectedOutsource.value) {
+    return;
+  }
+
+  step.value = "outsource";
+
+  // Activate GPS only after the employee name is chosen. Re-selecting
+  // another name clears the previous reading and settles a fresh one.
+  if (selectedMapLocation.value) {
+    await refreshMapLocation();
   }
 }
 
@@ -1137,7 +1162,7 @@ async function startSession(): Promise<void> {
       selectedOutsource.value.id,
     );
 
-    sessionToken.value = response.data.session_token;
+    hasServerSession.value = true;
     expiresAt.value = response.data.expires_at;
     step.value = "session";
     message.value = `Sesi individu aktif untuk ${response.data.outsource.name}.`;
@@ -1154,6 +1179,9 @@ async function startSession(): Promise<void> {
       } else if (err.status === 429) {
         error.value =
           "Terlalu banyak permintaan sesi. Mohon tunggu beberapa saat.";
+      } else if (err.status === 503) {
+        error.value =
+          "Layanan sesi sedang tidak tersedia. Silakan coba beberapa saat lagi.";
       } else {
         error.value = err.message ?? "Gagal memulai sesi presensi.";
       }
@@ -1177,7 +1205,7 @@ function isValidCoordinate(latitude: number, longitude: number): boolean {
 }
 
 async function submitAttendance(): Promise<void> {
-  if (!sessionToken.value) {
+  if (!hasServerSession.value) {
     error.value = "Sesi telah kedaluwarsa. Silakan inisiasi sesi kembali.";
     step.value = "city";
     return;
@@ -1217,13 +1245,11 @@ async function submitAttendance(): Promise<void> {
 
     const response: OutsourceAttendanceResponse = await (isAttendanceOpen.value
       ? outsourceCheckOut(
-          sessionToken.value,
           locationData.latitude,
           locationData.longitude,
           locationData.accuracy,
         )
       : outsourceCheckIn(
-          sessionToken.value,
           locationData.latitude,
           locationData.longitude,
           locationData.accuracy,
@@ -1241,7 +1267,7 @@ async function submitAttendance(): Promise<void> {
         step.value = "completed";
         message.value =
           "Presensi Clock-Out berhasil dicatat. Tugas hari ini selesai!";
-        sessionToken.value = null;
+        hasServerSession.value = false;
         expiresAt.value = null;
       } else {
         step.value = "attendance_open";
@@ -1628,7 +1654,11 @@ onUnmounted(() => {
                     ? "Menstabilkan GPS..."
                     : locationStatus === "ready"
                       ? "GPS kurang akurat"
-                      : "Lokasi wajib diaktifkan"
+                      : locationStatus === "error"
+                        ? "Lokasi wajib diaktifkan"
+                        : selectedOutsource
+                          ? "Lokasi wajib diaktifkan"
+                          : "Menunggu pilihan nama"
               }}
             </strong>
             <span>
@@ -1641,12 +1671,16 @@ onUnmounted(() => {
                       : `Menunggu sinyal akurat (maksimal ±${maxGpsAccuracyMeters} m)`
                     : locationStatus === "ready"
                       ? `Akurasi ±${locationAccuracy ?? 0} m (maksimal ±${maxGpsAccuracyMeters} m). Radius toko tetap 150 m.`
-                      : "Aktifkan izin lokasi untuk melanjutkan presensi."
+                      : locationStatus === "error"
+                        ? "Aktifkan izin lokasi untuk melanjutkan presensi."
+                        : selectedOutsource
+                          ? "Aktifkan izin lokasi untuk melanjutkan presensi."
+                          : "Pilih nama personel terlebih dahulu untuk mengaktifkan lokasi."
               }}
             </span>
           </div>
           <button
-            v-if="!isGpsAccuracyAcceptable"
+            v-if="selectedOutsource && !isGpsAccuracyAcceptable"
             type="button"
             class="location-retry-button"
             :disabled="locationStatus === 'locating'"
@@ -1682,13 +1716,15 @@ onUnmounted(() => {
             {{
               isSubmitting
                 ? "Menginisiasi Sesi..."
-                : isGpsAccuracyAcceptable
-                  ? "Mulai Sesi Presensi"
-                  : locationStatus === "locating"
-                    ? "Menstabilkan GPS..."
-                    : locationStatus === "ready"
-                      ? "Tunggu GPS lebih akurat"
-                      : "Aktifkan Lokasi untuk Lanjut"
+                : !selectedOutsource
+                  ? "Pilih Nama untuk Lanjut"
+                  : isGpsAccuracyAcceptable
+                    ? "Mulai Sesi Presensi"
+                    : locationStatus === "locating"
+                      ? "Menstabilkan GPS..."
+                      : locationStatus === "ready"
+                        ? "Tunggu GPS lebih akurat"
+                        : "Aktifkan Lokasi untuk Lanjut"
             }}
           </AppButton>
         </div>

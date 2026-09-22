@@ -309,16 +309,38 @@ function openEdit(loc: OutsourceWorkLocationRow): void {
   showFormModal.value = true
 }
 
+/** Parse decimal string; accepts both "." and "," as decimal separator. */
+function parseDecimal(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  // Indonesian/EU often type " -6,1754 "; JS Number() only accepts "."
+  const normalized = trimmed.replace(',', '.')
+  const n = Number(normalized)
+  return Number.isFinite(n) ? n : null
+}
+
 async function submitForm(): Promise<void> {
   if (!form.name.trim()) { formError.value = 'Store name is required.'; return }
+
+  const latitude = parseDecimal(form.latitude)
+  const longitude = parseDecimal(form.longitude)
+  if (form.latitude.trim() && latitude === null) {
+    formError.value = 'Latitude must be a valid number (use . or , as decimal).'
+    return
+  }
+  if (form.longitude.trim() && longitude === null) {
+    formError.value = 'Longitude must be a valid number (use . or , as decimal).'
+    return
+  }
+
   formBusy.value = true
   formError.value = ''
   try {
     const payload = {
       name:          form.name.trim(),
       city_id:       form.city_id ? Number(form.city_id) : null,
-      latitude:      form.latitude      ? Number(form.latitude)      : null,
-      longitude:     form.longitude     ? Number(form.longitude)     : null,
+      latitude,
+      longitude,
       radius_meters: form.radius_meters ? Number(form.radius_meters) : null,
     }
     if (formMode.value === 'create') {
@@ -463,10 +485,22 @@ onMounted(async () => {
 
         <div class="grid grid-cols-2 gap-3">
           <UFormField label="Latitude">
-            <UInput v-model="form.latitude" type="number" step="any" placeholder="-6.1754" class="w-full" />
+            <UInput
+              v-model="form.latitude"
+              type="text"
+              inputmode="decimal"
+              placeholder="-6.1754"
+              class="w-full"
+            />
           </UFormField>
           <UFormField label="Longitude">
-            <UInput v-model="form.longitude" type="number" step="any" placeholder="106.8272" class="w-full" />
+            <UInput
+              v-model="form.longitude"
+              type="text"
+              inputmode="decimal"
+              placeholder="106.8272"
+              class="w-full"
+            />
           </UFormField>
         </div>
 
