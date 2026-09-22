@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Attendance;
 
+use App\Support\AttendanceDateTime;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -23,12 +24,12 @@ class AttendanceSessionResource extends JsonResource
             'data' => [
                 'id' => $data['id'] ?? null,
                 'attendance_record_id' => $data['attendance_record_id'] ?? null,
-                'check_in_at' => $data['check_in_at'] ?? null,
-                'check_out_at' => $data['check_out_at'] ?? null,
+                'check_in_at' => AttendanceDateTime::toApi($data['check_in_at'] ?? null),
+                'check_out_at' => AttendanceDateTime::toApi($data['check_out_at'] ?? null),
                 'duration_minutes' => $data['duration_minutes'] ?? null,
                 'status' => $data['status'] ?? null,
-                'created_at' => $data['created_at'] ?? null,
-                'updated_at' => $data['updated_at'] ?? null,
+                'created_at' => AttendanceDateTime::toApi($data['created_at'] ?? null),
+                'updated_at' => AttendanceDateTime::toApi($data['updated_at'] ?? null),
             ],
         ];
     }

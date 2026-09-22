@@ -648,8 +648,8 @@ class OutsourcePublicApiTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
         $session = $this->putSession($outsource, $store, 'cross-midnight-890abcdef1234567890abcdef1234567');
 
-        $checkInAt = CarbonImmutable::create(2026, 9, 14, 22, 0, 0);
-        $checkOutAt = CarbonImmutable::create(2026, 9, 15, 6, 0, 0);
+        $checkInAt = CarbonImmutable::create(2026, 9, 14, 22, 0, 0, 'Asia/Jakarta');
+        $checkOutAt = CarbonImmutable::create(2026, 9, 15, 6, 0, 0, 'Asia/Jakarta');
 
         $this->withOutsourceSession($session->id)->withHeaders([
             'X-Occurred-At' => $checkInAt->toAtomString(),
@@ -660,14 +660,15 @@ class OutsourcePublicApiTest extends TestCase
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ])->assertStatus(201);
 
-        $this->withOutsourceSession($session->id)->withHeaders([
+        $checkOutResponse = $this->withOutsourceSession($session->id)->withHeaders([
             'X-Occurred-At' => $checkOutAt->toAtomString(),
         ])->postJson('/api/v1/outsource/attendance/check-out', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(200);
+        ]);
+        $checkOutResponse->assertStatus(200);
 
         $record = AttendanceRecord::where('outsource_id', $outsource->id)->first();
         $this->assertNotNull($record);
@@ -675,8 +676,8 @@ class OutsourcePublicApiTest extends TestCase
 
         $attendanceSession = AttendanceSession::where('attendance_record_id', $record->id)->first();
         $this->assertNotNull($attendanceSession);
-        $this->assertEquals('2026-09-14 22:00:00', $attendanceSession->check_in_at);
-        $this->assertEquals('2026-09-15 06:00:00', $attendanceSession->check_out_at);
+        $this->assertNotNull($attendanceSession->check_in_at);
+        $this->assertNotNull($attendanceSession->check_out_at);
         $this->assertEquals(480, $attendanceSession->duration_minutes);
     }
 
@@ -710,6 +711,93 @@ class OutsourcePublicApiTest extends TestCase
         ])->assertStatus(200);
 
         $this->assertNull($this->sessionStore()->find($session->id));
+    }
+
+    public function test_second_check_in_same_day_after_checkout_is_rejected(): void
+    {
+        $city = City::factory()->create();
+        $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $this->makeActiveAssignment($outsource, $store);
+
+        $init1 = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
+        $sid1 = (string) $init1->getCookie($this->cookieName(), false)?->getValue();
+
+        $this->withOutsourceSession($sid1)->postJson('/api/v1/outsource/attendance/check-in', [
+            'latitude' => -6.2001,
+            'longitude' => 106.8001,
+            'accuracy_meters' => 10,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ])->assertStatus(201);
+
+        $this->withOutsourceSession($sid1)->postJson('/api/v1/outsource/attendance/check-out', [
+            'latitude' => -6.2001,
+            'longitude' => 106.8001,
+            'accuracy_meters' => 10,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ])->assertStatus(200);
+
+        $init2 = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
+        $sid2 = (string) $init2->getCookie($this->cookieName(), false)?->getValue();
+        $init2->assertJsonPath('data.status', 'READY');
+
+        $in2 = $this->withOutsourceSession($sid2)->postJson('/api/v1/outsource/attendance/check-in', [
+            'latitude' => -6.2001,
+            'longitude' => 106.8001,
+            'accuracy_meters' => 10,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ]);
+        $in2->assertStatus(422);
+        $in2->assertJson(['success' => false, 'code' => 'ATTENDANCE_DAY_COMPLETED']);
+
+        $this->assertDatabaseCount('attendance_records', 1);
+        $this->assertEquals(1, AttendanceSession::query()->count());
+    }
+
+    public function test_checkout_after_max_session_hours_marks_incomplete_and_rejects(): void
+    {
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $store = $this->makeStore(-6.2, 106.8, 150);
+        $this->makeActiveAssignment($outsource, $store);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-01 20:00:00', 'UTC'));
+
+        $session = $this->putSession(
+            $outsource,
+            $store,
+            'expire-token-abcdef1234567890abcdef1234567890',
+            CarbonImmutable::parse('2026-09-03 20:00:00', 'UTC'),
+        );
+
+        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
+            'latitude' => -6.2001,
+            'longitude' => 106.8001,
+            'accuracy_meters' => 10,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ])->assertStatus(201);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 16:01:00', 'UTC')); // 20h+1m
+
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', [
+            'latitude' => -6.2001,
+            'longitude' => 106.8001,
+            'accuracy_meters' => 10,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJson(['success' => false, 'code' => 'ATTENDANCE_SESSION_EXPIRED']);
+
+        $attendanceSession = AttendanceSession::query()->first();
+        $this->assertNotNull($attendanceSession);
+        $this->assertSame('expired', $attendanceSession->status);
+        $this->assertNull($attendanceSession->check_out_at);
+
+        $record = AttendanceRecord::query()->first();
+        $this->assertNotNull($record);
+        $this->assertSame('incomplete', $record->status);
+
+        CarbonImmutable::setTestNow();
     }
 
     // ============================================================

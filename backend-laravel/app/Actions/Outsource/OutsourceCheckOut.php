@@ -6,6 +6,7 @@ use App\Actions\Audit\RecordAuditAction;
 use App\Domain\Attendance\DTOs\AttendanceOperationData;
 use App\Domain\Attendance\Engines\AttendanceEngine;
 use App\Domain\Attendance\Exceptions\AttendanceBlockedByPolicyException;
+use App\Domain\Attendance\Exceptions\AttendanceSessionExpiredException;
 use App\Domain\Attendance\Exceptions\InvalidLocationException;
 use App\Domain\Attendance\Exceptions\NoOpenAttendanceSessionException;
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
@@ -70,6 +71,13 @@ class OutsourceCheckOut
                 'success' => false,
                 'error' => 'NO_OPEN_ATTENDANCE',
                 'message' => 'No open attendance session found.',
+                'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
+            ];
+        } catch (AttendanceSessionExpiredException $e) {
+            return [
+                'success' => false,
+                'error' => 'ATTENDANCE_SESSION_EXPIRED',
+                'message' => $e->getMessage(),
                 'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
             ];
         } catch (OutsideGeofenceException $e) {

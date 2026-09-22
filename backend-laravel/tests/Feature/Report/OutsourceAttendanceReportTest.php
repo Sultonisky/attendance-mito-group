@@ -10,6 +10,7 @@ use App\Models\Outsource;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\User;
 use App\Models\WorkLocation;
+use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
@@ -222,14 +223,14 @@ class OutsourceAttendanceReportTest extends TestCase
 
         $outsource = Outsource::factory()->create();
         $this->makeOutsourceRecord($outsource, '2026-09-10', 'present');
-        $this->makeOutsourceRecord($outsource, '2026-09-11', 'late');
+        $this->makeOutsourceRecord($outsource, '2026-09-11', 'incomplete');
 
         $response = $this->actingAs($user, 'sanctum')
-            ->getJson('/api/v1/reports/outsource-attendance?from=2026-09-01&to=2026-09-30&status=late');
+            ->getJson('/api/v1/reports/outsource-attendance?from=2026-09-01&to=2026-09-30&status=incomplete');
 
         $response->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.status', 'late');
+            ->assertJsonPath('data.0.status', 'incomplete');
     }
 
     public function test_search_by_name_and_code(): void
@@ -386,20 +387,26 @@ class OutsourceAttendanceReportTest extends TestCase
         $outsource = Outsource::factory()->create();
         $record = $this->makeOutsourceRecord($outsource, '2026-09-14', 'present');
 
-        $record->sessions()->first()->update([
-            'check_in_at' => '2026-09-14 22:00:00',
-            'check_out_at' => '2026-09-15 06:00:00',
+        $checkInAt = CarbonImmutable::create(2026, 9, 14, 22, 0, 0, 'Asia/Jakarta');
+        $checkOutAt = CarbonImmutable::create(2026, 9, 15, 6, 0, 0, 'Asia/Jakarta');
+
+        $session = $record->sessions()->first();
+        $session->update([
+            'check_in_at' => $checkInAt,
+            'check_out_at' => $checkOutAt,
             'duration_minutes' => 480,
             'status' => 'closed',
         ]);
+        $session->refresh();
 
         $response = $this->actingAs($user, 'sanctum')
             ->getJson('/api/v1/reports/outsource-attendance?from=2026-09-14&to=2026-09-15');
 
         $response->assertOk()
             ->assertJsonPath('data.0.attendance_date', '2026-09-14')
-            ->assertJsonPath('data.0.check_in_at', '2026-09-14 22:00:00')
-            ->assertJsonPath('data.0.check_out_at', '2026-09-15 06:00:00');
+            ->assertJsonPath('data.0.check_in_at', \App\Support\AttendanceDateTime::toApi($session->check_in_at))
+            ->assertJsonPath('data.0.check_out_at', \App\Support\AttendanceDateTime::toApi($session->check_out_at))
+            ->assertJsonPath('data.0.duration_minutes', 480);
     }
 
     // ========================

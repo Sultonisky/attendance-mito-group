@@ -441,7 +441,7 @@ class OutsourceAttendanceController
 
         if ($header !== null) {
             try {
-                return CarbonImmutable::createFromFormat(CarbonImmutable::ATOM, (string) $header);
+                return CarbonImmutable::parse((string) $header);
             } catch (\Throwable) {
                 // fall through to now()
             }

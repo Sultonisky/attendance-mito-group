@@ -7,7 +7,9 @@ use App\Domain\Attendance\DTOs\AttendanceOperationData;
 use App\Domain\Attendance\DTOs\AttendanceResultData;
 use App\Domain\Attendance\Exceptions\AttendanceAlreadyCheckedInException;
 use App\Domain\Attendance\Exceptions\AttendanceBlockedByPolicyException;
+use App\Domain\Attendance\Exceptions\AttendanceDayAlreadyCompletedException;
 use App\Domain\Attendance\Exceptions\AttendanceOutsideGeofenceException;
+use App\Domain\Attendance\Exceptions\AttendanceSessionExpiredException;
 use App\Domain\Attendance\Exceptions\InvalidLocationException;
 use App\Domain\Attendance\Exceptions\NoOpenAttendanceSessionException;
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
@@ -16,6 +18,7 @@ use App\Domain\Attendance\Rules\EarlyCheckoutRule;
 use App\Domain\Attendance\Rules\GeofenceRule;
 use App\Domain\Attendance\Rules\GpsValidationRule;
 use App\Domain\Attendance\Rules\LateDetectionRule;
+use App\Domain\Attendance\Services\OutsourceSessionExpiry;
 use App\Domain\Policy\Engines\PolicyEngine;
 use App\Domain\Schedule\Engines\ScheduleEngine;
 use App\Enums\AttendanceSessionStatus;
@@ -32,6 +35,7 @@ use App\Models\PolicyAssignment;
 use App\Models\ScheduleAssignment;
 use App\Models\Shift;
 use App\Models\WorkLocation;
+use App\Support\AttendanceDateTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 
@@ -55,6 +59,7 @@ class AttendanceEngine
         private LateDetectionRule $lateDetectionRule,
         private EarlyCheckoutRule $earlyCheckoutRule,
         private AttendanceStateRule $attendanceStateRule,
+        private OutsourceSessionExpiry $outsourceSessionExpiry,
     ) {}
 
     /**
@@ -105,7 +110,9 @@ class AttendanceEngine
 
         $existingRecord = $this->findExistingRecord($subject, $date);
 
-        if ($existingRecord && $existingRecord->sessions()->where('status', AttendanceSessionStatus::Open->value)->exists()) {
+        if ($subject instanceof Outsource && $existingRecord) {
+            $this->assertOutsourceMayStartSession($existingRecord, $data->occurredAt);
+        } elseif ($existingRecord && $existingRecord->sessions()->where('status', AttendanceSessionStatus::Open->value)->exists()) {
             throw new AttendanceAlreadyCheckedInException('Subject already has an open attendance session.');
         }
 
@@ -118,14 +125,12 @@ class AttendanceEngine
         $session = $this->createSession($record, $data->occurredAt);
         $event = $this->createEvent($subject, $record, $session, $data);
 
-        $scheduledStart = $this->resolveScheduledStart($scheduleResult['shift'], $data->occurredAt);
-        $isLate = $this->lateDetectionRule->isLate($data->occurredAt, $scheduledStart);
-
+        // Open IN without OUT is always incomplete — Present/Late only after a closed session.
         $status = $this->attendanceStateRule->determine(
             hasPolicy: $policyResult['allowed'],
             hasSchedule: $scheduleResult['hasSchedule'],
-            hasOpenSession: false,
-            isLate: $isLate,
+            hasOpenSession: true,
+            isLate: false,
             isEarlyCheckout: false,
         );
 
@@ -178,6 +183,10 @@ class AttendanceEngine
 
         $record = $openSession->attendanceRecord;
 
+        if ($subject instanceof Outsource) {
+            $this->assertOutsourceSessionStillCloseable($openSession, $data->occurredAt);
+        }
+
         $workLocation = $this->resolveWorkLocation($data->workLocationId);
 
         if ($subject instanceof Outsource) {
@@ -192,22 +201,29 @@ class AttendanceEngine
             throw new OutsideGeofenceException('Subject is outside the approved work location geofence.');
         }
 
-        $checkInAt = CarbonImmutable::parse($openSession->check_in_at);
-        $checkOutAt = $data->occurredAt;
+        $checkInAt = CarbonImmutable::parse($openSession->check_in_at)->utc();
+        $checkOutAt = $data->occurredAt->utc();
 
         if ($checkOutAt->lessThanOrEqualTo($checkInAt)) {
             throw new InvalidLocationException('Check-out time must be after check-in time.');
         }
 
-        $durationMinutes = (int) $checkInAt->diffInMinutes($checkOutAt);
+        $durationMinutes = (int) max(0, round($checkInAt->diffInMinutes($checkOutAt)));
 
         $scheduleResult = $this->resolveScheduleResult($subject, CarbonImmutable::parse($record->attendance_date));
-        $scheduledEnd = $this->resolveScheduledEnd($scheduleResult['shift'], $checkOutAt);
-        $isEarlyCheckout = $this->earlyCheckoutRule->isEarlyCheckout($checkOutAt, $scheduledEnd);
-
         $policyResult = $this->resolvePolicyResult($subject, CarbonImmutable::parse($record->attendance_date), 'check_out_blocked');
         if (! $policyResult['allowed']) {
             throw new AttendanceBlockedByPolicyException($policyResult['reason']);
+        }
+
+        $isLate = false;
+        $isEarlyCheckout = false;
+
+        if (! ($subject instanceof Outsource)) {
+            $scheduledStart = $this->resolveScheduledStart($scheduleResult['shift'], $checkInAt);
+            $scheduledEnd = $this->resolveScheduledEnd($scheduleResult['shift'], $checkOutAt);
+            $isLate = $this->lateDetectionRule->isLate($checkInAt, $scheduledStart);
+            $isEarlyCheckout = $this->earlyCheckoutRule->isEarlyCheckout($checkOutAt, $scheduledEnd);
         }
 
         $openSession->update([
@@ -218,13 +234,13 @@ class AttendanceEngine
 
         $event = $this->createEvent($subject, $record, $openSession, $data);
 
-        $hasOpenSession = false;
-
+        // Outsource daily status is only incomplete (open/expired) or present (closed).
+        // Employee keeps late / early-checkout → late via AttendanceStateRule.
         $status = $this->attendanceStateRule->determine(
             hasPolicy: $policyResult['allowed'],
             hasSchedule: $scheduleResult['hasSchedule'],
-            hasOpenSession: $hasOpenSession,
-            isLate: false,
+            hasOpenSession: false,
+            isLate: $isLate,
             isEarlyCheckout: $isEarlyCheckout,
         );
 
@@ -308,6 +324,43 @@ class AttendanceEngine
         if ($assignment === null) {
             throw new \InvalidArgumentException('Outsource is not assigned to this work location.');
         }
+    }
+
+    /**
+     * Outsource: one session per clock-in date (open, closed, or expired).
+     */
+    private function assertOutsourceMayStartSession(AttendanceRecord $existingRecord, CarbonImmutable $now): void
+    {
+        $sessions = $existingRecord->sessions()->get();
+
+        foreach ($sessions as $session) {
+            if ($session->status === AttendanceSessionStatus::Open->value) {
+                if ($this->outsourceSessionExpiry->expireIfPastLimit($session, $now)) {
+                    throw new AttendanceDayAlreadyCompletedException(
+                        'Outsource attendance for this clock-in date already expired without check-out.'
+                    );
+                }
+
+                throw new AttendanceAlreadyCheckedInException('Subject already has an open attendance session.');
+            }
+
+            throw new AttendanceDayAlreadyCompletedException(
+                'Outsource attendance for this clock-in date is already completed.'
+            );
+        }
+    }
+
+    private function assertOutsourceSessionStillCloseable(AttendanceSession $openSession, CarbonImmutable $at): void
+    {
+        if (! $this->outsourceSessionExpiry->expireIfPastLimit($openSession, $at)) {
+            return;
+        }
+
+        $maxHours = $this->outsourceSessionExpiry->maxHours();
+
+        throw new AttendanceSessionExpiredException(
+            "Outsource attendance session exceeded the {$maxHours}-hour limit and is now incomplete."
+        );
     }
 
     private function queryGeofenceDistance(WorkLocation $workLocation, float $latitude, float $longitude): ?float
@@ -407,27 +460,28 @@ class AttendanceEngine
 
     private function resolveWorkDate(CarbonImmutable $occurredAt, AttendanceSubject $subject): CarbonImmutable
     {
+        $tz = AttendanceDateTime::timezone();
+        $local = $occurredAt->timezone($tz);
+
         if ($subject instanceof Outsource) {
-            return $occurredAt;
+            return $local->startOfDay();
         }
 
         $employee = $subject;
 
-        $scheduleResult = $this->resolveAttendanceSchedule($employee, $occurredAt);
+        $scheduleResult = $this->resolveAttendanceSchedule($employee, $local);
 
         if ($scheduleResult['hasSchedule'] && $scheduleResult['shift'] !== null) {
             $shift = $scheduleResult['shift'];
 
             if ($shift->cross_midnight) {
-                $endTime = CarbonImmutable::createFromFormat('H:i:s', $shift->end_time);
-
-                if ($occurredAt->format('H:i:s') < $endTime->format('H:i:s')) {
-                    return $occurredAt->subDay();
+                if ($local->format('H:i:s') < $shift->end_time) {
+                    return $local->subDay()->startOfDay();
                 }
             }
         }
 
-        return $occurredAt;
+        return $local->startOfDay();
     }
 
     private function resolveWorkLocation(?int $workLocationId): ?WorkLocation
@@ -445,13 +499,15 @@ class AttendanceEngine
             return null;
         }
 
-        $date = $at->toDateString();
+        $tz = AttendanceDateTime::timezone();
+        $local = $at->timezone($tz);
+        $date = $local->toDateString();
 
-        if ($shift->cross_midnight && $at->format('H:i:s') < $shift->end_time) {
-            $date = $at->subDay()->toDateString();
+        if ($shift->cross_midnight && $local->format('H:i:s') < $shift->end_time) {
+            $date = $local->subDay()->toDateString();
         }
 
-        return CarbonImmutable::createFromFormat('Y-m-d H:i:s', $date.' '.$shift->start_time);
+        return CarbonImmutable::createFromFormat('Y-m-d H:i:s', $date.' '.$shift->start_time, $tz);
     }
 
     private function resolveScheduledEnd(?Shift $shift, CarbonImmutable $at): ?CarbonImmutable
@@ -460,13 +516,15 @@ class AttendanceEngine
             return null;
         }
 
-        $date = $at->toDateString();
+        $tz = AttendanceDateTime::timezone();
+        $local = $at->timezone($tz);
+        $date = $local->toDateString();
 
-        if ($shift->cross_midnight && $at->format('H:i:s') < $shift->end_time) {
-            $date = $at->addDay()->toDateString();
+        if ($shift->cross_midnight && $local->format('H:i:s') < $shift->end_time) {
+            $date = $local->addDay()->toDateString();
         }
 
-        return CarbonImmutable::createFromFormat('Y-m-d H:i:s', $date.' '.$shift->end_time);
+        return CarbonImmutable::createFromFormat('Y-m-d H:i:s', $date.' '.$shift->end_time, $tz);
     }
 
     private function findExistingRecord(AttendanceSubject $subject, CarbonImmutable $date): ?AttendanceRecord
@@ -505,7 +563,7 @@ class AttendanceEngine
     {
         return AttendanceSession::create([
             'attendance_record_id' => $record->id,
-            'check_in_at' => $checkInAt,
+            'check_in_at' => $checkInAt->utc(),
             'status' => AttendanceSessionStatus::Open->value,
         ]);
     }
@@ -520,7 +578,7 @@ class AttendanceEngine
             'attendance_id' => $record->id,
             'attendance_session_id' => $session->id,
             'event_type' => $data->eventType->value,
-            'occurred_at' => $data->occurredAt,
+            'occurred_at' => $data->occurredAt->utc(),
             'latitude' => $data->latitude,
             'longitude' => $data->longitude,
             'accuracy_meters' => $data->accuracy,

@@ -73,9 +73,10 @@ const periodAverageRate = computed(() => {
   return Math.round(sum / chartData.value.length)
 })
 
+import { formatAttendanceTime } from '../utils/attendanceDateTime'
+
 function formatRefreshedAt(iso: string | undefined): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return formatAttendanceTime(iso)
 }
 
 async function load(): Promise<void> {

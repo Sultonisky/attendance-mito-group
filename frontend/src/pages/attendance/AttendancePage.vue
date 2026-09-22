@@ -8,6 +8,7 @@ import { fetchAttendanceToday, submitCheckIn, submitCheckOut } from '../../servi
 import { useAttendanceCamera } from '../../composables/useAttendanceCamera'
 import { useGeolocation } from '../../composables/useGeolocation'
 import type { AttendanceRecord } from '../../types/attendance'
+import { formatAttendanceLongDate, formatAttendanceTime } from '../../utils/attendanceDateTime'
 
 const router = useRouter()
 
@@ -173,18 +174,11 @@ function formatStatus(status: string): string {
 }
 
 function formatTime(iso: string | null): string {
-  if (!iso) return '--'
-  const date = new Date(iso)
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return formatAttendanceTime(iso, '--')
 }
 
 function formatDate(date: Date): string {
-  return date.toLocaleDateString([], {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
+  return formatAttendanceLongDate(date)
 }
 
 function safeErrorMessage(error: string | null): string {

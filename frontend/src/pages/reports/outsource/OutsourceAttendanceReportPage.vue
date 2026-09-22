@@ -17,6 +17,7 @@ import ReportDataToolbar from '../../../components/ReportDataToolbar.vue'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
 import { createSortableHeader, createStatusBadge } from '../../../utils/dataTable'
+import { formatAttendanceDateTime } from '../../../utils/attendanceDateTime'
 import type { OutsourceAttendanceReportRow, OutsourceAttendanceReportFilters } from '../../../types/reports'
 import { defaultReportDates } from '../../../types/reportDates'
 
@@ -52,9 +53,7 @@ const { sorting } = useDataTableSort(filters, () => {
 const statusOptions = [
   { label: 'All', value: 'all' },
   { label: 'Present', value: 'present' },
-  { label: 'Late', value: 'late' },
   { label: 'Incomplete', value: 'incomplete' },
-  { label: 'Absent', value: 'absent' },
 ]
 
 const hideableColumns = [
@@ -64,6 +63,7 @@ const hideableColumns = [
   { id: 'store', label: 'Store' },
   { id: 'check_in_at', label: 'Clock In' },
   { id: 'check_out_at', label: 'Clock Out' },
+  { id: 'session_count', label: 'Sessions' },
   { id: 'duration_minutes', label: 'Duration' },
   { id: 'status', label: 'Status' },
 ]
@@ -72,10 +72,9 @@ const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
 const statusColor: Record<string, 'success' | 'warning' | 'error' | 'neutral'> = {
   present: 'success',
-  late: 'warning',
   incomplete: 'error',
-  absent: 'neutral',
 }
+
 
 const columns = computed<TableColumn<OutsourceAttendanceReportRow>[]>(() => [
   {
@@ -106,17 +105,20 @@ const columns = computed<TableColumn<OutsourceAttendanceReportRow>[]>(() => [
   {
     accessorKey: 'check_in_at',
     header: ({ column }) => createSortableHeader(column, 'Clock In'),
-    cell: ({ row }) => {
-      const v = row.getValue<string | null>('check_in_at')
-      return v ? (() => { const d = new Date(v); return isNaN(d.getTime()) ? '—' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })() : '—'
-    },
+    cell: ({ row }) => formatAttendanceDateTime(row.getValue<string | null>('check_in_at'), row.original.attendance_date),
   },
   {
     accessorKey: 'check_out_at',
     header: ({ column }) => createSortableHeader(column, 'Clock Out'),
+    cell: ({ row }) => formatAttendanceDateTime(row.getValue<string | null>('check_out_at'), row.original.attendance_date),
+  },
+  {
+    accessorKey: 'session_count',
+    header: 'Sessions',
     cell: ({ row }) => {
-      const v = row.getValue<string | null>('check_out_at')
-      return v ? (() => { const d = new Date(v); return isNaN(d.getTime()) ? '—' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })() : '—'
+      const count = row.original.session_count
+      if (count == null || count < 1) return '—'
+      return `${count} sesi`
     },
   },
   {

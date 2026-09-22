@@ -89,6 +89,7 @@ class AttendanceDirectActionTest extends TestCase
             new LateDetectionRule,
             new EarlyCheckoutRule,
             new AttendanceStateRule,
+            new \App\Domain\Attendance\Services\OutsourceSessionExpiry,
         );
     }
 
@@ -114,13 +115,13 @@ class AttendanceDirectActionTest extends TestCase
         $checkIn = new CheckInEmployee($engine, $audit, $verifyFace);
         $checkOut = new CheckOutEmployee($engine, $audit, $verifyFace);
 
-        $checkInResult = $checkIn->execute($employee, CarbonImmutable::create(2026, 9, 12, 7, 59, 0), [
+        $checkInResult = $checkIn->execute($employee, CarbonImmutable::create(2026, 9, 12, 7, 59, 0, 'Asia/Jakarta'), [
             'latitude' => -6.2,
             'longitude' => 106.8,
         ]);
 
         $this->assertNull($checkInResult['error']);
-        $this->assertEquals(AttendanceStatus::Present->value, $checkInResult['record']->status);
+        $this->assertEquals(AttendanceStatus::Incomplete->value, $checkInResult['record']->status);
 
         $recordId = $checkInResult['record']->id;
         $record = AttendanceRecord::find($recordId);
@@ -131,7 +132,7 @@ class AttendanceDirectActionTest extends TestCase
             'attendance_date' => $record->attendance_date,
         ]);
 
-        $checkOutResult = $checkOut->execute($employee, CarbonImmutable::create(2026, 9, 12, 17, 1, 0), [
+        $checkOutResult = $checkOut->execute($employee, CarbonImmutable::create(2026, 9, 12, 17, 1, 0, 'Asia/Jakarta'), [
             'latitude' => -6.2,
             'longitude' => 106.8,
         ]);

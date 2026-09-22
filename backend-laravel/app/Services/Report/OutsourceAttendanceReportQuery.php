@@ -40,6 +40,7 @@ class OutsourceAttendanceReportQuery
                 DB::raw('(SELECT MIN(check_in_at) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as first_check_in'),
                 DB::raw('(SELECT MAX(check_out_at) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as last_check_out'),
                 DB::raw('(SELECT SUM(duration_minutes) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as total_duration'),
+                DB::raw('(SELECT COUNT(*) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as session_count'),
             ])
             ->join('outsources', 'outsources.id', '=', 'attendance_records.outsource_id')
             ->whereNotNull('attendance_records.outsource_id')

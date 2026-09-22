@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Report;
 
+use App\Support\AttendanceDateTime;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -15,7 +16,7 @@ class AttendanceReportResource extends JsonResource
             'employee_name' => $this->employee_name,
             'attendance_date' => $this->attendance_date?->toDateString(),
             'status' => $this->status,
-            'created_at' => $this->created_at?->toIso8601String(),
+            'created_at' => AttendanceDateTime::toApi($this->created_at),
         ];
     }
 }

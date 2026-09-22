@@ -10,6 +10,8 @@ use App\Policies\MonthlyRecapPolicy;
 use App\Services\Outsource\Session\ArrayOutsourceSessionStore;
 use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
 use App\Services\Outsource\Session\RedisOutsourceSessionStore;
+use Illuminate\Database\Events\ConnectionEstablished;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
@@ -38,6 +40,16 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Always pin PostgreSQL session TZ to UTC for timestamptz math.
+        // Attendance wall-clock (Asia/Jakarta) is applied at the application layer.
+        Event::listen(ConnectionEstablished::class, function (ConnectionEstablished $event): void {
+            if ($event->connection->getDriverName() !== 'pgsql') {
+                return;
+            }
+
+            $event->connection->statement("SET TIME ZONE 'UTC'");
+        });
+
         Gate::policy(LeaveRequest::class, LeaveRequestPolicy::class);
         Gate::policy(MonthlyRecap::class, MonthlyRecapPolicy::class);
         $this->registerAuthorizationGates();
