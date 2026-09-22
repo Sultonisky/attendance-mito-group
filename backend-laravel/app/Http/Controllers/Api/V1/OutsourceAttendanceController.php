@@ -11,19 +11,17 @@ use App\Http\Requests\Outsource\CheckInRequest;
 use App\Http\Requests\Outsource\CheckOutRequest;
 use App\Http\Requests\Outsource\SessionInitRequest;
 use App\Http\Resources\Outsource\OutsourceAttendanceResource;
-use App\Http\Resources\Outsource\OutsourceAttendanceSessionResource;
 use App\Models\AttendanceRecord;
-use App\Models\AttendanceSession;
 use App\Models\City;
 use App\Models\Outsource;
-use App\Models\OutsourceAttendanceSession;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\WorkLocation;
 use App\Actions\Audit\RecordAuditAction;
+use App\Services\Outsource\Session\OutsourceSessionCookie;
+use App\Services\Outsource\Session\OutsourceSessionStoreUnavailableException;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class OutsourceAttendanceController
@@ -33,6 +31,7 @@ class OutsourceAttendanceController
         protected ResolveOutsourceSession $resolveSession,
         protected OutsourceCheckIn $checkIn,
         protected OutsourceCheckOut $checkOut,
+        protected OutsourceSessionCookie $sessionCookie,
     ) {}
 
     public function cities(Request $request): JsonResponse
@@ -118,6 +117,12 @@ class OutsourceAttendanceController
                 'message' => $e->getMessage(),
                 'code' => 'DEVICE_BUSY',
             ], 409);
+        } catch (OutsourceSessionStoreUnavailableException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => 'SESSION_STORE_UNAVAILABLE',
+            ], 503);
         } catch (\InvalidArgumentException $e) {
             return response()->json([
                 'success' => false,
@@ -127,40 +132,53 @@ class OutsourceAttendanceController
         }
 
         $session = $result['session'];
+        $store = $result['store'];
 
         return response()->json([
             'success' => true,
             'data' => [
-                'session_token' => $result['session_token'],
-                'expires_at' => $session->expires_at->toIso8601String(),
+                'status' => 'READY',
+                'expires_at' => $session->expiresAt->toIso8601String(),
                 'outsource' => [
                     'id' => $result['outsource']->id,
                     'name' => $result['outsource']->name,
                     'outsource_code' => $result['outsource']->outsource_code,
                 ],
                 'store' => [
-                    'id' => $session->workLocation->id,
-                    'name' => $session->workLocation->name,
+                    'id' => $store->id,
+                    'name' => $store->name,
                 ],
             ],
-        ], 201);
+        ], 201)->cookie($this->sessionCookie->make($session->id, $session->expiresAt));
     }
 
     public function checkIn(CheckInRequest $request): JsonResponse
     {
-        $rawToken = $this->extractToken($request);
-        $resolution = $this->resolveSession->execute($rawToken);
+        $sessionId = $this->sessionCookie->read($request);
+        if ($sessionId === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid session.',
+                'code' => 'INVALID_SESSION',
+            ], 401);
+        }
+
+        $resolution = $this->resolveSession->execute($sessionId);
 
         if (! $resolution['valid']) {
+            $status = $resolution['code'] === 'SESSION_STORE_UNAVAILABLE' ? 503 : 401;
+
             return response()->json([
                 'success' => false,
                 'message' => $resolution['message'],
                 'code' => $resolution['code'],
-            ], 401);
+            ], $status);
         }
 
         $session = $resolution['session'];
-        $outsource = $session->outsource;
+        $outsource = Outsource::query()
+            ->withoutGlobalScopes()
+            ->find($session->outsourceId);
 
         if ($outsource === null || ! $outsource->isAttendanceActive()) {
             return response()->json([
@@ -170,7 +188,9 @@ class OutsourceAttendanceController
             ], 422);
         }
 
-        $store = $session->workLocation;
+        $store = WorkLocation::query()
+            ->withoutGlobalScopes()
+            ->find($session->storeId);
 
         if ($store === null || $store->status !== 'active' || $store->trashed()) {
             return response()->json([
@@ -220,19 +240,31 @@ class OutsourceAttendanceController
 
     public function checkOut(CheckOutRequest $request): JsonResponse
     {
-        $rawToken = $this->extractToken($request);
-        $resolution = $this->resolveSession->execute($rawToken);
+        $sessionId = $this->sessionCookie->read($request);
+        if ($sessionId === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid session.',
+                'code' => 'INVALID_SESSION',
+            ], 401);
+        }
+
+        $resolution = $this->resolveSession->execute($sessionId);
 
         if (! $resolution['valid']) {
+            $status = $resolution['code'] === 'SESSION_STORE_UNAVAILABLE' ? 503 : 401;
+
             return response()->json([
                 'success' => false,
                 'message' => $resolution['message'],
                 'code' => $resolution['code'],
-            ], 401);
+            ], $status);
         }
 
         $session = $resolution['session'];
-        $outsource = $session->outsource;
+        $outsource = Outsource::query()
+            ->withoutGlobalScopes()
+            ->find($session->outsourceId);
 
         if ($outsource === null || ! $outsource->isAttendanceActive()) {
             return response()->json([
@@ -242,7 +274,9 @@ class OutsourceAttendanceController
             ], 422);
         }
 
-        $store = $session->workLocation;
+        $store = WorkLocation::query()
+            ->withoutGlobalScopes()
+            ->find($session->storeId);
 
         if ($store === null || $store->status !== 'active' || $store->trashed()) {
             return response()->json([
@@ -280,7 +314,7 @@ class OutsourceAttendanceController
             ], 422);
         }
 
-        return (new OutsourceAttendanceResource([
+        $response = (new OutsourceAttendanceResource([
             'id' => $result['record']->id,
             'status' => $result['record']->status,
             'attendance_date' => $result['record']->attendance_date,
@@ -288,6 +322,12 @@ class OutsourceAttendanceController
             'check_out_at' => $result['session']->check_out_at,
             'duration_minutes' => $result['session']->duration_minutes,
         ]))->response();
+
+        if (! empty($result['invalidate_cookie'])) {
+            $response->headers->setCookie($this->sessionCookie->forget());
+        }
+
+        return $response;
     }
 
     /**
@@ -326,23 +366,6 @@ class OutsourceAttendanceController
         });
 
         return response()->json(['success' => true], 200);
-    }
-
-    private function extractToken(Request $request): string
-    {
-        $header = $request->header('Authorization');
-
-        if ($header === null || ! str_starts_with($header, 'Bearer ')) {
-            throw new \InvalidArgumentException('Missing session token.');
-        }
-
-        $token = substr($header, 7);
-
-        if ($token === '') {
-            throw new \InvalidArgumentException('Missing session token.');
-        }
-
-        return $token;
     }
 
     private function resolveOccurredAt(Request $request): CarbonImmutable
