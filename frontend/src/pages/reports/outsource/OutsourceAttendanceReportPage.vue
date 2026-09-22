@@ -108,7 +108,7 @@ const columns = computed<TableColumn<OutsourceAttendanceReportRow>[]>(() => [
     header: ({ column }) => createSortableHeader(column, 'Clock In'),
     cell: ({ row }) => {
       const v = row.getValue<string | null>('check_in_at')
-      return v ? new Date(v + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'
+      return v ? (() => { const d = new Date(v); return isNaN(d.getTime()) ? '—' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })() : '—'
     },
   },
   {
@@ -116,7 +116,7 @@ const columns = computed<TableColumn<OutsourceAttendanceReportRow>[]>(() => [
     header: ({ column }) => createSortableHeader(column, 'Clock Out'),
     cell: ({ row }) => {
       const v = row.getValue<string | null>('check_out_at')
-      return v ? new Date(v + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'
+      return v ? (() => { const d = new Date(v); return isNaN(d.getTime()) ? '—' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })() : '—'
     },
   },
   {

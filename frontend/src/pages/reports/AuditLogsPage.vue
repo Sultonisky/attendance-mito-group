@@ -56,6 +56,7 @@ const columns = computed<TableColumn<AuditLogRow>[]>(() => [
   },
   {
     accessorKey: 'actor',
+    id: 'actor_id',
     header: ({ column }) => createSortableHeader(column, 'Actor'),
     cell: ({ row }) => {
       const actor = row.original.actor
@@ -81,7 +82,12 @@ const columns = computed<TableColumn<AuditLogRow>[]>(() => [
   {
     accessorKey: 'created_at',
     header: ({ column }) => createSortableHeader(column, 'Created At'),
-    cell: ({ row }) => h('span', { class: 'text-xs text-[var(--ui-text-muted)]' }, row.original.created_at ? new Date(row.original.created_at + 'Z').toLocaleString() : '—'),
+    cell: ({ row }) => {
+      const value = row.original.created_at
+      if (!value) return '—'
+      const date = new Date(value)
+      return isNaN(date.getTime()) ? '—' : date.toLocaleString()
+    },
   },
 ])
 

@@ -81,7 +81,12 @@ const columns = computed<TableColumn<AttendanceReportRow>[]>(() => [
   {
     accessorKey: 'created_at',
     header: ({ column }) => createSortableHeader(column, 'Created At'),
-    cell: ({ row }) => new Date(row.getValue<string>('created_at') + 'Z').toLocaleString(),
+    cell: ({ row }) => {
+      const value = row.getValue<string>('created_at')
+      if (!value) return '—'
+      const date = new Date(value)
+      return isNaN(date.getTime()) ? '—' : date.toLocaleString()
+    },
   },
 ])
 

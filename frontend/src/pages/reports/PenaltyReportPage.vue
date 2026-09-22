@@ -135,7 +135,11 @@ const columns = computed<TableColumn<PenaltyReportRow>[]>(() => [
   {
     accessorKey: 'occurred_at',
     header: ({ column }) => createSortableHeader(column, 'Occurred At'),
-    cell: ({ row }) => new Date(row.getValue<string>('occurred_at') + 'Z').toLocaleString(),
+    cell: ({ row }) => {
+      const v = row.getValue<string>('occurred_at')
+      const d = new Date(v)
+      return isNaN(d.getTime()) ? '—' : d.toLocaleString()
+    },
   },
   {
     id: 'actions',

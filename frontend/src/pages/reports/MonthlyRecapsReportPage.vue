@@ -121,7 +121,7 @@ const columns = computed<TableColumn<MonthlyRecapRow>[]>(() => [
     header: ({ column }) => createSortableHeader(column, 'Finalized At'),
     cell: ({ row }) => {
       const v = row.getValue<string | null>('finalized_at')
-      return v ? new Date(v + 'Z').toLocaleString() : '—'
+      return v ? (() => { const d = new Date(v); return isNaN(d.getTime()) ? '—' : d.toLocaleString() })() : '—'
     },
   },
   {
@@ -129,7 +129,7 @@ const columns = computed<TableColumn<MonthlyRecapRow>[]>(() => [
     header: ({ column }) => createSortableHeader(column, 'Exported At'),
     cell: ({ row }) => {
       const v = row.getValue<string | null>('exported_at')
-      return v ? new Date(v + 'Z').toLocaleString() : '—'
+      return v ? (() => { const d = new Date(v); return isNaN(d.getTime()) ? '—' : d.toLocaleString() })() : '—'
     },
   },
   {

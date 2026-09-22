@@ -391,7 +391,7 @@ onMounted(async () => {
       <div class="space-y-3">
         <UAlert v-if="usersError" color="error" variant="subtle" :description="usersError" />
         <div v-else-if="usersBusy" class="py-6 flex justify-center">
-          <USpinner size="md" />
+          <div class="size-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
         <div v-else-if="assignedUsers.length === 0" class="py-4 text-sm text-muted text-center">
           No users assigned to this permission.
