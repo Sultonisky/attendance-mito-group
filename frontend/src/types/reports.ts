@@ -101,6 +101,7 @@ export type OutsourceAttendanceReportRow = {
   check_in_at: string | null
   check_out_at: string | null
   duration_minutes: number | null
+  session_count: number | null
 }
 
 export type OutsourceAttendanceReportFilters = {
