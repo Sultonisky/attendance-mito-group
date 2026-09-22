@@ -20,7 +20,7 @@ class AuditController extends Controller
             'actor_id' => ['nullable', 'integer', 'exists:users,id'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
             'page' => ['nullable', 'integer', 'min:1'],
-            'sort' => ['nullable', 'string', 'in:id,action,actor_id,created_at'],
+            'sort' => ['nullable', 'string', 'in:id,action,actor_id,auditable_type,auditable_id,ip_address,created_at'],
             'direction' => ['nullable', 'string', 'in:asc,desc'],
         ]);
 

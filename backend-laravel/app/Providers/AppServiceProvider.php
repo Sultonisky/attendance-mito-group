@@ -7,6 +7,9 @@ use App\Models\MonthlyRecap;
 use App\Models\User;
 use App\Policies\LeaveRequestPolicy;
 use App\Policies\MonthlyRecapPolicy;
+use App\Services\Outsource\Session\ArrayOutsourceSessionStore;
+use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
+use App\Services\Outsource\Session\RedisOutsourceSessionStore;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
@@ -19,7 +22,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(OutsourceSessionStoreInterface::class, function ($app) {
+            $driver = (string) config('outsource_session.driver', 'redis');
+
+            if ($driver === 'array') {
+                return new ArrayOutsourceSessionStore;
+            }
+
+            return new RedisOutsourceSessionStore;
+        });
     }
 
     /**

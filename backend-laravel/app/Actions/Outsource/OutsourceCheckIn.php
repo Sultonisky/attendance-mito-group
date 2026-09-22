@@ -12,8 +12,9 @@ use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
 use App\Enums\AttendanceEventType;
 use App\Exceptions\Domain\InactiveSubjectException;
 use App\Models\Outsource;
-use App\Models\OutsourceAttendanceSession;
 use App\Services\Outsource\OutsourceDeviceLockService;
+use App\Services\Outsource\Session\OutsourceSessionData;
+use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -23,9 +24,10 @@ class OutsourceCheckIn
         protected AttendanceEngine $engine,
         protected RecordAuditAction $audit,
         protected OutsourceDeviceLockService $deviceLock,
+        protected OutsourceSessionStoreInterface $sessions,
     ) {}
 
-    public function execute(Outsource $outsource, OutsourceAttendanceSession $session, CarbonImmutable $occurredAt, array $context): array
+    public function execute(Outsource $outsource, OutsourceSessionData $session, CarbonImmutable $occurredAt, array $context): array
     {
         $fingerprint = trim((string) ($context['device_fingerprint'] ?? ''));
         if ($fingerprint === '' || strlen($fingerprint) < 16) {
@@ -38,8 +40,8 @@ class OutsourceCheckIn
         }
 
         if (
-            filled($session->device_fingerprint)
-            && ! hash_equals((string) $session->device_fingerprint, $fingerprint)
+            $session->deviceFingerprint !== ''
+            && ! hash_equals($session->deviceFingerprint, $fingerprint)
         ) {
             return [
                 'success' => false,
@@ -68,7 +70,7 @@ class OutsourceCheckIn
             accuracy: $accuracy !== null ? (float) $accuracy : null,
             deviceIdentifier: $fingerprint,
             source: $context['source'] ?? 'web',
-            workLocationId: $session->work_location_id,
+            workLocationId: $session->storeId,
             occurredAt: $occurredAt,
             eventType: AttendanceEventType::CheckIn,
         );
@@ -120,8 +122,8 @@ class OutsourceCheckIn
         }
 
         $result = DB::transaction(function () use ($domainResult, $session, $fingerprint) {
-            if (! filled($session->device_fingerprint)) {
-                $session->update(['device_fingerprint' => $fingerprint]);
+            if ($session->deviceFingerprint === '') {
+                $this->sessions->put($session->withDeviceFingerprint($fingerprint));
             }
 
             $record = $domainResult->attendanceRecord;
@@ -136,8 +138,8 @@ class OutsourceCheckIn
                     'status' => $record->status,
                     'session_status' => $attendanceSession->status,
                     'check_in_at' => $attendanceSession->check_in_at?->toIso8601String(),
-                    'outsource_id' => $session->outsource_id,
-                    'store_id' => $session->work_location_id,
+                    'outsource_id' => $session->outsourceId,
+                    'store_id' => $session->storeId,
                     'device_fingerprint' => $fingerprint,
                 ],
                 null,

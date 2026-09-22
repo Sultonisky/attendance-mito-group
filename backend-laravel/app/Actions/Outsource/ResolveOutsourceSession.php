@@ -3,18 +3,45 @@
 namespace App\Actions\Outsource;
 
 use App\Enums\OutsourceAttendanceSessionStatus;
-use App\Models\OutsourceAttendanceSession;
-use Illuminate\Support\Facades\Hash;
+use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
+use App\Services\Outsource\Session\OutsourceSessionStoreUnavailableException;
 
 class ResolveOutsourceSession
 {
-    public function execute(string $rawToken): array
-    {
-        $tokenHash = hash('sha256', $rawToken);
+    public function __construct(
+        protected OutsourceSessionStoreInterface $sessions,
+    ) {}
 
-        $session = OutsourceAttendanceSession::query()
-            ->where('token_hash', $tokenHash)
-            ->first();
+    /**
+     * @return array{
+     *   valid: bool,
+     *   session: ?\App\Services\Outsource\Session\OutsourceSessionData,
+     *   code: ?string,
+     *   message: ?string
+     * }
+     */
+    public function execute(string $sessionId): array
+    {
+        $sessionId = trim($sessionId);
+        if ($sessionId === '') {
+            return [
+                'valid' => false,
+                'session' => null,
+                'code' => 'INVALID_SESSION',
+                'message' => 'Invalid session.',
+            ];
+        }
+
+        try {
+            $session = $this->sessions->find($sessionId);
+        } catch (OutsourceSessionStoreUnavailableException) {
+            return [
+                'valid' => false,
+                'session' => null,
+                'code' => 'SESSION_STORE_UNAVAILABLE',
+                'message' => 'Session store is temporarily unavailable.',
+            ];
+        }
 
         if ($session === null) {
             return [
@@ -22,6 +49,17 @@ class ResolveOutsourceSession
                 'session' => null,
                 'code' => 'INVALID_SESSION',
                 'message' => 'Invalid session.',
+            ];
+        }
+
+        if ($session->expiresAt->isPast()) {
+            $this->sessions->delete($sessionId);
+
+            return [
+                'valid' => false,
+                'session' => null,
+                'code' => 'SESSION_EXPIRED',
+                'message' => 'Session expired.',
             ];
         }
 
@@ -41,20 +79,11 @@ class ResolveOutsourceSession
             ];
         }
 
-        if ($session->expires_at->isPast()) {
-            return [
-                'valid' => false,
-                'session' => null,
-                'code' => 'SESSION_EXPIRED',
-                'message' => 'Session expired.',
-            ];
-        }
-
-        $session->update(['last_used_at' => now()]);
+        $touched = $this->sessions->touch($sessionId);
 
         return [
             'valid' => true,
-            'session' => $session,
+            'session' => $touched ?? $session,
             'code' => null,
             'message' => null,
         ];

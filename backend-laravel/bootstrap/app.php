@@ -23,6 +23,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // requests coming from the configured stateful domains.
         $middleware->statefulApi();
 
+        // Public outsource session id is an opaque HttpOnly credential managed
+        // by OutsourceSessionCookie — keep it outside Laravel's encrypted jar.
+        $middleware->encryptCookies(except: [
+            'outsource_session',
+        ]);
+
         // API-first app: there is no server-rendered login route. The Laravel
         // default guest redirect targets `route('login')`, which does not exist
         // here and throws RouteNotFoundException (HTTP 500) before the

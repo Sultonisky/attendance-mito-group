@@ -25,7 +25,7 @@ export interface Outsource {
 export interface OutsourceSessionResponse {
   success: boolean
   data: {
-    session_token: string
+    status: string
     expires_at: string
     outsource: Outsource
     store: Store
@@ -78,16 +78,12 @@ export async function initOutsourceSession(
 }
 
 export async function outsourceCheckIn(
-  token: string,
   latitude: number,
   longitude: number,
   accuracy?: number,
 ): Promise<OutsourceAttendanceResponse> {
   return apiFetch<OutsourceAttendanceResponse>('/outsource/attendance/check-in', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
     body: JSON.stringify({
       latitude,
       longitude,
@@ -99,16 +95,12 @@ export async function outsourceCheckIn(
 }
 
 export async function outsourceCheckOut(
-  token: string,
   latitude: number,
   longitude: number,
   accuracy?: number,
 ): Promise<OutsourceAttendanceResponse> {
   return apiFetch<OutsourceAttendanceResponse>('/outsource/attendance/check-out', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
     body: JSON.stringify({
       latitude,
       longitude,
@@ -118,4 +110,3 @@ export async function outsourceCheckOut(
     }),
   })
 }
-

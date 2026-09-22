@@ -10,10 +10,10 @@ use App\Domain\Attendance\Exceptions\InvalidLocationException;
 use App\Domain\Attendance\Exceptions\NoOpenAttendanceSessionException;
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
 use App\Enums\AttendanceEventType;
-use App\Enums\OutsourceAttendanceSessionStatus;
 use App\Exceptions\Domain\InactiveSubjectException;
 use App\Models\Outsource;
-use App\Models\OutsourceAttendanceSession;
+use App\Services\Outsource\Session\OutsourceSessionData;
+use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -22,9 +22,10 @@ class OutsourceCheckOut
     public function __construct(
         protected AttendanceEngine $engine,
         protected RecordAuditAction $audit,
+        protected OutsourceSessionStoreInterface $sessions,
     ) {}
 
-    public function execute(Outsource $outsource, OutsourceAttendanceSession $session, CarbonImmutable $occurredAt, array $context): array
+    public function execute(Outsource $outsource, OutsourceSessionData $session, CarbonImmutable $occurredAt, array $context): array
     {
         $fingerprint = trim((string) ($context['device_fingerprint'] ?? ''));
         if ($fingerprint === '' || strlen($fingerprint) < 16) {
@@ -37,8 +38,8 @@ class OutsourceCheckOut
         }
 
         if (
-            filled($session->device_fingerprint)
-            && ! hash_equals((string) $session->device_fingerprint, $fingerprint)
+            $session->deviceFingerprint !== ''
+            && ! hash_equals($session->deviceFingerprint, $fingerprint)
         ) {
             return [
                 'success' => false,
@@ -57,7 +58,7 @@ class OutsourceCheckOut
             accuracy: $accuracy !== null ? (float) $accuracy : null,
             deviceIdentifier: $fingerprint,
             source: $context['source'] ?? 'web',
-            workLocationId: $session->work_location_id,
+            workLocationId: $session->storeId,
             occurredAt: $occurredAt,
             eventType: AttendanceEventType::CheckOut,
         );
@@ -112,11 +113,6 @@ class OutsourceCheckOut
             $record = $domainResult->attendanceRecord;
             $attendanceSession = $domainResult->session;
 
-            $session->update([
-                'status' => OutsourceAttendanceSessionStatus::Completed->value,
-                'completed_at' => now(),
-            ]);
-
             $this->audit->execute(
                 null,
                 'outsource.attendance.check_out',
@@ -141,12 +137,16 @@ class OutsourceCheckOut
             return ['record' => $record, 'session' => $attendanceSession];
         });
 
+        // Ephemeral session is invalidated only after durable attendance succeeds.
+        $this->sessions->delete($session->id);
+
         return [
             'success' => true,
             'record' => $result['record'],
             'session' => $result['session'],
             'geofence' => $domainResult->geofence,
             'message' => 'Check-out recorded successfully.',
+            'invalidate_cookie' => true,
         ];
     }
 }
