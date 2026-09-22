@@ -2,18 +2,16 @@
 
 namespace Tests\Feature\Outsource;
 
-use App\Actions\Outsource\InitializeOutsourceAttendanceSession;
-use App\Actions\Outsource\OutsourceCheckIn;
-use App\Actions\Outsource\OutsourceCheckOut;
 use App\Actions\Outsource\ResolveOutsourceSession;
 use App\Enums\OutsourceAttendanceSessionStatus;
 use App\Models\AttendanceRecord;
 use App\Models\AttendanceSession;
 use App\Models\City;
 use App\Models\Outsource;
-use App\Models\OutsourceAttendanceSession;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\WorkLocation;
+use App\Services\Outsource\Session\OutsourceSessionData;
+use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -21,6 +19,24 @@ use Tests\TestCase;
 class OutsourcePublicApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    private const DEVICE_FINGERPRINT = 'testdevicefingerprint01';
+
+    private function cookieName(): string
+    {
+        return (string) config('outsource_session.cookie.name', 'outsource_session');
+    }
+
+    private function sessionStore(): OutsourceSessionStoreInterface
+    {
+        return $this->app->make(OutsourceSessionStoreInterface::class);
+    }
+
+    private function withOutsourceSession(string $sessionId): self
+    {
+        return $this->withCredentials()
+            ->withUnencryptedCookie($this->cookieName(), $sessionId);
+    }
 
     private function makeStore(float $lat, float $lng, float $radius = 150, ?int $cityId = null): WorkLocation
     {
@@ -40,10 +56,42 @@ class OutsourcePublicApiTest extends TestCase
             ->create(['status' => 'active']);
     }
 
-    private const DEVICE_FINGERPRINT = 'testdevicefingerprint01';
+    private function putSession(
+        Outsource $outsource,
+        WorkLocation $store,
+        string $sessionId = 'test-session-id-0123456789abcdef0123456789abcdef',
+        ?CarbonImmutable $expiresAt = null,
+        string $status = 'active',
+        string $fingerprint = self::DEVICE_FINGERPRINT,
+    ): OutsourceSessionData {
+        $now = CarbonImmutable::now();
+        $session = new OutsourceSessionData(
+            id: $sessionId,
+            outsourceId: $outsource->id,
+            storeId: $store->id,
+            status: $status,
+            deviceFingerprint: $fingerprint,
+            ipAddress: null,
+            userAgent: null,
+            createdAt: $now,
+            expiresAt: $expiresAt ?? $now->addHours(12),
+            lastUsedAt: $now,
+        );
 
-    private const DEVICE_FINGERPRINT_B = 'testdevicefingerprint02';
+        $this->sessionStore()->put($session);
 
+        return $session;
+    }
+
+    private function initPayload(City $city, WorkLocation $store, Outsource $outsource): array
+    {
+        return [
+            'city_id' => $city->id,
+            'store_id' => $store->id,
+            'outsource_id' => $outsource->id,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ];
+    }
 
     // ============================================================
     // DISCOVERY ENDPOINTS
@@ -68,7 +116,7 @@ class OutsourcePublicApiTest extends TestCase
         $store1 = WorkLocation::factory()->create(['city_id' => $city1->id]);
         WorkLocation::factory()->create(['city_id' => $city2->id]);
 
-        $response = $this->getJson('/api/v1/outsource/stores?city_id=' . $city1->id);
+        $response = $this->getJson('/api/v1/outsource/stores?city_id='.$city1->id);
 
         $response->assertStatus(200);
         $response->assertJsonCount(1, 'data');
@@ -81,10 +129,7 @@ class OutsourcePublicApiTest extends TestCase
         $store = WorkLocation::factory()->create();
         $this->makeActiveAssignment($outsource, $store);
 
-        $otherOutsource = Outsource::factory()->create();
-        $otherStore = WorkLocation::factory()->create();
-
-        $response = $this->getJson('/api/v1/outsource/outsources?store_id=' . $store->id);
+        $response = $this->getJson('/api/v1/outsource/outsources?store_id='.$store->id);
 
         $response->assertStatus(200);
         $response->assertJsonCount(1, 'data');
@@ -100,7 +145,7 @@ class OutsourcePublicApiTest extends TestCase
             'longitude' => 106.8166,
         ]);
 
-        $response = $this->getJson('/api/v1/outsource/stores?city_id=' . $city->id);
+        $response = $this->getJson('/api/v1/outsource/stores?city_id='.$city->id);
 
         $response->assertStatus(200);
         $response->assertJsonPath('data.0.id', $store->id);
@@ -113,7 +158,7 @@ class OutsourcePublicApiTest extends TestCase
         $city = City::factory()->create();
         WorkLocation::factory()->create(['city_id' => $city->id, 'status' => 'inactive']);
 
-        $response = $this->getJson('/api/v1/outsource/stores?city_id=' . $city->id);
+        $response = $this->getJson('/api/v1/outsource/stores?city_id='.$city->id);
 
         $response->assertStatus(200);
         $response->assertJsonCount(0, 'data');
@@ -125,7 +170,7 @@ class OutsourcePublicApiTest extends TestCase
         $store = WorkLocation::factory()->create();
         $this->makeActiveAssignment($outsource, $store);
 
-        $response = $this->getJson('/api/v1/outsource/outsources?store_id=' . $store->id);
+        $response = $this->getJson('/api/v1/outsource/outsources?store_id='.$store->id);
 
         $response->assertStatus(200);
         $response->assertJsonCount(0, 'data');
@@ -135,36 +180,21 @@ class OutsourcePublicApiTest extends TestCase
     // SESSION INIT
     // ============================================================
 
-    public function test_valid_assignment_creates_session(): void
+    public function test_valid_assignment_creates_session_cookie(): void
     {
         $city = City::factory()->create();
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
         $this->makeActiveAssignment($outsource, $store);
 
-        $response = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
 
         $response->assertStatus(201);
         $response->assertJson(['success' => true]);
-        $response->assertJsonStructure([
-            'data' => [
-                'session_token',
-                'expires_at',
-                'outsource' => ['id', 'name', 'outsource_code'],
-                'store' => ['id', 'name'],
-            ],
-        ]);
-        $this->assertDatabaseHas('outsource_attendance_sessions', [
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-        ]);
+        $response->assertJsonPath('data.status', 'READY');
+        $response->assertJsonMissingPath('data.session_token');
+        $response->assertCookie($this->cookieName());
+        $this->assertDatabaseCount('outsource_attendance_sessions', 0);
     }
 
     public function test_invalid_assignment_rejected(): void
@@ -173,13 +203,7 @@ class OutsourcePublicApiTest extends TestCase
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
 
-        $response = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
 
         $response->assertStatus(422);
         $response->assertJson(['success' => false]);
@@ -191,13 +215,7 @@ class OutsourcePublicApiTest extends TestCase
         $outsource = Outsource::factory()->create(['status' => 'inactive']);
         $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
 
-        $response = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
 
         $response->assertStatus(422);
     }
@@ -209,13 +227,7 @@ class OutsourcePublicApiTest extends TestCase
         $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
         $store->update(['status' => 'inactive']);
 
-        $response = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
 
         $response->assertStatus(422);
     }
@@ -228,88 +240,43 @@ class OutsourcePublicApiTest extends TestCase
         $store = $this->makeStore(-6.2, 106.8, 150, $city2->id);
         $this->makeActiveAssignment($outsource, $store);
 
-        $response = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city1->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city1, $store, $outsource));
 
         $response->assertStatus(422);
     }
 
-    public function test_raw_token_returned_once(): void
+    public function test_session_id_not_exposed_in_json_body(): void
     {
         $city = City::factory()->create();
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
         $this->makeActiveAssignment($outsource, $store);
 
-        $response = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
 
         $response->assertStatus(201);
-        $token = $response->json('data.session_token');
-        $this->assertNotEmpty($token);
-        $this->assertDatabaseHas('outsource_attendance_sessions', [
-            'token_hash' => hash('sha256', $token),
-        ]);
+        $this->assertNull($response->json('data.session_token'));
+        $this->assertNotEmpty($response->getCookie($this->cookieName(), false)?->getValue());
     }
 
-    public function test_token_hash_stored_not_raw_token(): void
+    public function test_reinit_revokes_previous_session_for_same_outsource(): void
     {
         $city = City::factory()->create();
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
         $this->makeActiveAssignment($outsource, $store);
 
-        $response = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $first = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
+        $firstId = $first->getCookie($this->cookieName(), false)?->getValue();
 
-        $token = $response->json('data.session_token');
-        $session = OutsourceAttendanceSession::first();
+        $second = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
+        $secondId = $second->getCookie($this->cookieName(), false)?->getValue();
 
-        $this->assertNotEquals($token, $session->token_hash);
-        $this->assertEquals(hash('sha256', $token), $session->token_hash);
-    }
-
-    public function test_token_not_predictable_from_ids(): void
-    {
-        $city = City::factory()->create();
-        $outsource = Outsource::factory()->create(['status' => 'active']);
-        $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
-        $this->makeActiveAssignment($outsource, $store);
-
-        $response1 = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
-
-        $response2 = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
-
-        $this->assertNotEquals($response1->json('data.session_token'), $response2->json('data.session_token'));
-        $this->assertEquals(1, OutsourceAttendanceSession::where('status', OutsourceAttendanceSessionStatus::Active->value)->count());
-        $this->assertEquals(1, OutsourceAttendanceSession::where('status', OutsourceAttendanceSessionStatus::Revoked->value)->count());
+        $this->assertNotEmpty($firstId);
+        $this->assertNotEmpty($secondId);
+        $this->assertNotEquals($firstId, $secondId);
+        $this->assertNull($this->sessionStore()->find((string) $firstId));
+        $this->assertNotNull($this->sessionStore()->find((string) $secondId));
     }
 
     public function test_device_with_open_attendance_cannot_init_session_for_another_outsource(): void
@@ -322,30 +289,18 @@ class OutsourcePublicApiTest extends TestCase
         $this->makeActiveAssignment($outsourceA, $store);
         $this->makeActiveAssignment($outsourceB, $store);
 
-        $initA = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsourceA->id,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $initA = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsourceA));
         $initA->assertStatus(201);
-        $tokenA = $initA->json('data.session_token');
+        $sessionId = (string) $initA->getCookie($this->cookieName(), false)?->getValue();
 
-        $this->postJson('/api/v1/outsource/attendance/check-in', [
+        $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer '.$tokenA,
         ])->assertStatus(201);
 
-        $initB = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsourceB->id,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $initB = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsourceB));
 
         $initB->assertStatus(409);
         $initB->assertJson([
@@ -361,149 +316,79 @@ class OutsourcePublicApiTest extends TestCase
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $this->makeActiveAssignment($outsource, $store);
 
-        $initA = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
-        $tokenA = $initA->json('data.session_token');
+        $initA = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
+        $tokenA = (string) $initA->getCookie($this->cookieName(), false)?->getValue();
 
-        $this->postJson('/api/v1/outsource/attendance/check-in', [
+        $this->withOutsourceSession($tokenA)->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer '.$tokenA,
         ])->assertStatus(201);
 
-        $initAgain = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $initAgain = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
 
         $initAgain->assertStatus(201);
-        $this->assertNotEquals($tokenA, $initAgain->json('data.session_token'));
+        $this->assertNotEquals($tokenA, $initAgain->getCookie($this->cookieName(), false)?->getValue());
     }
 
     // ============================================================
     // SESSION RESOLVER
     // ============================================================
 
-    private function createValidSession(): OutsourceAttendanceSession
+    public function test_valid_session_resolves_correct_binding(): void
     {
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
+        $session = $this->putSession($outsource, $store, 'valid-token-1234567890abcdef1234567890abcdef');
 
-        return OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'valid-token-123'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-            'last_used_at' => now(),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
-    }
-
-    public function test_valid_token_resolves_correct_session(): void
-    {
-        $session = $this->createValidSession();
-        $resolver = new ResolveOutsourceSession();
-
-        $result = $resolver->execute('valid-token-123');
+        $result = $this->app->make(ResolveOutsourceSession::class)->execute($session->id);
 
         $this->assertTrue($result['valid']);
         $this->assertEquals($session->id, $result['session']->id);
-        $this->assertEquals($session->outsource_id, $result['session']->outsource_id);
-        $this->assertEquals($session->work_location_id, $result['session']->work_location_id);
+        $this->assertEquals($outsource->id, $result['session']->outsourceId);
+        $this->assertEquals($store->id, $result['session']->storeId);
     }
 
-    public function test_invalid_token_rejected(): void
+    public function test_invalid_session_rejected(): void
     {
-        $resolver = new ResolveOutsourceSession();
-        $result = $resolver->execute('invalid-token');
+        $result = $this->app->make(ResolveOutsourceSession::class)->execute('invalid-token');
 
         $this->assertFalse($result['valid']);
         $this->assertEquals('INVALID_SESSION', $result['code']);
     }
 
-    public function test_expired_token_rejected(): void
+    public function test_expired_session_rejected(): void
     {
-        OutsourceAttendanceSession::create([
-            'outsource_id' => Outsource::factory()->create()->id,
-            'work_location_id' => $this->makeStore(-6.2, 106.8)->id,
-            'token_hash' => hash('sha256', 'expired-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->subHour(),
-            'last_used_at' => now()->subHour(),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $outsource = Outsource::factory()->create();
+        $store = $this->makeStore(-6.2, 106.8);
+        $this->putSession(
+            $outsource,
+            $store,
+            'expired-token-1234567890abcdef1234567890abcdef',
+            CarbonImmutable::now()->subHour(),
+        );
 
-        $resolver = new ResolveOutsourceSession();
-        $result = $resolver->execute('expired-token');
+        $result = $this->app->make(ResolveOutsourceSession::class)->execute('expired-token-1234567890abcdef1234567890abcdef');
 
         $this->assertFalse($result['valid']);
         $this->assertEquals('SESSION_EXPIRED', $result['code']);
     }
 
-    public function test_revoked_token_rejected(): void
+    public function test_session_cannot_switch_outsource_identity(): void
     {
-        OutsourceAttendanceSession::create([
-            'outsource_id' => Outsource::factory()->create()->id,
-            'work_location_id' => $this->makeStore(-6.2, 106.8)->id,
-            'token_hash' => hash('sha256', 'revoked-token'),
-            'status' => OutsourceAttendanceSessionStatus::Revoked->value,
-            'expires_at' => now()->addHours(12),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $other = Outsource::factory()->create(['status' => 'active']);
+        $store = $this->makeStore(-6.2, 106.8, 150);
+        $this->makeActiveAssignment($outsource, $store);
+        $session = $this->putSession($outsource, $store, 'bound-token-1234567890abcdef1234567890abcdef');
 
-        $resolver = new ResolveOutsourceSession();
-        $result = $resolver->execute('revoked-token');
-
-        $this->assertFalse($result['valid']);
-        $this->assertEquals('SESSION_REVOKED', $result['code']);
-    }
-
-    public function test_completed_token_rejected(): void
-    {
-        OutsourceAttendanceSession::create([
-            'outsource_id' => Outsource::factory()->create()->id,
-            'work_location_id' => $this->makeStore(-6.2, 106.8)->id,
-            'token_hash' => hash('sha256', 'completed-token'),
-            'status' => OutsourceAttendanceSessionStatus::Completed->value,
-            'expires_at' => now()->addHours(12),
-            'completed_at' => now(),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
-
-        $resolver = new ResolveOutsourceSession();
-        $result = $resolver->execute('completed-token');
-
-        $this->assertFalse($result['valid']);
-        $this->assertEquals('SESSION_COMPLETED', $result['code']);
-    }
-
-    public function test_token_cannot_switch_outsource(): void
-    {
-        $session = $this->createValidSession();
-        $otherOutsource = Outsource::factory()->create(['status' => 'active']);
-
-        // Even if we try to use the token for a different outsource, the session resolves to the correct one
-        $resolver = new ResolveOutsourceSession();
-        $result = $resolver->execute('valid-token-123');
+        $result = $this->app->make(ResolveOutsourceSession::class)->execute($session->id);
 
         $this->assertTrue($result['valid']);
-        $this->assertEquals($session->outsource_id, $result['session']->outsource_id);
-        $this->assertNotEquals($otherOutsource->id, $result['session']->outsource_id);
+        $this->assertEquals($outsource->id, $result['session']->outsourceId);
+        $this->assertNotEquals($other->id, $result['session']->outsourceId);
     }
 
     // ============================================================
@@ -515,24 +400,13 @@ class OutsourcePublicApiTest extends TestCase
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
-        $session = OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'checkin-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $session = $this->putSession($outsource, $store, 'checkin-token-234567890abcdef1234567890abcdef1');
 
-        $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer checkin-token',
         ]);
 
         $response->assertStatus(201);
@@ -552,121 +426,30 @@ class OutsourcePublicApiTest extends TestCase
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
-        OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'geofence-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $session = $this->putSession($outsource, $store, 'geofence-token-34567890abcdef1234567890abcdef12');
 
-        $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.3,
             'longitude' => 106.9,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer geofence-token',
         ]);
 
         $response->assertStatus(422);
         $response->assertJson(['success' => false, 'code' => 'OUTSIDE_GEOFENCE']);
     }
 
-    public function test_check_in_with_deactivated_assignment_rejected(): void
+    public function test_check_in_without_cookie_rejected(): void
     {
-        $outsource = Outsource::factory()->create(['status' => 'active']);
-        $store = $this->makeStore(-6.2, 106.8, 150);
-        $assignment = $this->makeActiveAssignment($outsource, $store);
-        $assignment->update(['status' => 'inactive']);
-
-        OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'assignment-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
-
         $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer assignment-token',
-        ]);
-
-        $response->assertStatus(422);
-        $response->assertJson(['success' => false, 'code' => 'INVALID_ASSIGNMENT']);
-    }
-
-    public function test_check_in_with_deactivated_store_rejected(): void
-    {
-        $outsource = Outsource::factory()->create(['status' => 'active']);
-        $store = $this->makeStore(-6.2, 106.8, 150);
-        $this->makeActiveAssignment($outsource, $store);
-        $store->update(['status' => 'inactive']);
-
-        OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'store-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
-        $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer store-token',
-        ]);
-
-        $response->assertStatus(422);
-        $response->assertJson(['success' => false, 'code' => 'INACTIVE_STORE']);
-    }
-
-    public function test_check_in_with_deactivated_outsource_rejected(): void
-    {
-        $outsource = Outsource::factory()->create(['status' => 'active']);
-        $store = $this->makeStore(-6.2, 106.8, 150);
-        $this->makeActiveAssignment($outsource, $store);
-        $outsource->update(['status' => 'inactive']);
-
-        OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'outsource-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
-
-        $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer outsource-token',
-        ]);
-
-        $response->assertStatus(422);
-        $response->assertJson(['success' => false, 'code' => 'INACTIVE_OUTSOURCE']);
+        $response->assertStatus(401);
+        $response->assertJson(['code' => 'INVALID_SESSION']);
     }
 
     public function test_duplicate_check_in_rejected(): void
@@ -674,34 +457,20 @@ class OutsourcePublicApiTest extends TestCase
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
-        OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'dup-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $session = $this->putSession($outsource, $store, 'dup-token-4567890abcdef1234567890abcdef123');
 
-        $this->postJson('/api/v1/outsource/attendance/check-in', [
+        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer dup-token',
         ])->assertStatus(201);
 
-        $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer dup-token',
         ]);
 
         $response->assertStatus(422);
@@ -712,29 +481,18 @@ class OutsourcePublicApiTest extends TestCase
     // CHECK OUT
     // ============================================================
 
-    private function openAttendanceSession(Outsource $outsource, WorkLocation $store): OutsourceAttendanceSession
+    private function openAttendanceSession(Outsource $outsource, WorkLocation $store): string
     {
-        $session = OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'checkout-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $session = $this->putSession($outsource, $store, 'checkout-token-567890abcdef1234567890abcdef1234');
 
-        $this->postJson('/api/v1/outsource/attendance/check-in', [
+        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer checkout-token',
         ])->assertStatus(201);
 
-        return $session;
+        return $session->id;
     }
 
     public function test_valid_session_with_open_attendance_can_check_out(): void
@@ -742,24 +500,18 @@ class OutsourcePublicApiTest extends TestCase
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
-        $this->openAttendanceSession($outsource, $store);
+        $sessionId = $this->openAttendanceSession($outsource, $store);
 
-        $response = $this->postJson('/api/v1/outsource/attendance/check-out', [
+        $response = $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer checkout-token',
         ]);
 
         $response->assertStatus(200);
         $response->assertJson(['success' => true]);
-
-        $session = OutsourceAttendanceSession::where('token_hash', hash('sha256', 'checkout-token'))->first();
-        $this->assertEquals(OutsourceAttendanceSessionStatus::Completed->value, $session->status);
-        $this->assertNotNull($session->completed_at);
+        $this->assertNull($this->sessionStore()->find($sessionId));
     }
 
     public function test_check_out_without_open_attendance_rejected(): void
@@ -767,49 +519,37 @@ class OutsourcePublicApiTest extends TestCase
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
-        OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'no-open-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $session = $this->putSession($outsource, $store, 'no-open-token-67890abcdef1234567890abcdef12345');
 
-        $response = $this->postJson('/api/v1/outsource/attendance/check-out', [
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer no-open-token',
         ]);
 
         $response->assertStatus(422);
         $response->assertJson(['success' => false, 'code' => 'NO_OPEN_ATTENDANCE']);
+        $this->assertNotNull($this->sessionStore()->find($session->id));
     }
 
-    public function test_check_out_outside_geofence_rejected(): void
+    public function test_check_out_outside_geofence_keeps_session_active(): void
     {
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
-        $this->openAttendanceSession($outsource, $store);
+        $sessionId = $this->openAttendanceSession($outsource, $store);
 
-        $response = $this->postJson('/api/v1/outsource/attendance/check-out', [
+        $response = $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', [
             'latitude' => -6.3,
             'longitude' => 106.9,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer checkout-token',
         ]);
 
         $response->assertStatus(422);
         $response->assertJson(['success' => false, 'code' => 'OUTSIDE_GEOFENCE']);
+        $this->assertNotNull($this->sessionStore()->find($sessionId));
     }
 
     public function test_check_out_with_expired_session_rejected(): void
@@ -817,91 +557,47 @@ class OutsourcePublicApiTest extends TestCase
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
-        OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'expired-checkout-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->subHour(),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $session = $this->putSession(
+            $outsource,
+            $store,
+            'expired-checkout-7890abcdef1234567890abcdef123456',
+            CarbonImmutable::now()->subHour(),
+        );
 
-        $this->postJson('/api/v1/outsource/attendance/check-in', [
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer expired-checkout-token',
-        ])->assertStatus(401);
-
-        $response = $this->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer expired-checkout-token',
         ]);
 
         $response->assertStatus(401);
         $response->assertJson(['code' => 'SESSION_EXPIRED']);
     }
 
-    public function test_check_out_with_deactivated_assignment_rejected(): void
-    {
-        $outsource = Outsource::factory()->create(['status' => 'active']);
-        $store = $this->makeStore(-6.2, 106.8, 150);
-        $assignment = $this->makeActiveAssignment($outsource, $store);
-        $this->openAttendanceSession($outsource, $store);
-        $assignment->update(['status' => 'inactive']);
-
-        $response = $this->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer checkout-token',
-        ]);
-
-        $response->assertStatus(422);
-        $response->assertJson(['success' => false, 'code' => 'INVALID_ASSIGNMENT']);
-    }
-
-    public function test_duplicate_checkout_rejected(): void
+    public function test_duplicate_checkout_rejected_after_session_deleted(): void
     {
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
-        $this->openAttendanceSession($outsource, $store);
+        $sessionId = $this->openAttendanceSession($outsource, $store);
 
-        $this->postJson('/api/v1/outsource/attendance/check-out', [
+        $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer checkout-token',
         ])->assertStatus(200);
 
-        $response = $this->postJson('/api/v1/outsource/attendance/check-out', [
+        $response = $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer checkout-token',
         ]);
 
         $response->assertStatus(401);
-        $response->assertJson(['code' => 'SESSION_COMPLETED']);
+        $response->assertJson(['code' => 'INVALID_SESSION']);
     }
 
     // ============================================================
@@ -913,40 +609,26 @@ class OutsourcePublicApiTest extends TestCase
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
-
-        $tokenHash = hash('sha256', 'cross-midnight-token');
-        OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => $tokenHash,
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $session = $this->putSession($outsource, $store, 'cross-midnight-890abcdef1234567890abcdef1234567');
 
         $checkInAt = CarbonImmutable::create(2026, 9, 14, 22, 0, 0);
         $checkOutAt = CarbonImmutable::create(2026, 9, 15, 6, 0, 0);
 
-        $this->withHeaders([
-            'Authorization' => 'Bearer cross-midnight-token',
+        $this->withOutsourceSession($session->id)->withHeaders([
             'X-Occurred-At' => $checkInAt->toAtomString(),
         ])->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ])->assertStatus(201);
 
-        $this->withHeaders([
-            'Authorization' => 'Bearer cross-midnight-token',
+        $this->withOutsourceSession($session->id)->withHeaders([
             'X-Occurred-At' => $checkOutAt->toAtomString(),
         ])->postJson('/api/v1/outsource/attendance/check-out', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ])->assertStatus(200);
 
@@ -954,63 +636,43 @@ class OutsourcePublicApiTest extends TestCase
         $this->assertNotNull($record);
         $this->assertEquals('2026-09-14', $record->attendance_date->toDateString());
 
-        $session = AttendanceSession::where('attendance_record_id', $record->id)->first();
-        $this->assertNotNull($session);
-        $this->assertEquals('2026-09-14 22:00:00', $session->check_in_at);
-        $this->assertEquals('2026-09-15 06:00:00', $session->check_out_at);
-        $this->assertEquals(480, $session->duration_minutes);
+        $attendanceSession = AttendanceSession::where('attendance_record_id', $record->id)->first();
+        $this->assertNotNull($attendanceSession);
+        $this->assertEquals('2026-09-14 22:00:00', $attendanceSession->check_in_at);
+        $this->assertEquals('2026-09-15 06:00:00', $attendanceSession->check_out_at);
+        $this->assertEquals(480, $attendanceSession->duration_minutes);
     }
 
     // ============================================================
     // SESSION LIFECYCLE
     // ============================================================
 
-    public function test_session_lifecycle_active_to_completed(): void
+    public function test_session_lifecycle_active_until_checkout_deletes_store_entry(): void
     {
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = $this->makeStore(-6.2, 106.8, 150);
         $this->makeActiveAssignment($outsource, $store);
-
-        $session = OutsourceAttendanceSession::create([
-            'outsource_id' => $outsource->id,
-            'work_location_id' => $store->id,
-            'token_hash' => hash('sha256', 'lifecycle-token'),
-            'status' => OutsourceAttendanceSessionStatus::Active->value,
-            'expires_at' => now()->addHours(12),
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $session = $this->putSession($outsource, $store, 'lifecycle-token-90abcdef1234567890abcdef12345678');
 
         $this->assertEquals(OutsourceAttendanceSessionStatus::Active->value, $session->status);
-        $this->assertNull($session->completed_at);
 
-        $this->postJson('/api/v1/outsource/attendance/check-in', [
+        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer lifecycle-token',
         ])->assertStatus(201);
 
-        $session->refresh();
-        $this->assertEquals(OutsourceAttendanceSessionStatus::Active->value, $session->status);
-        $this->assertNull($session->completed_at);
+        $this->assertNotNull($this->sessionStore()->find($session->id));
 
-        $this->postJson('/api/v1/outsource/attendance/check-out', [
+        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', [
             'latitude' => -6.2001,
             'longitude' => 106.8001,
             'accuracy_meters' => 10,
-        
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ], [
-            'Authorization' => 'Bearer lifecycle-token',
         ])->assertStatus(200);
 
-        $session->refresh();
-        $this->assertEquals(OutsourceAttendanceSessionStatus::Completed->value, $session->status);
-        $this->assertNotNull($session->completed_at);
+        $this->assertNull($this->sessionStore()->find($session->id));
     }
 
     // ============================================================
@@ -1025,22 +687,10 @@ class OutsourcePublicApiTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
 
         for ($i = 0; $i < 10; $i++) {
-            $this->postJson('/api/v1/outsource/session/init', [
-                'city_id' => $city->id,
-                'store_id' => $store->id,
-                'outsource_id' => $outsource->id,
-            
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+            $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
         }
 
-        $response = $this->postJson('/api/v1/outsource/session/init', [
-            'city_id' => $city->id,
-            'store_id' => $store->id,
-            'outsource_id' => $outsource->id,
-        
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
 
         $response->assertStatus(429);
     }
