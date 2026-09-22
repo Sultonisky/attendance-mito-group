@@ -34,16 +34,18 @@ export type BadgeColor = 'success' | 'warning' | 'error' | 'neutral' | 'info' | 
  */
 export function createSortableHeader<T>(column: Column<T>, label: string) {
   const isSorted = column.getIsSorted()
+  const canSort = column.getCanSort()
 
   return h(UButton, {
     color: 'neutral',
     variant: 'ghost',
     label,
-    icon: isSorted
-      ? (isSorted === 'asc' ? 'i-lucide-arrow-up-narrow-wide' : 'i-lucide-arrow-down-wide-narrow')
-      : 'i-lucide-arrow-up-down',
-    class: '-mx-2.5',
-    onClick: () => column.toggleSorting(column.getIsSorted() === 'asc'),
+    icon: canSort
+      ? (isSorted === 'asc' ? 'i-lucide-arrow-up-narrow-wide' : isSorted === 'desc' ? 'i-lucide-arrow-down-wide-narrow' : 'i-lucide-arrow-up-down')
+      : undefined,
+    class: canSort ? '-mx-2.5' : 'cursor-default',
+    disabled: !canSort,
+    onClick: canSort ? () => column.toggleSorting(column.getIsSorted() === 'asc') : undefined,
   })
 }
 
