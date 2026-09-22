@@ -7,6 +7,7 @@ use App\Domain\Attendance\DTOs\AttendanceOperationData;
 use App\Domain\Attendance\Engines\AttendanceEngine;
 use App\Domain\Attendance\Exceptions\AttendanceAlreadyCheckedInException;
 use App\Domain\Attendance\Exceptions\AttendanceBlockedByPolicyException;
+use App\Domain\Attendance\Exceptions\AttendanceDayAlreadyCompletedException;
 use App\Domain\Attendance\Exceptions\InvalidLocationException;
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
 use App\Enums\AttendanceEventType;
@@ -82,6 +83,13 @@ class OutsourceCheckIn
                 'success' => false,
                 'error' => 'ATTENDANCE_ALREADY_OPEN',
                 'message' => 'Attendance session already open for this period.',
+                'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
+            ];
+        } catch (AttendanceDayAlreadyCompletedException $e) {
+            return [
+                'success' => false,
+                'error' => 'ATTENDANCE_DAY_COMPLETED',
+                'message' => $e->getMessage(),
                 'geofence' => ['passed' => false, 'distance_meters' => null, 'method' => 'skipped'],
             ];
         } catch (OutsideGeofenceException $e) {

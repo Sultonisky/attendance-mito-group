@@ -2,13 +2,20 @@
 
 namespace App\Actions\Outsource;
 
+use App\Domain\Attendance\Services\OutsourceSessionExpiry;
 use App\Enums\AttendanceSessionStatus;
 use App\Models\AttendanceSession;
 use App\Models\Outsource;
 use App\Models\WorkLocation;
+use App\Support\AttendanceDateTime;
+use Carbon\CarbonImmutable;
 
 class ResolveOutsourceOpenAttendance
 {
+    public function __construct(
+        protected OutsourceSessionExpiry $sessionExpiry,
+    ) {}
+
     /**
      * @return array{
      *   attendance_id: int,
@@ -35,14 +42,18 @@ class ResolveOutsourceOpenAttendance
             return null;
         }
 
+        if ($this->sessionExpiry->expireIfPastLimit($open, CarbonImmutable::now('UTC'))) {
+            return null;
+        }
+
         $record = $open->attendanceRecord;
 
         return [
             'attendance_id' => $record->id,
             'status' => (string) $record->status,
             'attendance_date' => $record->attendance_date?->toDateString() ?? '',
-            'check_in_at' => $open->check_in_at?->toIso8601String(),
-            'check_out_at' => $open->check_out_at?->toIso8601String(),
+            'check_in_at' => AttendanceDateTime::toApi($open->check_in_at),
+            'check_out_at' => AttendanceDateTime::toApi($open->check_out_at),
             'duration_minutes' => $open->duration_minutes !== null ? (int) $open->duration_minutes : null,
         ];
     }
