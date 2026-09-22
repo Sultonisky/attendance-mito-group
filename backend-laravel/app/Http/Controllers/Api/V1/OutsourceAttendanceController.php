@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Actions\Outsource\InitializeOutsourceAttendanceSession;
 use App\Actions\Outsource\OutsourceCheckIn;
 use App\Actions\Outsource\OutsourceCheckOut;
+use App\Actions\Outsource\ResolveOutsourceOpenAttendance;
 use App\Actions\Outsource\ResolveOutsourceSession;
 use App\Exceptions\Domain\OutsourceDeviceBusyException;
 use App\Http\Requests\Outsource\CheckInRequest;
@@ -29,6 +30,7 @@ class OutsourceAttendanceController
     public function __construct(
         protected InitializeOutsourceAttendanceSession $initializeSession,
         protected ResolveOutsourceSession $resolveSession,
+        protected ResolveOutsourceOpenAttendance $resolveOpenAttendance,
         protected OutsourceCheckIn $checkIn,
         protected OutsourceCheckOut $checkOut,
         protected OutsourceSessionCookie $sessionCookie,
@@ -133,23 +135,88 @@ class OutsourceAttendanceController
 
         $session = $result['session'];
         $store = $result['store'];
+        $outsource = $result['outsource'];
+        $attendance = $this->resolveOpenAttendance->execute($outsource->id);
+        $status = $attendance !== null ? 'ACTIVE' : 'READY';
 
         return response()->json([
             'success' => true,
-            'data' => [
-                'status' => 'READY',
-                'expires_at' => $session->expiresAt->toIso8601String(),
-                'outsource' => [
-                    'id' => $result['outsource']->id,
-                    'name' => $result['outsource']->name,
-                    'outsource_code' => $result['outsource']->outsource_code,
-                ],
-                'store' => [
-                    'id' => $store->id,
-                    'name' => $store->name,
-                ],
-            ],
+            'data' => $this->resolveOpenAttendance->buildSessionPayload(
+                $status,
+                $session->expiresAt->toIso8601String(),
+                $outsource,
+                $store,
+                $attendance,
+            ),
         ], 201)->cookie($this->sessionCookie->make($session->id, $session->expiresAt));
+    }
+
+    /**
+     * Restore public session UI after tab close / refresh via HttpOnly cookie.
+     */
+    public function currentSession(Request $request): JsonResponse
+    {
+        $sessionId = $this->sessionCookie->read($request);
+        if ($sessionId === null) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'status' => 'NONE',
+                    'expires_at' => null,
+                    'outsource' => null,
+                    'store' => null,
+                    'attendance' => null,
+                ],
+            ]);
+        }
+
+        $resolution = $this->resolveSession->execute($sessionId);
+        if (! $resolution['valid']) {
+            $response = response()->json([
+                'success' => true,
+                'data' => [
+                    'status' => 'NONE',
+                    'expires_at' => null,
+                    'outsource' => null,
+                    'store' => null,
+                    'attendance' => null,
+                    'code' => $resolution['code'],
+                ],
+            ]);
+
+            return $response->cookie($this->sessionCookie->forget());
+        }
+
+        $session = $resolution['session'];
+        $outsource = Outsource::query()->withoutGlobalScopes()->find($session->outsourceId);
+        $store = WorkLocation::query()->withoutGlobalScopes()->find($session->storeId);
+
+        if ($outsource === null || $store === null) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'status' => 'NONE',
+                    'expires_at' => null,
+                    'outsource' => null,
+                    'store' => null,
+                    'attendance' => null,
+                ],
+            ])->cookie($this->sessionCookie->forget());
+        }
+
+        $attendance = $this->resolveOpenAttendance->execute($outsource->id);
+        $status = $attendance !== null ? 'ACTIVE' : 'READY';
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->resolveOpenAttendance->buildSessionPayload(
+                $status,
+                $session->expiresAt->toIso8601String(),
+                $outsource,
+                $store,
+                $attendance,
+            ),
+        ]);
     }
 
     public function checkIn(CheckInRequest $request): JsonResponse
