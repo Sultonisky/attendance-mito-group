@@ -65,6 +65,7 @@ class DomainAttendanceEngineContractTest extends TestCase
             new EarlyCheckoutRule,
             new AttendanceStateRule,
             new \App\Domain\Attendance\Services\OutsourceSessionExpiry,
+            new \App\Services\Outsource\ResolveOutsourceAllowedPins,
         );
     }
 
