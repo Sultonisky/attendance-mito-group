@@ -43,7 +43,7 @@ async function load(): Promise<void> {
     record.value = await fetchAttendanceToday()
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
-      await router.push({ name: 'login.employee' })
+      await router.push({ name: 'error.unauthorized' })
       return
     }
 
