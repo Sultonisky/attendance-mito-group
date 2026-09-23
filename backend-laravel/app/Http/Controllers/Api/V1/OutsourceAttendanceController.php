@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\Outsource\InitializeOutsourceAttendanceSession;
+use App\Actions\Outsource\ListOutsourceAttendanceHistory;
+use App\Actions\Outsource\LoginOutsourceAttendanceSession;
 use App\Actions\Outsource\OutsourceCheckIn;
 use App\Actions\Outsource\OutsourceCheckOut;
 use App\Actions\Outsource\ResolveOutsourceOpenAttendance;
@@ -10,6 +12,7 @@ use App\Actions\Outsource\ResolveOutsourceSession;
 use App\Exceptions\Domain\OutsourceDeviceBusyException;
 use App\Http\Requests\Outsource\CheckInRequest;
 use App\Http\Requests\Outsource\CheckOutRequest;
+use App\Http\Requests\Outsource\OutsourceLoginRequest;
 use App\Http\Requests\Outsource\SessionInitRequest;
 use App\Http\Resources\Outsource\OutsourceAttendanceResource;
 use App\Models\AttendanceRecord;
@@ -20,6 +23,7 @@ use App\Models\WorkLocation;
 use App\Actions\Audit\RecordAuditAction;
 use App\Services\Outsource\Session\OutsourceSessionCookie;
 use App\Services\Outsource\Session\OutsourceSessionStoreUnavailableException;
+use App\Services\Outsource\ResolveOutsourceAllowedPins;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,11 +33,14 @@ class OutsourceAttendanceController
 {
     public function __construct(
         protected InitializeOutsourceAttendanceSession $initializeSession,
+        protected LoginOutsourceAttendanceSession $loginSession,
         protected ResolveOutsourceSession $resolveSession,
         protected ResolveOutsourceOpenAttendance $resolveOpenAttendance,
+        protected ListOutsourceAttendanceHistory $listAttendanceHistory,
         protected OutsourceCheckIn $checkIn,
         protected OutsourceCheckOut $checkOut,
         protected OutsourceSessionCookie $sessionCookie,
+        protected ResolveOutsourceAllowedPins $resolveAllowedPins,
     ) {}
 
     public function cities(Request $request): JsonResponse
@@ -100,6 +107,44 @@ class OutsourceAttendanceController
             'success' => true,
             'data' => $outsources,
         ]);
+    }
+
+    public function login(OutsourceLoginRequest $request): JsonResponse
+    {
+        try {
+            $result = $this->loginSession->execute(
+                (string) $request->input('outsource_code'),
+                (string) $request->input('password'),
+                (string) $request->input('device_fingerprint'),
+                $request->userAgent(),
+                $request->ip(),
+            );
+        } catch (OutsourceDeviceBusyException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => 'DEVICE_BUSY',
+            ], 409);
+        } catch (OutsourceSessionStoreUnavailableException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => 'SESSION_STORE_UNAVAILABLE',
+            ], 503);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => 'INVALID_CREDENTIALS',
+            ], 422);
+        }
+
+        $session = $result['session'];
+
+        return response()->json([
+            'success' => true,
+            'data' => $result['payload'],
+        ], 201)->cookie($this->sessionCookie->make($session->id, $session->expiresAt));
     }
 
     public function initSession(SessionInitRequest $request): JsonResponse
@@ -216,6 +261,119 @@ class OutsourceAttendanceController
                 $store,
                 $attendance,
             ),
+        ]);
+    }
+
+    /**
+     * Allowed pins for the current Redis session (cabang assignment allowlist).
+     */
+    public function pins(Request $request): JsonResponse
+    {
+        $sessionId = $this->sessionCookie->read($request);
+        if ($sessionId === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid session.',
+                'code' => 'INVALID_SESSION',
+            ], 401);
+        }
+
+        $resolution = $this->resolveSession->execute($sessionId);
+        if (! $resolution['valid']) {
+            $status = $resolution['code'] === 'SESSION_STORE_UNAVAILABLE' ? 503 : 401;
+
+            return response()->json([
+                'success' => false,
+                'message' => $resolution['message'],
+                'code' => $resolution['code'],
+            ], $status);
+        }
+
+        $session = $resolution['session'];
+        $outsource = Outsource::query()->withoutGlobalScopes()->find($session->outsourceId);
+
+        if ($outsource === null || ! $outsource->isAttendanceActive()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Outsource is inactive.',
+                'code' => 'INACTIVE_OUTSOURCE',
+            ], 422);
+        }
+
+        try {
+            $resolved = $this->resolveAllowedPins->execute($outsource);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => 'INVALID_ASSIGNMENT',
+            ], 422);
+        }
+
+        if ((int) $resolved['assignment']->store_id !== (int) $session->storeId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Session cabang does not match active assignment.',
+                'code' => 'INVALID_ASSIGNMENT',
+            ], 422);
+        }
+
+        $pins = $resolved['pins']->map(fn ($pin) => [
+            'id' => $pin->id,
+            'name' => $pin->name,
+            'address' => $pin->address,
+            'latitude' => $pin->latitude,
+            'longitude' => $pin->longitude,
+            'radius_meters' => (float) config('attendance.outsource_geofence_radius_meters', 150),
+        ])->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $pins,
+        ]);
+    }
+
+    /**
+     * Own attendance history for the current Redis outsource session.
+     */
+    public function history(Request $request): JsonResponse
+    {
+        $sessionId = $this->sessionCookie->read($request);
+        if ($sessionId === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid session.',
+                'code' => 'INVALID_SESSION',
+            ], 401);
+        }
+
+        $resolution = $this->resolveSession->execute($sessionId);
+        if (! $resolution['valid']) {
+            $status = $resolution['code'] === 'SESSION_STORE_UNAVAILABLE' ? 503 : 401;
+
+            return response()->json([
+                'success' => false,
+                'message' => $resolution['message'],
+                'code' => $resolution['code'],
+            ], $status);
+        }
+
+        $session = $resolution['session'];
+        $outsource = Outsource::query()->withoutGlobalScopes()->find($session->outsourceId);
+
+        if ($outsource === null || ! $outsource->isAttendanceActive()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Outsource is inactive.',
+                'code' => 'INACTIVE_OUTSOURCE',
+            ], 422);
+        }
+
+        $limit = (int) $request->query('limit', 14);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->listAttendanceHistory->execute((int) $outsource->id, $limit),
         ]);
     }
 
