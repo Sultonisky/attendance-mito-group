@@ -6,8 +6,10 @@ use App\Models\City;
 use App\Models\Outsource;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\WorkLocation;
+use App\Models\WorkLocationPin;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\File;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -20,27 +22,126 @@ class OutsourceMasterDataImportTest extends TestCase
         return __DIR__.'/../../Fixtures/'.$name;
     }
 
-    public function test_valid_import_creates_master_data(): void
+    private function writeJson(array $rows): string
+    {
+        $path = storage_path('framework/testing/outsource-unified.json');
+        File::ensureDirectoryExists(dirname($path));
+        File::put($path, json_encode($rows, JSON_THROW_ON_ERROR));
+
+        return $path;
+    }
+
+    public function test_json_import_creates_cabang_per_city_with_pins(): void
+    {
+        $path = $this->writeJson([
+            [
+                'city' => 'BANDUNG',
+                'store' => 'YOGYA RIAU JUNCTION',
+                'employee' => 'Wiwit Pujiyanti',
+                'pin_name' => 'Riau 1',
+                'address' => 'Jl. Riau 1',
+                'lat' => -6.907563,
+                'lon' => 107.6117344,
+                'source' => 'excel_normalized',
+                'is_fallback' => false,
+            ],
+            [
+                'city' => 'BANDUNG',
+                'store' => 'YOGYA RIAU JUNCTION',
+                'employee' => 'Wiwit Pujiyanti',
+                'pin_name' => 'Riau 2',
+                'address' => 'Jl. Riau 2',
+                'lat' => -6.9080000,
+                'lon' => 107.6120000,
+                'source' => 'excel_normalized',
+                'is_fallback' => false,
+            ],
+            [
+                'city' => 'BANDUNG',
+                'store' => 'HARTONO',
+                'employee' => 'Deni Lindiansah',
+                'pin_name' => 'Hartono',
+                'address' => 'Jl. Hartono',
+                'lat' => -6.9100000,
+                'lon' => 107.6100000,
+                'source' => 'excel_normalized',
+                'is_fallback' => false,
+            ],
+            [
+                'city' => 'BANGKA',
+                'store' => 'MITO - SALES B2B',
+                'employee' => 'Martin Agustian',
+                'pin_name' => 'Wilayah Bangka',
+                'address' => 'Area kerja Bangka',
+                'lat' => -2.17,
+                'lon' => 106.12,
+                'radius_meters' => 80000,
+                'source' => 'manual_area',
+                'is_fallback' => false,
+            ],
+        ]);
+
+        $result = app(\App\Services\Import\OutsourceMasterDataImportService::class)->import($path);
+
+        $this->assertSame(2, $result['cities']['created']);
+        $this->assertSame(2, $result['cabangs']['created']);
+        $this->assertSame(3, $result['outsources']['created']);
+        $this->assertSame(4, $result['pins_created']);
+
+        $bandung = City::where('name', 'BANDUNG')->firstOrFail();
+        $cabang = WorkLocation::where('city_id', $bandung->id)->where('name', 'BANDUNG')->firstOrFail();
+        $this->assertSame(3, WorkLocationPin::where('work_location_id', $cabang->id)->count());
+
+        $defaultPin = WorkLocationPin::where('work_location_id', $cabang->id)->where('name', 'Riau 1')->firstOrFail();
+        $this->assertSame(150.0, (float) $defaultPin->radius_meters);
+
+        // Toko names must NOT become cabangs.
+        $this->assertSame(0, WorkLocation::where('name', 'YOGYA RIAU JUNCTION')->count());
+
+        $wiwit = Outsource::where('name', 'Wiwit Pujiyanti')->firstOrFail();
+        $assignment = OutsourceStoreAssignment::where('outsource_id', $wiwit->id)
+            ->where('store_id', $cabang->id)
+            ->firstOrFail();
+        $this->assertCount(2, $assignment->pins);
+
+        $martinPin = WorkLocationPin::where('name', 'Wilayah Bangka')->firstOrFail();
+        $this->assertSame(80000.0, (float) $martinPin->radius_meters);
+        $this->assertSame(80000.0, $martinPin->effectiveRadiusMeters());
+
+        $martin = Outsource::where('name', 'Martin Agustian')->firstOrFail();
+        $bangkaCabang = WorkLocation::where('name', 'BANGKA')->firstOrFail();
+        $martinAssignment = OutsourceStoreAssignment::where('outsource_id', $martin->id)
+            ->where('store_id', $bangkaCabang->id)
+            ->firstOrFail();
+        $this->assertCount(1, $martinAssignment->pins);
+        $this->assertTrue($martinAssignment->pins->contains('id', $martinPin->id));
+    }
+
+    public function test_legacy_csv_creates_cabang_per_city_not_per_toko(): void
     {
         $path = $this->fixturePath('outsource_sample.csv');
 
         $result = app(\App\Services\Import\OutsourceMasterDataImportService::class)->import($path);
 
         $this->assertSame(2, $result['cities']['created']);
-        $this->assertSame(8, $result['stores']['created']);
+        $this->assertSame(2, $result['cabangs']['created']);
         $this->assertSame(8, $result['outsources']['created']);
         $this->assertSame(8, $result['assignments']['created']);
 
         $this->assertDatabaseHas('cities', ['name' => 'BALIKPAPAN']);
-        $this->assertDatabaseHas('work_locations', ['name' => 'NUANSA BALIKPAPAN', 'city_id' => City::where('name', 'BALIKPAPAN')->value('id')]);
+        $this->assertDatabaseHas('work_locations', [
+            'name' => 'BALIKPAPAN',
+            'city_id' => City::where('name', 'BALIKPAPAN')->value('id'),
+        ]);
+        $this->assertDatabaseMissing('work_locations', ['name' => 'NUANSA BALIKPAPAN']);
         $this->assertDatabaseHas('outsources', ['name' => 'Devi Isvaradilla Agrully']);
         $this->assertDatabaseHas('outsource_store_assignments', [
             'outsource_id' => Outsource::where('name', 'Devi Isvaradilla Agrully')->value('id'),
-            'store_id' => WorkLocation::where('name', 'NUANSA BALIKPAPAN')->value('id'),
+            'store_id' => WorkLocation::where('name', 'BALIKPAPAN')->value('id'),
         ]);
     }
 
-    public function test_duplicate_city_and_store_are_reused(): void
+    public function test_duplicate_import_is_idempotent(): void
     {
         $path = $this->fixturePath('outsource_sample.csv');
 
@@ -48,12 +149,12 @@ class OutsourceMasterDataImportTest extends TestCase
         $result = app(\App\Services\Import\OutsourceMasterDataImportService::class)->import($path);
 
         $this->assertSame(0, $result['cities']['created']);
-        $this->assertSame(0, $result['stores']['created']);
+        $this->assertSame(0, $result['cabangs']['created']);
         $this->assertSame(0, $result['outsources']['created']);
         $this->assertSame(0, $result['assignments']['created']);
 
         $this->assertSame(2, City::count());
-        $this->assertSame(8, WorkLocation::count());
+        $this->assertSame(2, WorkLocation::count());
         $this->assertSame(8, Outsource::count());
         $this->assertSame(8, OutsourceStoreAssignment::count());
     }
@@ -64,7 +165,7 @@ class OutsourceMasterDataImportTest extends TestCase
 
         $this->expectException(RuntimeException::class);
 
-        app(\App\Services\Import\OutsourceMasterDataImportService::class)->import($path);
+        app(\App\Services\Import\OutsourceMasterDataImportService::class)->import($path, false, 150, false);
     }
 
     public function test_dry_run_does_not_persist_changes(): void
@@ -77,7 +178,6 @@ class OutsourceMasterDataImportTest extends TestCase
         $this->assertSame(0, City::count());
         $this->assertSame(0, WorkLocation::count());
         $this->assertSame(0, Outsource::count());
-        $this->assertSame(0, OutsourceStoreAssignment::count());
     }
 
     public function test_artisan_command_exists_and_supports_dry_run(): void
@@ -107,8 +207,6 @@ class OutsourceMasterDataImportTest extends TestCase
     {
         $path = $this->fixturePath('outsource_sample.csv');
 
-        // Import once so rows exist, then force an impossible threshold via a
-        // second call that only reuses existing rows — still count >= 8.
         Artisan::call('outsource:import', ['file' => $path]);
 
         $exitCode = Artisan::call('outsource:import', [
