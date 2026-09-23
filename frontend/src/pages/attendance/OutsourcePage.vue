@@ -84,6 +84,11 @@ const expiresAt = ref<string | null>(null);
 const loginCode = ref("");
 const loginPassword = ref("");
 const showLoginPassword = ref(false);
+
+function onLoginPinInput(event: Event): void {
+  const target = event.target as HTMLInputElement;
+  loginPassword.value = target.value.replace(/\D/g, "").slice(0, 8);
+}
 const allowedPins = ref<OutsourcePin[]>([]);
 const selectedPinId = ref<number | null>(null);
 const hasServerSession = ref(false);
@@ -196,7 +201,7 @@ const greetHint = computed(() => {
 
 const greetAllowedPinsLabel = computed(() => {
   const count = allowedPins.value.length;
-  if (count === 0) return "Semua pin toko";
+  if (count === 0) return "Semua pin cabang";
   if (count === 1) return allowedPins.value[0]?.name || "1 pin point";
   return `${count} pin point`;
 });
@@ -215,7 +220,7 @@ const greetPinsSectionHint = computed(() => {
   if (allowedPins.value.length === 1) {
     return "Satu pin point terhubung ke penugasan Anda.";
   }
-  return "Semua pin aktif di toko dapat dipilih saat absensi.";
+  return "Semua pin aktif di cabang dapat dipilih saat absensi.";
 });
 
 function formatHistoryStatus(status: string): string {
@@ -393,6 +398,26 @@ const isAttendanceOpen = computed(() => step.value === "attendance_open");
 
 const STORE_GEOFENCE_RADIUS_METERS = 150;
 
+/** Active pin geofence radius (pin override, else default 150 m). */
+const activeGeofenceRadiusMeters = computed(() => {
+  const pin =
+    selectedPin.value ??
+    (allowedPins.value.length === 1 ? allowedPins.value[0] : null);
+  if (pin?.radius_meters != null && Number(pin.radius_meters) > 0) {
+    return Number(pin.radius_meters);
+  }
+  return STORE_GEOFENCE_RADIUS_METERS;
+});
+
+const activeGeofenceRadiusLabel = computed(() => {
+  const meters = activeGeofenceRadiusMeters.value;
+  if (meters >= 1000) {
+    const km = meters / 1000;
+    return Number.isInteger(km) ? `${km} km` : `${km.toFixed(1)} km`;
+  }
+  return `${Math.round(meters)} m`;
+});
+
 /** Straight-line distance (meters) from current GPS to selected store. */
 const distanceToStoreMeters = computed((): number | null => {
   if (!selectedStoreLocation.value || !currentMapLocation.value) return null;
@@ -417,7 +442,7 @@ const distanceToStoreMeters = computed((): number | null => {
 
 const isInsideStoreRadius = computed(() => {
   const distance = distanceToStoreMeters.value;
-  return distance !== null && distance <= STORE_GEOFENCE_RADIUS_METERS;
+  return distance !== null && distance <= activeGeofenceRadiusMeters.value;
 });
 
 /** Big hero number for Live Tracking. */
@@ -452,7 +477,7 @@ const distanceHeroCaption = computed(() => {
   }
   const remaining = Math.max(
     0,
-    Math.round((distanceToStoreMeters.value ?? 0) - STORE_GEOFENCE_RADIUS_METERS),
+    Math.round((distanceToStoreMeters.value ?? 0) - activeGeofenceRadiusMeters.value),
   );
   return `${remaining} m lagi ke radius absensi`;
 });
@@ -460,7 +485,7 @@ const distanceHeroCaption = computed(() => {
 const remainingToRadiusMeters = computed((): number | null => {
   const distance = distanceToStoreMeters.value;
   if (distance === null) return null;
-  return Math.max(0, Math.round(distance - STORE_GEOFENCE_RADIUS_METERS));
+  return Math.max(0, Math.round(distance - activeGeofenceRadiusMeters.value));
 });
 
 const selectedPinLabel = computed(() => selectedPin.value?.name ?? null);
@@ -495,7 +520,7 @@ const activePinStatsDetail = computed(() => {
   if (selectedPin.value) {
     return (
       selectedPin.value.address?.trim() ||
-      `Radius validasi ${STORE_GEOFENCE_RADIUS_METERS} m`
+      `Radius validasi ${activeGeofenceRadiusLabel.value}`
     );
   }
   const count = allowedPins.value.length;
@@ -505,7 +530,7 @@ const activePinStatsDetail = computed(() => {
   if (count === 1) {
     return (
       allowedPins.value[0]?.address?.trim() ||
-      `Radius validasi ${STORE_GEOFENCE_RADIUS_METERS} m`
+      `Radius validasi ${activeGeofenceRadiusLabel.value}`
     );
   }
   return "Tidak ada pin aktif untuk penugasan ini";
@@ -514,7 +539,7 @@ const activePinStatsDetail = computed(() => {
 const mapLocationMetaLabel = computed(() => {
   if (selectedPin.value) return "Pin aktif";
   if (allowedPins.value.length > 1) return "Preview pin";
-  return "Toko";
+  return "Cabang";
 });
 
 const mapLocationMetaValue = computed(() => {
@@ -522,7 +547,7 @@ const mapLocationMetaValue = computed(() => {
   if (allowedPins.value.length > 1) {
     return `${allowedPins.value.length} opsi — pilih dulu`;
   }
-  return selectedStoreName.value || "Toko";
+  return selectedStoreName.value || "Cabang";
 });
 
 const heroDistanceStatusClass = computed(() => {
@@ -830,7 +855,7 @@ function updateCartoMap(options?: { recenterOnTarget?: boolean }): void {
     ];
     if (!storeRadius) {
       storeRadius = L.circle(radiusCenter, {
-        radius: STORE_GEOFENCE_RADIUS_METERS,
+        radius: activeGeofenceRadiusMeters.value,
         color: "#f59e0b",
         weight: 2,
         opacity: 0.8,
@@ -839,6 +864,7 @@ function updateCartoMap(options?: { recenterOnTarget?: boolean }): void {
       }).addTo(cartoMap);
     } else {
       storeRadius.setLatLng(radiusCenter);
+      storeRadius.setRadius(activeGeofenceRadiusMeters.value);
     }
   }
 
@@ -1398,7 +1424,7 @@ async function onCitySelected(): Promise<void> {
     if (err instanceof ApiError) {
       error.value = err.message;
     } else {
-      error.value = "Gagal memuat daftar toko. Silakan coba lagi.";
+      error.value = "Gagal memuat daftar cabang. Silakan coba lagi.";
     }
   } finally {
     isLoading.value = false;
@@ -1428,8 +1454,8 @@ async function onStoreSelected(): Promise<void> {
     await nextTick();
     if (!selectedStoreLocation.value) {
       mapError.value = isUsingCityFallback.value
-        ? "Menampilkan perkiraan pusat kota. Ini bukan lokasi asli toko; presensi tetap menunggu koordinat toko."
-        : "Lokasi toko dan koordinat kota belum tersedia. Silakan hubungi admin.";
+        ? "Menampilkan perkiraan pusat kota. Ini bukan lokasi pin; pilih pin point untuk validasi radius."
+        : "Lokasi cabang/pin dan koordinat kota belum tersedia. Silakan hubungi admin.";
     } else {
       mapError.value = "";
     }
@@ -1519,8 +1545,14 @@ async function onOutsourceSelected(): Promise<void> {
 }
 
 async function submitLogin(): Promise<void> {
-  if (!loginCode.value.trim() || !loginPassword.value) {
-    error.value = "Masukkan kode outsource dan password.";
+  const pin = loginPassword.value.replace(/\D/g, "").slice(0, 8);
+  loginPassword.value = pin;
+  if (!loginCode.value.trim() || !pin) {
+    error.value = "Masukkan kode outsource dan PIN.";
+    return;
+  }
+  if (!/^\d{4,8}$/.test(pin)) {
+    error.value = "PIN harus 4–8 digit angka.";
     return;
   }
 
@@ -1531,7 +1563,7 @@ async function submitLogin(): Promise<void> {
   try {
     const response = await loginOutsourceSession(
       loginCode.value.trim(),
-      loginPassword.value,
+      pin,
     );
     hasServerSession.value = true;
     expiresAt.value = response.data.expires_at;
@@ -1589,7 +1621,7 @@ async function enterAttendanceStep(
 async function startSession(): Promise<void> {
   if (!selectedStoreLocation.value) {
     error.value =
-      "Koordinat lokasi toko belum tersedia. Presensi tidak dapat dilanjutkan sebelum admin mengatur lokasi toko.";
+      "Koordinat pin belum tersedia. Presensi tidak dapat dilanjutkan sebelum admin mengatur pin cabang.";
     return;
   }
 
@@ -1921,7 +1953,7 @@ async function submitAttendance(): Promise<void> {
         case 422:
           error.value =
             err.message ??
-            "Presensi gagal. Pastikan Anda berada di dalam area radius 150m toko penugasan.";
+            "Presensi gagal. Pastikan Anda berada di dalam radius pin yang dipilih.";
           break;
         case 429:
           error.value = "Terlalu banyak percobaan. Harap tunggu beberapa saat.";
@@ -2016,7 +2048,7 @@ onUnmounted(() => {
         <div class="login-heading">
           <p class="eyebrow">OUTSOURCE ACCESS</p>
           <h2>Sign in to outsource app</h2>
-          <p class="login-intro">Use your outsource code and password to continue.</p>
+          <p class="login-intro">Use your outsource code and numeric PIN to continue.</p>
         </div>
 
         <form novalidate @submit.prevent="submitLogin">
@@ -2036,21 +2068,25 @@ onUnmounted(() => {
           </label>
 
           <label class="field-label">
-            <span>Password</span>
+            <span>PIN</span>
             <span class="field-control">
               <AppIcon name="LockKeyhole" class-name="field-icon" :size="16" :stroke-width="2" aria-hidden="true" />
               <input
                 v-model="loginPassword"
                 :type="showLoginPassword ? 'text' : 'password'"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                maxlength="8"
                 name="password"
                 autocomplete="current-password"
-                placeholder="Enter your password"
+                placeholder="6-digit PIN"
                 :disabled="isSubmitting"
+                @input="onLoginPinInput"
               />
               <button
                 type="button"
                 class="password-toggle"
-                :aria-label="showLoginPassword ? 'Hide password' : 'Show password'"
+                :aria-label="showLoginPassword ? 'Hide PIN' : 'Show PIN'"
                 @click="showLoginPassword = !showLoginPassword"
               >
                 <AppIcon v-if="!showLoginPassword" name="Eye" :size="16" :stroke-width="2" />
@@ -2127,7 +2163,7 @@ onUnmounted(() => {
       </p>
       <p v-else-if="isSessionActive">
         Sesi individu aktif di
-        <strong>{{ selectedStoreName || "Toko Penugasan" }}</strong
+        <strong>{{ selectedStoreName || "Cabang Penugasan" }}</strong
         >.
       </p>
       <p v-else>
@@ -2236,7 +2272,7 @@ onUnmounted(() => {
             <strong>{{ selectedCityName || "—" }}</strong>
           </div>
           <div class="greet-fact">
-            <span>Toko</span>
+            <span>Cabang</span>
             <strong>{{ selectedStoreName || "—" }}</strong>
           </div>
           <div class="greet-fact">
@@ -2266,7 +2302,7 @@ onUnmounted(() => {
             </li>
           </ul>
           <p v-else class="greet-card__empty">
-            Belum ada subset pin khusus — semua pin aktif di toko dapat dipilih saat absensi.
+            Belum ada subset pin khusus — semua pin aktif di cabang dapat dipilih saat absensi.
           </p>
           <p v-if="allowedPins.length > 0" class="greet-card__pins-note">
             {{ greetPinsSectionHint }}
@@ -2371,7 +2407,7 @@ onUnmounted(() => {
           :class="{ active: step === 'store', done: step === 'outsource' }"
         >
           <span class="step-num">2</span>
-          <span class="step-text">Toko</span>
+          <span class="step-text">Cabang</span>
         </div>
         <div class="step-divider" />
         <div class="step-item" :class="{ active: step === 'outsource' }">
@@ -2427,7 +2463,7 @@ onUnmounted(() => {
           :disabled="selectedCity === null || isLoading"
           @click="onCitySelected"
         >
-          {{ isLoading ? "Memuat Toko..." : "Lanjutkan ke Pilih Toko" }}
+          {{ isLoading ? "Memuat Cabang..." : "Lanjutkan ke Pilih Cabang" }}
         </AppButton>
       </section>
 
@@ -2437,15 +2473,15 @@ onUnmounted(() => {
             <AppIcon name="Building2" :size="18" :stroke-width="2" />
           </span>
           <div>
-            <h2>Pilih Toko / Lokasi Kerja</h2>
+            <h2>Pilih Cabang / Lokasi Kerja</h2>
             <p class="card-sub">
-              Pilih toko tempat Anda bertugas di kota yang dipilih.
+              Pilih cabang tempat Anda bertugas di kota yang dipilih.
             </p>
           </div>
         </div>
 
         <div class="field-block">
-          <label for="store-select">Toko / Outlet</label>
+          <label for="store-select">Cabang</label>
           <div class="select-wrapper">
             <select
               id="store-select"
@@ -2453,7 +2489,7 @@ onUnmounted(() => {
               :disabled="isLoading"
               @change="onStoreSelected"
             >
-              <option :value="null" disabled>-- Pilih toko / outlet --</option>
+              <option :value="null" disabled>-- Pilih cabang --</option>
               <option v-for="store in stores" :key="store.id" :value="store.id">
                 {{ store.name }}
               </option>
@@ -2500,7 +2536,7 @@ onUnmounted(() => {
           <div>
             <h2>Pilih Profil Personel</h2>
             <p class="card-sub">
-              Pilih nama Anda yang terdaftar pada penugasan toko ini.
+              Pilih nama Anda yang terdaftar pada penugasan cabang ini.
             </p>
           </div>
         </div>
@@ -2539,7 +2575,7 @@ onUnmounted(() => {
             />
           </div>
           <p v-if="outsources.length === 0 && !isLoading" class="hint-empty">
-            Belum ada data pekerja outsource yang ditugaskan di toko ini.
+            Belum ada data pekerja outsource yang ditugaskan di cabang ini.
           </p>
         </div>
 
@@ -2582,7 +2618,7 @@ onUnmounted(() => {
                       ? `Saat ini ±${locationAccuracy} m — target maksimal ±${maxGpsAccuracyMeters} m`
                       : `Menunggu sinyal akurat (maksimal ±${maxGpsAccuracyMeters} m)`
                     : locationStatus === "ready"
-                      ? `Akurasi ±${locationAccuracy ?? 0} m (maksimal ±${maxGpsAccuracyMeters} m). Radius toko tetap 150 m.`
+                      ? `Akurasi ±${locationAccuracy ?? 0} m (maksimal ±${maxGpsAccuracyMeters} m). Radius pin: ${activeGeofenceRadiusLabel}.`
                       : locationStatus === "error"
                         ? "Ketuk Aktifkan lokasi setelah mengizinkan akses di browser/Safari."
                         : selectedOutsource
@@ -2722,7 +2758,7 @@ onUnmounted(() => {
               class="hero-distance__remain"
             >
               Sisa <strong>{{ remainingToRadiusMeters }} m</strong> ke radius
-              {{ STORE_GEOFENCE_RADIUS_METERS }} m
+              {{ activeGeofenceRadiusLabel }}
             </p>
             <p
               v-else-if="isInsideStoreRadius && isGpsAccuracyAcceptable"
@@ -2790,10 +2826,10 @@ onUnmounted(() => {
             <p class="card-sub">
               {{
                 selectedPinLabel
-                  ? "Radius 150 m mengikuti pin point yang dipilih."
+                  ? `Radius ${activeGeofenceRadiusLabel} mengikuti pin point yang dipilih.`
                   : allowedPins.length > 1
                     ? "Pilih pin point dulu agar jarak & radius akurat."
-                    : "Visualisasi lokasi absensi dan area validasi 150 meter."
+                    : `Visualisasi lokasi absensi dan area validasi ${activeGeofenceRadiusLabel}.`
               }}
             </p>
           </div>
@@ -2811,7 +2847,7 @@ onUnmounted(() => {
           v-if="!mapError || isUsingCityFallback"
           ref="mapContainer"
           class="carto-map"
-          aria-label="Peta lokasi toko dan GPS pengguna"
+          aria-label="Peta lokasi cabang/pin dan GPS pengguna"
         />
 
         <div class="map-meta-row">
@@ -2822,7 +2858,7 @@ onUnmounted(() => {
           <div class="map-meta-pill">
             <span>Radius</span>
             <strong>{{
-              isUsingCityFallback ? "Belum tersedia" : "150 m"
+              isUsingCityFallback ? "Belum tersedia" : activeGeofenceRadiusLabel
             }}</strong>
           </div>
           <div class="map-meta-pill">
@@ -2842,7 +2878,7 @@ onUnmounted(() => {
 
       <section class="mini-summary-grid">
         <div class="mini-summary-item">
-          <span>Toko</span>
+          <span>Cabang</span>
           <strong>{{ assignmentLocationLabel }}</strong>
         </div>
         <div class="mini-summary-item">
@@ -2873,7 +2909,7 @@ onUnmounted(() => {
 
       <section class="info-grid">
         <div class="info-card">
-          <span class="info-title">Toko</span>
+          <span class="info-title">Cabang</span>
           <strong>{{ selectedStoreName || "—" }}</strong>
           <small>{{ selectedCityName || "Penugasan cabang" }}</small>
         </div>
@@ -2907,10 +2943,10 @@ onUnmounted(() => {
           <p class="card-sub">
             {{
               selectedPinLabel
-                ? "Radius 150 m mengikuti pin point yang dipilih."
+                ? `Radius ${activeGeofenceRadiusLabel} mengikuti pin point yang dipilih.`
                 : allowedPins.length > 1
                   ? "Pilih pin point dulu agar jarak & radius akurat."
-                  : "Visualisasi lokasi absensi dan area validasi 150 meter."
+                  : `Visualisasi lokasi absensi dan area validasi ${activeGeofenceRadiusLabel}.`
             }}
           </p>
         </div>
@@ -2928,7 +2964,7 @@ onUnmounted(() => {
         v-if="!mapError || isUsingCityFallback"
         ref="mapContainer"
         class="carto-map"
-        aria-label="Peta lokasi toko dan GPS pengguna"
+        aria-label="Peta lokasi cabang/pin dan GPS pengguna"
       />
 
       <div class="map-meta-row">
@@ -2939,7 +2975,7 @@ onUnmounted(() => {
         <div class="map-meta-pill">
           <span>Radius</span>
           <strong>{{
-            isUsingCityFallback ? "Belum tersedia" : "150 m"
+            isUsingCityFallback ? "Belum tersedia" : activeGeofenceRadiusLabel
           }}</strong>
         </div>
         <div class="map-meta-pill">

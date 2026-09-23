@@ -7,6 +7,7 @@ import { useReportPage } from '../../../composables/useReportPage'
 import { useDataTableSort } from '../../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../../composables/useDataTableDisplay'
 import { usePermission } from '../../../features/auth/composables/usePermission'
+import { useAppToast } from '../../../composables/useAppToast'
 import {
   fetchOutsourcePersons,
   createOutsourcePerson,
@@ -23,10 +24,11 @@ import {
 } from '../../../services/outsourceWorkLocationApi'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
-import { createSortableHeader, createStatusBadge } from '../../../utils/dataTable'
+import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../../utils/dataTable'
 
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 const { can } = usePermission()
+const toast = useAppToast()
 
 // ── Table data ────────────────────────────────────────────────────────────────
 const data = ref<OutsourcePersonRow[]>([])
@@ -63,7 +65,8 @@ const hideableColumns = [
   { id: 'outsource_code', label: 'Code'    },
   { id: 'name',           label: 'Name'    },
   { id: 'city',           label: 'City'    },
-  { id: 'store',          label: 'Store'   },
+  { id: 'store',          label: 'Cabang'  },
+  { id: 'pins',           label: 'Pins'    },
   { id: 'status',         label: 'Status'  },
   { id: 'created_at',     label: 'Joined'  },
   { id: 'actions',        label: 'Actions' },
@@ -105,29 +108,44 @@ const columns = computed<TableColumn<OutsourcePersonRow>[]>(() => [
   {
     accessorKey: 'outsource_code',
     header: ({ column }) => createSortableHeader(column, 'Code'),
-    cell: ({ row }) => {
-      const code = row.original.outsource_code || '—'
-      return h('span', {
-        class: 'block w-[9rem] truncate font-mono text-xs text-[var(--ui-text-muted)] tracking-tight cursor-default',
-        title: code,
-      }, code)
-    },
+    cell: ({ row }) => createTruncatedText(
+      row.original.outsource_code,
+      'font-mono text-xs text-[var(--ui-text-muted)] tracking-tight',
+    ),
   },
   {
     accessorKey: 'name',
     header: ({ column }) => createSortableHeader(column, 'Name'),
+    cell: ({ row }) => createTruncatedText(row.original.name, 'text-sm font-medium'),
   },
   {
     id: 'city',
     header: ({ column }) => createSortableHeader(column, 'City'),
     accessorFn: (row) => row.city?.name ?? '',
-    cell: ({ row }) => row.original.city?.name ?? '—',
+    cell: ({ row }) => createTruncatedText(row.original.city?.name),
   },
   {
     id: 'store',
-    header: ({ column }) => createSortableHeader(column, 'Store'),
+    header: ({ column }) => createSortableHeader(column, 'Cabang'),
     accessorFn: (row) => row.store?.name ?? '',
-    cell: ({ row }) => row.original.store?.name ?? '—',
+    cell: ({ row }) => createTruncatedText(row.original.store?.name),
+  },
+  {
+    id: 'pins',
+    header: 'Pins',
+    cell: ({ row }) => {
+      const ids = row.original.pin_ids ?? []
+      if (!row.original.store) {
+        return h('span', { class: 'text-[var(--ui-text-dimmed)] text-xs' }, '—')
+      }
+      if (ids.length === 0) {
+        return createTruncatedText('All cabang pins', 'text-xs text-muted')
+      }
+      return h('span', {
+        class: 'inline-flex max-w-full items-center truncate rounded-full bg-primary/10 text-primary px-2 py-0.5 text-xs font-semibold',
+        title: `${ids.length} pin${ids.length === 1 ? '' : 's'}`,
+      }, `${ids.length} pin${ids.length === 1 ? '' : 's'}`)
+    },
   },
   {
     accessorKey: 'status',
@@ -140,7 +158,7 @@ const columns = computed<TableColumn<OutsourcePersonRow>[]>(() => [
   {
     accessorKey: 'created_at',
     header: ({ column }) => createSortableHeader(column, 'Joined'),
-    cell: ({ row }) => row.original.created_at ?? '—',
+    cell: ({ row }) => createTruncatedText(row.original.created_at, 'text-sm tabular-nums'),
   },
   {
     id: 'actions',
@@ -303,7 +321,7 @@ function openCreate(): void {
   formMode.value  = 'create'
   editingId.value = null
   form.name       = ''
-  form.password   = ''
+  form.password   = '123456'
   form.city_id    = ''
   form.store_id   = ''
   form.pin_ids    = []
@@ -351,8 +369,13 @@ async function openEdit(person: OutsourcePersonRow): Promise<void> {
 
 async function submitForm(): Promise<void> {
   if (!form.name.trim()) { formError.value = 'Name is required.'; return }
-  if (formMode.value === 'create' && !form.password.trim()) {
-    formError.value = 'Password is required for login.'
+  const pin = form.password.trim()
+  if (formMode.value === 'create' && pin === '') {
+    form.password = '123456'
+  }
+  const passwordToSend = form.password.trim()
+  if (passwordToSend !== '' && !/^\d{4,8}$/.test(passwordToSend)) {
+    formError.value = 'PIN must be 4–8 digits.'
     return
   }
   formBusy.value = true
@@ -362,15 +385,17 @@ async function submitForm(): Promise<void> {
       name:     form.name.trim(),
       store_id: form.store_id ? Number(form.store_id) : null,
       pin_ids:  form.store_id ? form.pin_ids : [],
-      password: form.password.trim() || null,
+      password: passwordToSend || null,
     }
     if (formMode.value === 'create') {
       await createOutsourcePerson({
         ...payload,
-        password: form.password.trim(),
+        password: passwordToSend || '123456',
       })
+      toast.success('Person created', 'Outsource person saved with login PIN.')
     } else if (editingId.value !== null) {
       await updateOutsourcePerson(editingId.value, payload)
+      toast.success('Person updated')
     }
     showFormModal.value = false
     await load()
@@ -386,7 +411,11 @@ async function handleToggle(person: OutsourcePersonRow): Promise<void> {
     const res = await toggleOutsourcePersonStatus(person.id)
     const idx = data.value.findIndex(p => p.id === person.id)
     if (idx !== -1) data.value[idx] = { ...data.value[idx], status: res.data.status as 'active' | 'inactive' }
-  } catch { await load() }
+    toast.success(res.data.status === 'active' ? 'Person activated' : 'Person deactivated')
+  } catch (e: unknown) {
+    toast.fromError(e, 'Unable to update person status.')
+    await load()
+  }
 }
 
 function confirmDelete(person: OutsourcePersonRow): void {
@@ -401,9 +430,10 @@ async function executeDelete(): Promise<void> {
     await deleteOutsourcePerson(deleteTarget.value.id)
     showDeleteModal.value = false
     deleteTarget.value = null
+    toast.success('Person deleted')
     await load()
   } catch (e: unknown) {
-    // keep modal open with generic error
+    toast.fromError(e, 'Unable to delete this person.')
   } finally {
     deleteBusy.value = false
   }
@@ -477,7 +507,7 @@ onMounted(async () => {
               />
               <USelect
                 :model-value="toSelectId(filters.store_id)"
-                :items="[{ label: 'All stores', value: ALL }, ...stores.map(s => ({ label: s.name, value: String(s.id) }))]"
+                :items="[{ label: 'All cabangs', value: ALL }, ...stores.map(s => ({ label: s.name, value: String(s.id) }))]"
                 value-key="value"
                 class="w-36"
                 :disabled="!filters.city_id"
@@ -521,10 +551,10 @@ onMounted(async () => {
           />
         </UFormField>
 
-        <UFormField label="Store">
+        <UFormField label="Cabang">
           <USelect
             :model-value="toSelectId(form.store_id)"
-            :items="[{ label: 'No store', value: ALL }, ...formModalStores.map(s => ({ label: s.name, value: String(s.id) }))]"
+            :items="[{ label: 'No cabang', value: ALL }, ...formModalStores.map(s => ({ label: s.name, value: String(s.id) }))]"
             value-key="value"
             class="w-full"
             :disabled="!form.city_id"
@@ -533,17 +563,21 @@ onMounted(async () => {
         </UFormField>
 
         <UFormField
-          :label="formMode === 'create' ? 'Password' : 'New password'"
-          :hint="formMode === 'edit' ? 'Leave blank to keep current password' : 'Used for outsource attendance login'"
+          :label="formMode === 'create' ? 'PIN' : 'New PIN'"
+          :hint="formMode === 'edit' ? 'Leave blank to keep current PIN' : 'Numeric PIN for outsource login (default 123456)'"
           :required="formMode === 'create'"
         >
           <UInput
-            v-model="form.password"
+            :model-value="form.password"
             :type="showPassword ? 'text' : 'password'"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="8"
             autocomplete="new-password"
-            placeholder="Min. 4 characters"
+            placeholder="123456"
             class="w-full"
             :ui="{ trailing: 'pe-1' }"
+            @update:model-value="(v: string | number) => { form.password = String(v ?? '').replace(/\D/g, '').slice(0, 8) }"
           >
             <template #trailing>
               <UButton
@@ -551,7 +585,7 @@ onMounted(async () => {
                 variant="link"
                 size="sm"
                 :icon="showPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'"
-                :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                :aria-label="showPassword ? 'Hide PIN' : 'Show PIN'"
                 @click="showPassword = !showPassword"
               />
             </template>
@@ -561,10 +595,10 @@ onMounted(async () => {
         <UFormField
           v-if="form.store_id"
           label="Allowed pins"
-          hint="Leave unchecked to allow all active pins of this store"
+          hint="Leave unchecked to allow all active pins of this cabang"
         >
           <div v-if="formPins.length === 0" class="text-sm text-muted">
-            No active pins on this store yet. Add pins from Work Locations.
+            No active pins on this cabang yet. Add pins from Cabangs.
           </div>
           <div v-else class="max-h-48 space-y-2 overflow-y-auto rounded-md border border-default p-3">
             <label
@@ -578,6 +612,11 @@ onMounted(async () => {
               />
               <span>
                 <span class="font-medium">{{ pin.name }}</span>
+                <span class="text-muted">
+                  · {{ pin.radius_meters != null && pin.radius_meters >= 1000
+                    ? `${pin.radius_meters / 1000} km`
+                    : `${pin.radius_meters ?? 150} m` }}
+                </span>
                 <span v-if="pin.address" class="text-muted"> — {{ pin.address }}</span>
               </span>
             </label>
