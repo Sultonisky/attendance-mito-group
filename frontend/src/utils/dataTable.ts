@@ -11,8 +11,9 @@ export const DATA_TABLE_UI = {
   base: 'table-fixed border-separate border-spacing-0 w-full text-sm',
   thead: '[&>tr]:bg-[var(--ui-bg-elevated)]/60 [&>tr]:after:content-none',
   tbody: '[&>tr]:last:[&>td]:border-b-0',
-  th: 'first:rounded-l-lg last:rounded-r-lg border-y border-[var(--ui-border)] first:border-l last:border-r px-3 py-2.5 text-xs font-semibold tracking-wide text-[var(--ui-text-muted)]',
-  td: 'border-b border-[var(--ui-border)] px-3 py-2.5',
+  th: 'first:rounded-l-lg last:rounded-r-lg border-y border-[var(--ui-border)] first:border-l last:border-r px-3 py-2.5 text-xs font-semibold tracking-wide text-[var(--ui-text-muted)] overflow-hidden',
+  // overflow-hidden + max-w-0: with table-fixed, long cell text truncates instead of spilling into the next column
+  td: 'border-b border-[var(--ui-border)] px-3 py-2.5 overflow-hidden max-w-0',
   separator: 'h-0',
 } as const
 
@@ -43,10 +44,22 @@ export function createSortableHeader<T>(column: Column<T>, label: string) {
     icon: canSort
       ? (isSorted === 'asc' ? 'i-lucide-arrow-up-narrow-wide' : isSorted === 'desc' ? 'i-lucide-arrow-down-wide-narrow' : 'i-lucide-arrow-up-down')
       : undefined,
-    class: canSort ? '-mx-2.5' : 'cursor-default',
+    class: canSort ? '-mx-2.5 cursor-pointer' : 'cursor-default',
     disabled: !canSort,
     onClick: canSort ? () => column.toggleSorting(column.getIsSorted() === 'asc') : undefined,
   })
+}
+
+/** Truncated single-line cell text with native tooltip for the full value. */
+export function createTruncatedText(
+  value: string | null | undefined,
+  className = 'text-sm',
+) {
+  const text = value && value.trim() !== '' ? value : '—'
+  return h('span', {
+    class: `block min-w-0 truncate ${className}`,
+    title: text === '—' ? undefined : text,
+  }, text)
 }
 
 /** Status badge cell helper for report/dashboard tables. */
