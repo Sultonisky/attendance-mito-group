@@ -18,7 +18,7 @@ class UpdateOutsourcePersonRequest extends FormRequest
     {
         return [
             'name'     => ['sometimes', 'required', 'string', 'max:255'],
-            'password' => ['nullable', 'string', 'min:4', 'max:255'],
+            'password' => ['nullable', 'string', 'digits_between:4,8'],
             'status'   => ['sometimes', 'required', 'string', 'in:active,inactive'],
             'store_id' => ['nullable', 'integer', 'exists:work_locations,id'],
             'pin_ids'  => ['nullable', 'array'],
@@ -32,10 +32,11 @@ class UpdateOutsourcePersonRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'name.required'    => 'Name is required.',
-            'name.max'         => 'Name may not exceed 255 characters.',
-            'status.in'        => 'Status must be active or inactive.',
-            'store_id.exists'  => 'The selected store does not exist.',
+            'name.required'           => 'Name is required.',
+            'name.max'                => 'Name may not exceed 255 characters.',
+            'password.digits_between' => 'Password must be a numeric PIN (4–8 digits).',
+            'status.in'               => 'Status must be active or inactive.',
+            'store_id.exists'         => 'The selected store does not exist.',
         ];
     }
 }

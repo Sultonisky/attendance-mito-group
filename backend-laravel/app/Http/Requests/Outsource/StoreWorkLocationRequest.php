@@ -31,8 +31,8 @@ class StoreWorkLocationRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'name.required'        => 'Store name is required.',
-            'name.max'             => 'Store name may not exceed 255 characters.',
+            'name.required'        => 'Cabang name is required.',
+            'name.max'             => 'Cabang name may not exceed 255 characters.',
             'city_id.exists'       => 'The selected city does not exist.',
             'latitude.between'     => 'Latitude must be between -90 and 90.',
             'longitude.between'    => 'Longitude must be between -180 and 180.',

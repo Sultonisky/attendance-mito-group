@@ -22,7 +22,8 @@ class UpdateWorkLocationPinRequest extends FormRequest
             'address' => ['nullable', 'string', 'max:500'],
             'latitude' => ['sometimes', 'required', 'numeric', 'between:-90,90'],
             'longitude' => ['sometimes', 'required', 'numeric', 'between:-180,180'],
-            'radius_meters' => ['nullable', 'numeric', 'min:1', 'max:5000'],
+            // Area pins (e.g. whole-cabang coverage) may need tens of km.
+            'radius_meters' => ['nullable', 'numeric', 'min:1', 'max:100000'],
             'status' => ['sometimes', 'required', 'string', Rule::in(['active', 'inactive'])],
         ];
     }

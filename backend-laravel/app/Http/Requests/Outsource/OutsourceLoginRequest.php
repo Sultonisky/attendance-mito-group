@@ -18,8 +18,18 @@ class OutsourceLoginRequest extends FormRequest
     {
         return [
             'outsource_code' => ['required', 'string', 'max:100'],
-            'password' => ['required', 'string', 'min:4', 'max:255'],
+            'password' => ['required', 'string', 'digits_between:4,8'],
             'device_fingerprint' => ['required', 'string', 'min:16', 'max:128'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'password.digits_between' => 'Password must be a numeric PIN (4–8 digits).',
         ];
     }
 }
