@@ -9,51 +9,63 @@ use RuntimeException;
 class ImportOutsourceMasterData extends Command
 {
     protected $signature = 'outsource:import
-                            {file : Path to the Excel/CSV file}
-                            {--dry-run : Validate and report what would be imported without saving changes}
-                            {--require-min=0 : Fail after import when active outsource count is below this (deploy guard)}';
+                            {file : Path to data/stores.json (preferred) or legacy CSV/XLSX}
+                            {--dry-run : Validate and report without saving changes}
+                            {--allow-partial : Skip invalid rows instead of failing the whole import}
+                            {--radius=150 : Pin attendance radius in meters}
+                            {--require-min=0 : Fail after import when outsource count is below this (deploy guard)}';
 
-    protected $description = 'Import outsource master data from Excel/CSV into City, WorkLocation, Outsource, and assignment tables.';
+    protected $description = 'Import outsource cabang/kota, people, pins, and pin allowlists from stores.json.';
 
     public function handle(OutsourceMasterDataImportService $service): int
     {
-        $file = $this->argument('file');
+        $file = (string) $this->argument('file');
         $dryRun = (bool) $this->option('dry-run');
+        $allowPartial = (bool) $this->option('allow-partial');
+        $radius = (float) $this->option('radius');
         $requireMin = max(0, (int) $this->option('require-min'));
 
+        // JSON SOT tolerates incomplete pin rows; legacy CSV stays strict unless flagged.
+        $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        if ($extension === 'json' && ! $this->input->hasParameterOption('--allow-partial')) {
+            $allowPartial = true;
+        }
+
         try {
-            $result = $service->import($file, $dryRun);
+            $result = $service->import($file, $dryRun, $radius, $allowPartial);
         } catch (RuntimeException $exception) {
             $this->error($exception->getMessage());
 
             return self::FAILURE;
         }
 
-        $this->info('Outsource Master Data Import');
+        $this->info('Outsource Import (cabang + pins)');
         $this->line('');
         $this->line('Source: '.basename($file));
         $this->line('Rows: '.($result['total_rows'] ?? 0));
-        $this->line('Skipped blank: '.($result['skipped_blank_rows'] ?? 0));
-        $this->line('Valid rows: '.($result['valid_rows'] ?? 0));
-        $this->line('Invalid rows: '.($result['invalid_rows'] ?? 0));
+        $this->line('Valid: '.($result['valid_rows'] ?? 0));
+        $this->line('Invalid: '.($result['invalid_rows'] ?? 0));
+        $this->line('Pin rows: '.($result['pin_rows'] ?? 0));
+        $this->line('Master-only rows: '.($result['master_only_rows'] ?? 0));
         $this->line('');
 
-        $this->table([
-            'Entity',
-            'Created',
-            'Existing',
-        ], [
+        $this->table(['Entity', 'Created', 'Existing'], [
             ['Cities', $result['cities']['created'] ?? 0, $result['cities']['existing'] ?? 0],
-            ['Stores', $result['stores']['created'] ?? 0, $result['stores']['existing'] ?? 0],
+            ['Cabangs', $result['cabangs']['created'] ?? 0, $result['cabangs']['existing'] ?? 0],
             ['Outsources', $result['outsources']['created'] ?? 0, $result['outsources']['existing'] ?? 0],
             ['Assignments', $result['assignments']['created'] ?? 0, $result['assignments']['existing'] ?? 0],
         ]);
 
-        if (($result['invalid_rows'] ?? 0) > 0) {
-            $this->warn('Invalid rows detected:');
-            foreach ($result['invalid_details'] ?? [] as $detail) {
-                $this->line(sprintf('Row %s: %s is empty', $detail['row_number'], $detail['field']));
-            }
+        $this->line('Pins created: '.($result['pins_created'] ?? 0));
+        $this->line('Pins updated: '.($result['pins_updated'] ?? 0));
+        $this->line('Pins already current: '.($result['pins_existing'] ?? 0));
+        $this->line('Assignment pin syncs: '.($result['assignment_pins_synced'] ?? 0));
+
+        if (! empty($result['details'])) {
+            $this->table(['Row', 'Reason'], array_map(
+                static fn (array $detail): array => [$detail['row'], $detail['reason']],
+                array_slice($result['details'], 0, 30)
+            ));
         }
 
         if ($dryRun) {
