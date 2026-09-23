@@ -10,6 +10,7 @@ use App\Models\City;
 use App\Models\Outsource;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\WorkLocation;
+use App\Models\WorkLocationPin;
 use App\Services\Outsource\Session\OutsourceSessionData;
 use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
 use Carbon\CarbonImmutable;
@@ -40,12 +41,47 @@ class OutsourcePublicApiTest extends TestCase
 
     private function makeStore(float $lat, float $lng, float $radius = 150, ?int $cityId = null): WorkLocation
     {
-        return WorkLocation::factory()->create([
+        $store = WorkLocation::factory()->create([
             'latitude' => $lat,
             'longitude' => $lng,
             'radius_meters' => $radius,
             'city_id' => $cityId,
         ]);
+
+        WorkLocationPin::factory()
+            ->forLocation($store)
+            ->atCoordinates($lat, $lng, $radius)
+            ->create([
+                'name' => $store->name,
+                'status' => 'active',
+            ]);
+
+        return $store;
+    }
+
+    private function defaultPin(WorkLocation $store): WorkLocationPin
+    {
+        return WorkLocationPin::query()
+            ->where('work_location_id', $store->id)
+            ->where('status', 'active')
+            ->orderBy('id')
+            ->firstOrFail();
+    }
+
+    private function attendancePayload(
+        WorkLocation $store,
+        float $lat,
+        float $lng,
+        float $accuracy = 10,
+        ?int $pinId = null,
+    ): array {
+        return [
+            'latitude' => $lat,
+            'longitude' => $lng,
+            'accuracy_meters' => $accuracy,
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+            'pin_id' => $pinId ?? $this->defaultPin($store)->id,
+        ];
     }
 
     private function makeActiveAssignment(Outsource $outsource, WorkLocation $store): OutsourceStoreAssignment
@@ -293,12 +329,7 @@ class OutsourcePublicApiTest extends TestCase
         $initA->assertStatus(201);
         $sessionId = (string) $initA->getCookie($this->cookieName(), false)?->getValue();
 
-        $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(201);
+        $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(201);
 
         $initB = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsourceB));
 
@@ -319,12 +350,7 @@ class OutsourcePublicApiTest extends TestCase
         $initA = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
         $tokenA = (string) $initA->getCookie($this->cookieName(), false)?->getValue();
 
-        $this->withOutsourceSession($tokenA)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(201);
+        $this->withOutsourceSession($tokenA)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(201);
 
         $initAgain = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
 
@@ -353,12 +379,7 @@ class OutsourcePublicApiTest extends TestCase
         $init = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
         $sessionId = (string) $init->getCookie($this->cookieName(), false)?->getValue();
 
-        $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(201);
+        $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(201);
 
         $current = $this->withOutsourceSession($sessionId)->getJson('/api/v1/outsource/session/current');
 
@@ -439,12 +460,7 @@ class OutsourcePublicApiTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
         $session = $this->putSession($outsource, $store, 'checkin-token-234567890abcdef1234567890abcdef1');
 
-        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10));
 
         $response->assertStatus(201);
         $response->assertJson(['success' => true]);
@@ -465,12 +481,7 @@ class OutsourcePublicApiTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
         $session = $this->putSession($outsource, $store, 'geofence-token-34567890abcdef1234567890abcdef12');
 
-        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.3,
-            'longitude' => 106.9,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.3, 106.9, 10));
 
         $response->assertStatus(422);
         $response->assertJson(['success' => false, 'code' => 'OUTSIDE_GEOFENCE']);
@@ -478,12 +489,9 @@ class OutsourcePublicApiTest extends TestCase
 
     public function test_check_in_without_cookie_rejected(): void
     {
-        $response = $this->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $store = $this->makeStore(-6.2, 106.8, 150);
+
+        $response = $this->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10));
 
         $response->assertStatus(401);
         $response->assertJson(['code' => 'INVALID_SESSION']);
@@ -496,19 +504,9 @@ class OutsourcePublicApiTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
         $session = $this->putSession($outsource, $store, 'dup-token-4567890abcdef1234567890abcdef123');
 
-        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(201);
+        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(201);
 
-        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10));
 
         $response->assertStatus(422);
         $response->assertJson(['success' => false, 'code' => 'ATTENDANCE_ALREADY_OPEN']);
@@ -522,12 +520,7 @@ class OutsourcePublicApiTest extends TestCase
     {
         $session = $this->putSession($outsource, $store, 'checkout-token-567890abcdef1234567890abcdef1234');
 
-        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(201);
+        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(201);
 
         return $session->id;
     }
@@ -539,12 +532,7 @@ class OutsourcePublicApiTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
         $sessionId = $this->openAttendanceSession($outsource, $store);
 
-        $response = $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', $this->attendancePayload($store, -6.2001, 106.8001, 10));
 
         $response->assertStatus(200);
         $response->assertJson(['success' => true]);
@@ -558,12 +546,7 @@ class OutsourcePublicApiTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
         $session = $this->putSession($outsource, $store, 'no-open-token-67890abcdef1234567890abcdef12345');
 
-        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', $this->attendancePayload($store, -6.2001, 106.8001, 10));
 
         $response->assertStatus(422);
         $response->assertJson(['success' => false, 'code' => 'NO_OPEN_ATTENDANCE']);
@@ -577,12 +560,7 @@ class OutsourcePublicApiTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
         $sessionId = $this->openAttendanceSession($outsource, $store);
 
-        $response = $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.3,
-            'longitude' => 106.9,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', $this->attendancePayload($store, -6.3, 106.9, 10));
 
         $response->assertStatus(422);
         $response->assertJson(['success' => false, 'code' => 'OUTSIDE_GEOFENCE']);
@@ -601,12 +579,7 @@ class OutsourcePublicApiTest extends TestCase
             CarbonImmutable::now()->subHour(),
         );
 
-        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', $this->attendancePayload($store, -6.2001, 106.8001, 10));
 
         $response->assertStatus(401);
         $response->assertJson(['code' => 'SESSION_EXPIRED']);
@@ -619,19 +592,9 @@ class OutsourcePublicApiTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
         $sessionId = $this->openAttendanceSession($outsource, $store);
 
-        $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(200);
+        $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(200);
 
-        $response = $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->withOutsourceSession($sessionId)->postJson('/api/v1/outsource/attendance/check-out', $this->attendancePayload($store, -6.2001, 106.8001, 10));
 
         $response->assertStatus(401);
         $response->assertJson(['code' => 'INVALID_SESSION']);
@@ -653,21 +616,11 @@ class OutsourcePublicApiTest extends TestCase
 
         $this->withOutsourceSession($session->id)->withHeaders([
             'X-Occurred-At' => $checkInAt->toAtomString(),
-        ])->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(201);
+        ])->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(201);
 
         $checkOutResponse = $this->withOutsourceSession($session->id)->withHeaders([
             'X-Occurred-At' => $checkOutAt->toAtomString(),
-        ])->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        ])->postJson('/api/v1/outsource/attendance/check-out', $this->attendancePayload($store, -6.2001, 106.8001, 10));
         $checkOutResponse->assertStatus(200);
 
         $record = AttendanceRecord::where('outsource_id', $outsource->id)->first();
@@ -694,21 +647,11 @@ class OutsourcePublicApiTest extends TestCase
 
         $this->assertEquals(OutsourceAttendanceSessionStatus::Active->value, $session->status);
 
-        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(201);
+        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(201);
 
         $this->assertNotNull($this->sessionStore()->find($session->id));
 
-        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(200);
+        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(200);
 
         $this->assertNull($this->sessionStore()->find($session->id));
     }
@@ -723,30 +666,15 @@ class OutsourcePublicApiTest extends TestCase
         $init1 = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
         $sid1 = (string) $init1->getCookie($this->cookieName(), false)?->getValue();
 
-        $this->withOutsourceSession($sid1)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(201);
+        $this->withOutsourceSession($sid1)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(201);
 
-        $this->withOutsourceSession($sid1)->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(200);
+        $this->withOutsourceSession($sid1)->postJson('/api/v1/outsource/attendance/check-out', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(200);
 
         $init2 = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
         $sid2 = (string) $init2->getCookie($this->cookieName(), false)?->getValue();
         $init2->assertJsonPath('data.status', 'READY');
 
-        $in2 = $this->withOutsourceSession($sid2)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $in2 = $this->withOutsourceSession($sid2)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10));
         $in2->assertStatus(422);
         $in2->assertJson(['success' => false, 'code' => 'ATTENDANCE_DAY_COMPLETED']);
 
@@ -769,21 +697,11 @@ class OutsourcePublicApiTest extends TestCase
             CarbonImmutable::parse('2026-09-03 20:00:00', 'UTC'),
         );
 
-        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ])->assertStatus(201);
+        $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10))->assertStatus(201);
 
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 16:01:00', 'UTC')); // 20h+1m
 
-        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', [
-            'latitude' => -6.2001,
-            'longitude' => 106.8001,
-            'accuracy_meters' => 10,
-            'device_fingerprint' => self::DEVICE_FINGERPRINT,
-        ]);
+        $response = $this->withOutsourceSession($session->id)->postJson('/api/v1/outsource/attendance/check-out', $this->attendancePayload($store, -6.2001, 106.8001, 10));
 
         $response->assertStatus(422);
         $response->assertJson(['success' => false, 'code' => 'ATTENDANCE_SESSION_EXPIRED']);
