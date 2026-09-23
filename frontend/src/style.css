@@ -94,6 +94,34 @@ button, input, select, textarea { font: inherit; }
 
 a { text-decoration: none; }
 
+/* Interactive affordance — Nuxt UI omits cursor-pointer on most triggers by default */
+button:not(:disabled):not([aria-disabled='true']),
+a[href],
+summary,
+[role='button']:not([aria-disabled='true']):not([data-disabled]),
+[role='menuitem']:not([data-disabled]),
+[role='menuitemcheckbox']:not([data-disabled]),
+[role='menuitemradio']:not([data-disabled]),
+[role='option']:not([data-disabled]),
+[role='tab']:not([data-disabled]),
+[role='checkbox']:not([data-disabled]),
+[role='radio']:not([data-disabled]),
+[role='switch']:not([data-disabled]),
+[role='combobox']:not([data-disabled]),
+[role='link'],
+label:has(input[type='checkbox']):not(:has(input:disabled)),
+label:has(input[type='radio']):not(:has(input:disabled)),
+label:has([role='checkbox']):not(:has([data-disabled])),
+label:has([role='radio']):not(:has([data-disabled])) {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled='true'],
+[data-disabled] {
+  cursor: not-allowed;
+}
+
 p, h1, h2, h3, h4, strong, span { margin: 0; }
 
 img { display: block; max-width: 100%; }
