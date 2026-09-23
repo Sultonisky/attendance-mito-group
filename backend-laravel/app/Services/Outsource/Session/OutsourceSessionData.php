@@ -7,6 +7,9 @@ use Carbon\CarbonImmutable;
 
 /**
  * Ephemeral public outsource session (Redis / array store — not PostgreSQL).
+ *
+ * storeId = assigned cabang. checkInPinId is optional metadata after first IN;
+ * checkout may use a different allowed pin in the same cabang.
  */
 final class OutsourceSessionData
 {
@@ -21,6 +24,7 @@ final class OutsourceSessionData
         public readonly CarbonImmutable $createdAt,
         public readonly CarbonImmutable $expiresAt,
         public readonly ?CarbonImmutable $lastUsedAt = null,
+        public readonly ?int $checkInPinId = null,
     ) {}
 
     public function isActive(): bool
@@ -40,7 +44,8 @@ final class OutsourceSessionData
      *   user_agent: ?string,
      *   created_at: string,
      *   expires_at: string,
-     *   last_used_at: ?string
+     *   last_used_at: ?string,
+     *   check_in_pin_id: ?int
      * }
      */
     public function toArray(): array
@@ -56,6 +61,7 @@ final class OutsourceSessionData
             'created_at' => $this->createdAt->toIso8601String(),
             'expires_at' => $this->expiresAt->toIso8601String(),
             'last_used_at' => $this->lastUsedAt?->toIso8601String(),
+            'check_in_pin_id' => $this->checkInPinId,
         ];
     }
 
@@ -77,6 +83,9 @@ final class OutsourceSessionData
             lastUsedAt: isset($payload['last_used_at']) && $payload['last_used_at'] !== null
                 ? CarbonImmutable::parse((string) $payload['last_used_at'])
                 : null,
+            checkInPinId: isset($payload['check_in_pin_id']) && $payload['check_in_pin_id'] !== null
+                ? (int) $payload['check_in_pin_id']
+                : null,
         );
     }
 
@@ -93,6 +102,7 @@ final class OutsourceSessionData
             createdAt: $this->createdAt,
             expiresAt: $this->expiresAt,
             lastUsedAt: $lastUsedAt,
+            checkInPinId: $this->checkInPinId,
         );
     }
 
@@ -109,6 +119,24 @@ final class OutsourceSessionData
             createdAt: $this->createdAt,
             expiresAt: $this->expiresAt,
             lastUsedAt: $this->lastUsedAt,
+            checkInPinId: $this->checkInPinId,
+        );
+    }
+
+    public function withCheckInPinId(int $pinId): self
+    {
+        return new self(
+            id: $this->id,
+            outsourceId: $this->outsourceId,
+            storeId: $this->storeId,
+            status: $this->status,
+            deviceFingerprint: $this->deviceFingerprint,
+            ipAddress: $this->ipAddress,
+            userAgent: $this->userAgent,
+            createdAt: $this->createdAt,
+            expiresAt: $this->expiresAt,
+            lastUsedAt: $this->lastUsedAt,
+            checkInPinId: $pinId,
         );
     }
 }

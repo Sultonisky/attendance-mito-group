@@ -389,7 +389,7 @@ class OutsourceMasterDataImportService
     {
         $outsource = Outsource::withTrashed()->firstOrCreate(
             ['name' => $name],
-            ['outsource_code' => $this->generateOutsourceCode($name), 'status' => 'active'],
+            ['outsource_code' => Outsource::generateNextCode(), 'status' => 'active'],
         );
 
         if ($outsource->trashed()) {
@@ -440,20 +440,6 @@ class OutsourceMasterDataImportService
         $base = sprintf('%s|%s', $cityName, $storeName);
 
         return 'LOC-' . substr(md5($base), 0, 12);
-    }
-
-    protected function generateOutsourceCode(string $name): string
-    {
-        $base = preg_replace('/[^A-Za-z0-9]+/', '-', strtoupper(trim($name)));
-        $base = trim((string) $base, '-');
-
-        if ($base === '') {
-            $base = 'OUTSOURCE';
-        }
-
-        $suffix = substr(md5($name), 0, 8);
-
-        return sprintf('%s-%s', $base, $suffix);
     }
 
     protected function makeKey(string $type, mixed ...$parts): string
