@@ -5,8 +5,10 @@ export type OutsourcePersonRow = {
   outsource_code: string
   name: string
   status: 'active' | 'inactive'
+  has_password?: boolean
   city: { id: number; name: string } | null
   store: { id: number; name: string } | null
+  pin_ids?: number[]
   created_at: string | null
 }
 
@@ -38,13 +40,17 @@ export type OutsourcePersonResponse = {
 
 export type OutsourcePersonPayload = {
   name: string
+  password?: string | null
   store_id?: number | null
+  pin_ids?: number[] | null
 }
 
 export type UpdateOutsourcePersonPayload = {
   name?: string
+  password?: string | null
   status?: 'active' | 'inactive'
   store_id?: number | null
+  pin_ids?: number[] | null
 }
 
 // ── READ ──────────────────────────────────────────────────────────────────────
