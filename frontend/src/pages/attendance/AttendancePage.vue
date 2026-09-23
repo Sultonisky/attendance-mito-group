@@ -65,7 +65,7 @@ async function loadToday(): Promise<void> {
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 401) {
-        await router.push({ name: 'login.employee' })
+        await router.push({ name: 'error.unauthorized' })
         return
       }
 
@@ -131,7 +131,7 @@ async function captureAndSubmit(): Promise<void> {
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 401) {
-        await router.push({ name: 'login.employee' })
+        await router.push({ name: 'error.unauthorized' })
         return
       }
 

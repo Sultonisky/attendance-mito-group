@@ -17,6 +17,7 @@ declare module 'vue' {
     DashboardKpiCard: typeof import('./src/components/DashboardKpiCard.vue')['default']
     DataTable: typeof import('./src/components/DataTable.vue')['default']
     DataTableToolbar: typeof import('./src/components/DataTableToolbar.vue')['default']
+    ErrorPageShell: typeof import('./src/components/errors/ErrorPageShell.vue')['default']
     MitoTeamsMenu: typeof import('./src/components/MitoTeamsMenu.vue')['default']
     MitoUserMenu: typeof import('./src/components/MitoUserMenu.vue')['default']
     NotificationsSlideover: typeof import('./src/components/NotificationsSlideover.vue')['default']

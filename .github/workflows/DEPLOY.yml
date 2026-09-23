@@ -118,9 +118,15 @@ jobs:
               -t hris-attendance:latest \
               /opt/attendance-src
 
-            echo "==> Recreating attendance container"
+            echo "==> Enabling maintenance mode"
+            # storage is a bind mount — down flag survives container recreate.
+            # mito:maintenance also writes public/maintenance.json for the Vue SPA.
             cd /opt/attendance
+            docker compose exec -T attendance \
+              php artisan mito:maintenance down --retry=60 \
+              || docker compose exec -T attendance php artisan down --retry=60
 
+            echo "==> Recreating attendance container"
             docker compose up -d \
               --no-deps \
               --force-recreate \
@@ -159,8 +165,20 @@ jobs:
 
             echo "==> Importing outsource cabang + pins from stores.json (idempotent)"
             docker compose exec -T attendance \
-              php artisan outsource:import /opt/seed-data/stores.json --require-min=1 --allow-partial
+              php artisan outsource:import /opt/seed-data/stores.json \
+                --require-min=1 \
+                --require-min-cabangs=1 \
+                --require-min-pins=1 \
+                --allow-partial
 
+            echo "==> Spot-check: sample cabang + pin (must not be empty)"
+            docker compose exec -T attendance php artisan tinker --execute="
+              \$c = \App\Models\WorkLocation::query()->orderBy('id')->first();
+              \$p = \App\Models\WorkLocationPin::query()->orderBy('id')->first();
+              echo 'sample_cabang=' . (\$c?->name ?? 'NULL') . PHP_EOL;
+              echo 'sample_pin=' . (\$p?->name ?? 'NULL') . PHP_EOL;
+              if (!\$c || !\$p) { throw new RuntimeException('Post-import spot-check failed: missing cabang or pin'); }
+            "
             echo "==> Waiting for application HTTP health"
             for i in \$(seq 1 12); do
               if curl --fail --silent http://127.0.0.1:8081/health > /dev/null; then
@@ -174,6 +192,10 @@ jobs:
               fi
               sleep 5
             done
+
+            echo "==> Disabling maintenance mode"
+            docker compose exec -T attendance php artisan mito:maintenance up \
+              || docker compose exec -T attendance php artisan up
 
             echo
             echo "==> Laravel API health"
@@ -197,4 +219,3 @@ jobs:
             echo "======================================"
 
           EOF
-

@@ -56,7 +56,7 @@ export function useReportQuery(
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         if (err.status === 401) {
-          await router.push({ name: 'login.admin' })
+          await router.push({ name: 'error.unauthorized' })
           return
         }
 

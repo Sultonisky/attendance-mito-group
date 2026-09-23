@@ -23,7 +23,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('work_location_id')->constrained('work_locations')->cascadeOnDelete();
             $table->string('name');
-            $table->string('address')->nullable();
+            $table->text('address')->nullable();
             $table->decimal('latitude', 10, 7)->nullable();
             $table->decimal('longitude', 10, 7)->nullable();
             $table->decimal('radius_meters', 10, 2)->nullable();

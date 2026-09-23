@@ -13,7 +13,9 @@ class ImportOutsourceMasterData extends Command
                             {--dry-run : Validate and report without saving changes}
                             {--allow-partial : Skip invalid rows instead of failing the whole import}
                             {--radius=150 : Pin attendance radius in meters}
-                            {--require-min=0 : Fail after import when outsource count is below this (deploy guard)}';
+                            {--require-min=0 : Fail after import when outsource count is below this (deploy guard)}
+                            {--require-min-cabangs=0 : Fail when work_locations (cabang) count is below this}
+                            {--require-min-pins=0 : Fail when work_location_pins count is below this}';
 
     protected $description = 'Import outsource cabang/kota, people, pins, and pin allowlists from stores.json.';
 
@@ -24,6 +26,8 @@ class ImportOutsourceMasterData extends Command
         $allowPartial = (bool) $this->option('allow-partial');
         $radius = (float) $this->option('radius');
         $requireMin = max(0, (int) $this->option('require-min'));
+        $requireMinCabangs = max(0, (int) $this->option('require-min-cabangs'));
+        $requireMinPins = max(0, (int) $this->option('require-min-pins'));
 
         // JSON SOT tolerates incomplete pin rows; legacy CSV stays strict unless flagged.
         $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
@@ -75,14 +79,36 @@ class ImportOutsourceMasterData extends Command
             return self::SUCCESS;
         }
 
-        if ($requireMin > 0) {
-            $count = \App\Models\Outsource::query()->count();
-            $this->line("Active outsources in database: {$count}");
-            if ($count < $requireMin) {
-                $this->error("Import guard failed: expected at least {$requireMin} outsource row(s), found {$count}.");
+        $dbCities = \App\Models\City::query()->count();
+        $dbCabangs = \App\Models\WorkLocation::query()->count();
+        $dbPins = \App\Models\WorkLocationPin::query()->count();
+        $dbOutsources = \App\Models\Outsource::query()->count();
 
-                return self::FAILURE;
-            }
+        $this->line('');
+        $this->info('Database counts after import:');
+        $this->table(['Table', 'Count'], [
+            ['cities', $dbCities],
+            ['work_locations (cabang)', $dbCabangs],
+            ['work_location_pins', $dbPins],
+            ['outsources', $dbOutsources],
+        ]);
+
+        if ($requireMin > 0 && $dbOutsources < $requireMin) {
+            $this->error("Import guard failed: expected at least {$requireMin} outsource row(s), found {$dbOutsources}.");
+
+            return self::FAILURE;
+        }
+
+        if ($requireMinCabangs > 0 && $dbCabangs < $requireMinCabangs) {
+            $this->error("Import guard failed: expected at least {$requireMinCabangs} cabang/work_location row(s), found {$dbCabangs}.");
+
+            return self::FAILURE;
+        }
+
+        if ($requireMinPins > 0 && $dbPins < $requireMinPins) {
+            $this->error("Import guard failed: expected at least {$requireMinPins} pin row(s), found {$dbPins}.");
+
+            return self::FAILURE;
         }
 
         $this->info('Status: SUCCESS');

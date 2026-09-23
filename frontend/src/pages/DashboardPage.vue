@@ -99,7 +99,7 @@ async function load(): Promise<void> {
     })
   } catch (err) {
     if (err instanceof ApiError) {
-      if (err.status === 401) { await router.push({ name: 'login.admin' }); return }
+      if (err.status === 401) { await router.push({ name: 'error.unauthorized' }); return }
       if (err.status === 403) { error.value = 'You do not have permission to view the dashboard.'; return }
     }
     error.value = err instanceof TypeError

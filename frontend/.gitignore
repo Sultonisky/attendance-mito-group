@@ -20,6 +20,9 @@ coverage/
 *.local
 *.tsbuildinfo
 
+# Local maintenance flag (written by `php artisan mito:maintenance down`)
+public/maintenance.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

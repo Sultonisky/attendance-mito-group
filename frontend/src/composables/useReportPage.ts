@@ -30,7 +30,7 @@ export function useReportPage() {
   async function handleApiError(err: unknown, fallbackMessage: string): Promise<boolean> {
     if (err instanceof ApiError) {
       if (err.status === 401) {
-        await router.push({ name: 'login.admin' })
+        await router.push({ name: 'error.unauthorized' })
         return true // handled — caller should return
       }
       if (err.status === 403) {

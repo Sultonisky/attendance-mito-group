@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import uuid
 from dataclasses import dataclass
 from typing import Protocol
@@ -342,11 +343,16 @@ class InMemoryBiometricStorage:
     """Non-durable in-memory fallback for development.
 
     Data is lost on process restart. Do NOT use in production.
+
+    All mutations are guarded by ``_lock`` so concurrent enrollments with the
+    same idempotency key cannot both pass the uniqueness check and insert
+    distinct references (check-then-act race).
     """
 
     def __init__(self) -> None:
         self._store: dict[str, BiometricEmbedding] = {}
         self._idempotency_index: dict[str, str] = {}
+        self._lock = threading.Lock()
 
     def store(
         self,
@@ -358,10 +364,6 @@ class InMemoryBiometricStorage:
         request_fingerprint: str,
         ai_facts: str,
     ) -> None:
-        if reference in self._store:
-            raise ValueError(f"Reference already exists: {reference}")
-        if idempotency_key in self._idempotency_index:
-            raise ValueError(f"Idempotency key already exists: {idempotency_key}")
         if not reference:
             raise ValueError("reference must not be empty.")
         if not model_version:
@@ -393,43 +395,52 @@ class InMemoryBiometricStorage:
             created_at="",
             updated_at="",
         )
-        self._store[reference] = embedding
-        self._idempotency_index[idempotency_key] = reference
+        with self._lock:
+            if reference in self._store:
+                raise ValueError(f"Reference already exists: {reference}")
+            if idempotency_key in self._idempotency_index:
+                raise ValueError(f"Idempotency key already exists: {idempotency_key}")
+            self._store[reference] = embedding
+            self._idempotency_index[idempotency_key] = reference
 
     def get_by_reference(self, reference: str) -> BiometricEmbedding | None:
-        return self._store.get(reference)
+        with self._lock:
+            return self._store.get(reference)
 
     def get_by_idempotency_key(self, idempotency_key: str) -> BiometricEmbedding | None:
-        ref = self._idempotency_index.get(idempotency_key)
-        if ref is None:
-            return None
-        return self._store.get(ref)
+        with self._lock:
+            ref = self._idempotency_index.get(idempotency_key)
+            if ref is None:
+                return None
+            return self._store.get(ref)
 
     def delete_by_reference(self, reference: str) -> bool:
-        embedding = self._store.pop(reference, None)
-        if embedding is not None:
-            self._idempotency_index.pop(embedding.idempotency_key, None)
-            return True
-        return False
+        with self._lock:
+            embedding = self._store.pop(reference, None)
+            if embedding is not None:
+                self._idempotency_index.pop(embedding.idempotency_key, None)
+                return True
+            return False
 
     def update_status(self, reference: str, status: str) -> bool:
-        embedding = self._store.get(reference)
-        if embedding is None:
-            return False
-        self._store[reference] = BiometricEmbedding(
-            reference=embedding.reference,
-            vector=embedding.vector,
-            dimension=embedding.dimension,
-            model_version=embedding.model_version,
-            status=status,
-            idempotency_key=embedding.idempotency_key,
-            request_fingerprint=embedding.request_fingerprint,
-            ai_facts=embedding.ai_facts,
-            enrolled_at=embedding.enrolled_at,
-            created_at=embedding.created_at,
-            updated_at=embedding.updated_at,
-        )
-        return True
+        with self._lock:
+            embedding = self._store.get(reference)
+            if embedding is None:
+                return False
+            self._store[reference] = BiometricEmbedding(
+                reference=embedding.reference,
+                vector=embedding.vector,
+                dimension=embedding.dimension,
+                model_version=embedding.model_version,
+                status=status,
+                idempotency_key=embedding.idempotency_key,
+                request_fingerprint=embedding.request_fingerprint,
+                ai_facts=embedding.ai_facts,
+                enrolled_at=embedding.enrolled_at,
+                created_at=embedding.created_at,
+                updated_at=embedding.updated_at,
+            )
+            return True
 
 
 # ---------------------------------------------------------------------------
