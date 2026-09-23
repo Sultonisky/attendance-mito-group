@@ -13,6 +13,21 @@ return [
     */
     'driver' => env('OUTSOURCE_SESSION_DRIVER', 'redis'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Auth / browser session TTL (Redis + HttpOnly cookie)
+    |--------------------------------------------------------------------------
+    |
+    | How long the outsource stays "logged in" after /outsource/login (or
+    | session/init). After this, they must login again.
+    |
+    | Keep this SHORTER than attendance.outsource_max_session_hours so an
+    | open clock-in can still exist after the auth cookie expires (user
+    | re-logins, then clocks out).
+    |
+    | Default: 12 hours.
+    |
+    */
     'ttl_hours' => (int) env('OUTSOURCE_SESSION_TTL_HOURS', 12),
 
     /*
