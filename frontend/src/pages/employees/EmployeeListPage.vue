@@ -7,6 +7,7 @@ import { useReportPage } from '../../composables/useReportPage'
 import { useDataTableSort } from '../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
 import { usePermission } from '../../features/auth/composables/usePermission'
+import { useAppToast } from '../../composables/useAppToast'
 import {
   fetchEmployees,
   createEmployee,
@@ -19,10 +20,11 @@ import {
 } from '../../services/employeeApi'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
-import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
+import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../utils/dataTable'
 
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 const { can } = usePermission()
+const toast = useAppToast()
 
 // ── Table data ────────────────────────────────────────────────────────────────
 const data = ref<EmployeeRow[]>([])
@@ -99,17 +101,17 @@ const columns = computed<TableColumn<EmployeeRow>[]>(() => [
   {
     accessorKey: 'employee_code',
     header: ({ column }) => createSortableHeader(column, 'Code'),
-    cell: ({ row }) => h('span', { class: 'text-sm font-mono' }, row.original.employee_code),
+    cell: ({ row }) => createTruncatedText(row.original.employee_code, 'text-sm font-mono'),
   },
   {
     accessorKey: 'full_name',
     header: ({ column }) => createSortableHeader(column, 'Name'),
-    cell: ({ row }) => h('span', { class: 'text-sm font-medium' }, row.original.full_name),
+    cell: ({ row }) => createTruncatedText(row.original.full_name, 'text-sm font-medium'),
   },
   {
     accessorKey: 'email',
     header: ({ column }) => createSortableHeader(column, 'Email'),
-    cell: ({ row }) => h('span', { class: 'text-sm text-[var(--ui-text-muted)]' }, row.original.email ?? '—'),
+    cell: ({ row }) => createTruncatedText(row.original.email, 'text-sm text-[var(--ui-text-muted)]'),
   },
   {
     id: 'employment_status',
@@ -135,7 +137,7 @@ const columns = computed<TableColumn<EmployeeRow>[]>(() => [
   {
     accessorKey: 'department',
     header: ({ column }) => createSortableHeader(column, 'Department'),
-    cell: ({ row }) => h('span', { class: 'text-sm text-[var(--ui-text-muted)]' }, row.original.department ?? '—'),
+    cell: ({ row }) => createTruncatedText(row.original.department, 'text-sm text-[var(--ui-text-muted)]'),
   },
   {
     accessorKey: 'join_date',
@@ -296,8 +298,10 @@ async function submitForm(): Promise<void> {
 
     if (formMode.value === 'create') {
       await createEmployee(payload as CreateEmployeePayload)
+      toast.success('Employee created')
     } else if (editingId.value !== null) {
       await updateEmployee(editingId.value, payload as UpdateEmployeePayload)
+      toast.success('Employee updated')
     }
     showFormModal.value = false
     await load()
@@ -322,13 +326,16 @@ async function executeDelete(): Promise<void> {
     const res = await deleteEmployee(deleteTarget.value.id)
     if (!res.success) {
       deleteError.value = 'Failed to delete employee.'
+      toast.error('Delete failed', 'Failed to delete employee.')
       return
     }
     showDeleteModal.value = false
     deleteTarget.value = null
+    toast.success('Employee deleted')
     await load()
   } catch (e: unknown) {
     deleteError.value = e instanceof Error ? e.message : 'Failed to delete employee.'
+    toast.fromError(e, 'Unable to delete this employee.')
   } finally {
     deleteBusy.value = false
   }

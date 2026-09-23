@@ -18,6 +18,7 @@ import { defaultReportDates } from '../../types/reportDates'
 
 const route = useRoute()
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const toast = useAppToast()
 
 const data          = ref<OvertimeReportRow[]>([])
 const actionBusyId  = ref<number | null>(null)
@@ -188,11 +189,18 @@ async function handleRowAction(action: string, id: number): Promise<void> {
   actionBusyId.value = id
   error.value        = ''
   try {
-    if (action === 'approve') await approveOvertimeRequest(id)
-    if (action === 'cancel')  await cancelOvertimeRequest(id)
+    if (action === 'approve') {
+      await approveOvertimeRequest(id)
+      toast.success('Overtime approved')
+    }
+    if (action === 'cancel') {
+      await cancelOvertimeRequest(id)
+      toast.success('Overtime cancelled')
+    }
     await load()
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Unable to update this overtime request. Please try again.'
+    toast.fromError(e, 'Unable to update this overtime request.')
   } finally {
     actionBusyId.value = null
   }
@@ -211,6 +219,7 @@ async function submitReject(): Promise<void> {
     await rejectOvertimeRequest(rejectTargetId.value, rejectReason.value.trim())
     showRejectModal.value = false
     rejectTargetId.value  = null
+    toast.success('Overtime rejected')
     await load()
   } catch (e: unknown) {
     rejectError.value = e instanceof Error ? e.message : 'Unable to reject this request. Please try again.'

@@ -7,6 +7,7 @@ import { useReportPage } from '../../composables/useReportPage'
 import { useDataTableSort } from '../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
 import { usePermission } from '../../features/auth/composables/usePermission'
+import { useAppToast } from '../../composables/useAppToast'
 import {
   fetchPermissions,
   fetchPermissionUsers,
@@ -18,10 +19,11 @@ import {
 } from '../../services/permissionApi'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
-import { createSortableHeader } from '../../utils/dataTable'
+import { createSortableHeader, createTruncatedText } from '../../utils/dataTable'
 
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 const { can } = usePermission()
+const toast = useAppToast()
 
 // ── Table data ────────────────────────────────────────────────────────────────
 const data = ref<PermissionRow[]>([])
@@ -79,12 +81,12 @@ const columns = computed<TableColumn<PermissionRow>[]>(() => [
   {
     accessorKey: 'name',
     header: ({ column }) => createSortableHeader(column, 'Name'),
-    cell: ({ row }) => h('span', { class: 'text-sm font-mono' }, row.original.name),
+    cell: ({ row }) => createTruncatedText(row.original.name, 'text-sm font-mono'),
   },
   {
     accessorKey: 'description',
     header: ({ column }) => createSortableHeader(column, 'Description'),
-    cell: ({ row }) => h('span', { class: 'text-xs text-[var(--ui-text-muted)]' }, row.original.description ?? '—'),
+    cell: ({ row }) => createTruncatedText(row.original.description, 'text-xs text-[var(--ui-text-muted)]'),
   },
   {
     id: 'assigned_users',
@@ -208,8 +210,10 @@ async function submitForm(): Promise<void> {
   try {
     if (formMode.value === 'create') {
       await createPermission({ name: form.name.trim() })
+      toast.success('Permission created')
     } else if (editingId.value !== null) {
       await updatePermission(editingId.value, { name: form.name.trim() })
+      toast.success('Permission updated')
     }
     showFormModal.value = false
     await load()
@@ -234,13 +238,16 @@ async function executeDelete(): Promise<void> {
     const res = await deletePermission(deleteTarget.value.id)
     if (!res.success) {
       deleteError.value = 'Failed to delete permission.'
+      toast.error('Delete failed', 'Failed to delete permission.')
       return
     }
     showDeleteModal.value = false
     deleteTarget.value = null
+    toast.success('Permission deleted')
     await load()
   } catch (e: unknown) {
     deleteError.value = e instanceof Error ? e.message : 'Failed to delete permission.'
+    toast.fromError(e, 'Unable to delete this permission.')
   } finally {
     deleteBusy.value = false
   }

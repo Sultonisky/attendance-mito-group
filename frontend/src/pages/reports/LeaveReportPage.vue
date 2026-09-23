@@ -6,6 +6,7 @@ import type { ColumnFiltersState, VisibilityState } from '@tanstack/vue-table'
 import { useReportPage } from '../../composables/useReportPage'
 import { useDataTableSort } from '../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
+import { useAppToast } from '../../composables/useAppToast'
 import { fetchLeaveReport } from '../../services/reports/leaveReportApi'
 import { approveLeaveRequest, cancelLeaveRequest, rejectLeaveRequest } from '../../services/adminCrudApi'
 import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
@@ -18,6 +19,7 @@ import { defaultReportDates } from '../../types/reportDates'
 
 const route = useRoute()
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const toast = useAppToast()
 
 const data = ref<LeaveReportRow[]>([])
 const actionBusyId = ref<number | null>(null)
@@ -181,11 +183,18 @@ async function handleRowAction(action: string, id: number): Promise<void> {
   actionBusyId.value = id
   error.value = ''
   try {
-    if (action === 'approve') await approveLeaveRequest(id)
-    if (action === 'cancel')  await cancelLeaveRequest(id)
+    if (action === 'approve') {
+      await approveLeaveRequest(id)
+      toast.success('Leave approved')
+    }
+    if (action === 'cancel') {
+      await cancelLeaveRequest(id)
+      toast.success('Leave cancelled')
+    }
     await load()
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Unable to update this leave request. Please try again.'
+    toast.fromError(e, 'Unable to update this leave request.')
   }
   finally {
     actionBusyId.value = null
@@ -205,6 +214,7 @@ async function submitReject(): Promise<void> {
     await rejectLeaveRequest(rejectTargetId.value, rejectReason.value.trim())
     showRejectModal.value = false
     rejectTargetId.value  = null
+    toast.success('Leave rejected')
     await load()
   } catch (e: unknown) {
     rejectError.value = e instanceof Error ? e.message : 'Unable to reject this request. Please try again.'

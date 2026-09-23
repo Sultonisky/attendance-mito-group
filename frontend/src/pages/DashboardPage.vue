@@ -23,7 +23,7 @@ import type {
 } from '../types/dashboard'
 import DashboardKpiCard from '../components/DashboardKpiCard.vue'
 import DataTableToolbar from '../components/DataTableToolbar.vue'
-import { createSortableHeader, createStatusBadge, UCheckbox, DATA_TABLE_UI } from '../utils/dataTable'
+import { createSortableHeader, createStatusBadge, createTruncatedText, UCheckbox, DATA_TABLE_UI } from '../utils/dataTable'
 import { useDataTableDisplay } from '../composables/useDataTableDisplay'
 
 const router = useRouter()
@@ -285,14 +285,17 @@ const tableColumns: TableColumn<DashboardStaffRow>[] = [
   {
     accessorKey: 'name',
     header: ({ column }) => createSortableHeader(column, 'Name'),
+    cell: ({ row }) => createTruncatedText(row.getValue<string>('name'), 'text-sm font-medium'),
   },
   {
     accessorKey: 'email',
     header: ({ column }) => createSortableHeader(column, 'Email'),
+    cell: ({ row }) => createTruncatedText(row.getValue<string>('email'), 'text-sm text-[var(--ui-text-muted)]'),
   },
   {
     accessorKey: 'location',
     header: ({ column }) => createSortableHeader(column, 'Location'),
+    cell: ({ row }) => createTruncatedText(row.getValue<string>('location')),
   },
   {
     accessorKey: 'status',

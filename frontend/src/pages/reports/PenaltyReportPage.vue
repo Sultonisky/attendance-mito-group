@@ -6,6 +6,7 @@ import type { ColumnFiltersState, VisibilityState } from '@tanstack/vue-table'
 import { useReportPage } from '../../composables/useReportPage'
 import { useDataTableSort } from '../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
+import { useAppToast } from '../../composables/useAppToast'
 import { fetchPenaltyReport } from '../../services/reports/penaltyReportApi'
 import { adjustPenalty, voidPenalty } from '../../services/adminCrudApi'
 import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
@@ -18,6 +19,7 @@ import { defaultReportDates } from '../../types/reportDates'
 
 const route = useRoute()
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const toast = useAppToast()
 
 const data          = ref<PenaltyReportRow[]>([])
 const actionBusyId  = ref<number | null>(null)
@@ -233,6 +235,7 @@ async function submitAdjust(): Promise<void> {
     showAdjustModal.value = false
     adjustTargetId.value  = null
     adjustTargetRow.value = null
+    toast.success('Penalty adjusted')
     await load()
   } catch (e: unknown) {
     adjustError.value = e instanceof Error ? e.message : 'Unable to adjust this penalty. Please try again.'
@@ -255,6 +258,7 @@ async function submitVoid(): Promise<void> {
     showVoidModal.value = false
     voidTargetId.value  = null
     voidTargetRow.value = null
+    toast.success('Penalty voided')
     await load()
   } catch (e: unknown) {
     voidError.value = e instanceof Error ? e.message : 'Unable to void this penalty. Please try again.'
