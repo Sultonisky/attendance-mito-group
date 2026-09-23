@@ -50,6 +50,7 @@ class OutsourceMasterDataImportService
             'total_rows' => count($rows),
             'valid_rows' => 0,
             'invalid_rows' => 0,
+            'skipped_blank_rows' => 0,
             'cities' => ['created' => 0, 'existing' => 0],
             'stores' => ['created' => 0, 'existing' => 0],
             'outsources' => ['created' => 0, 'existing' => 0],
@@ -61,7 +62,13 @@ class OutsourceMasterDataImportService
         $validRows = [];
 
         foreach ($rows as $rowNumber => $row) {
-            $normalized = $this->normalizeRow($row, $rowNumber);
+            // Excel used-range often pads to ~1000 empty rows; skip those.
+            if ($this->isBlankRow($row)) {
+                $summary['skipped_blank_rows']++;
+                continue;
+            }
+
+            $normalized = $this->normalizeRow($row, is_int($rowNumber) ? $rowNumber + 2 : $rowNumber);
 
             if ($normalized['valid'] === false) {
                 $summary['invalid_rows']++;
@@ -73,7 +80,27 @@ class OutsourceMasterDataImportService
         }
 
         if ($summary['invalid_rows'] > 0) {
-            throw new RuntimeException(sprintf('Import failed: %d invalid row(s) found. Review the validation details.', $summary['invalid_rows']));
+            $preview = array_slice($summary['invalid_details'], 0, 10);
+            $lines = array_map(
+                static fn (array $detail): string => sprintf(
+                    'Row %s: %s is empty',
+                    $detail['row_number'] ?? '?',
+                    $detail['field'] ?? 'field'
+                ),
+                $preview
+            );
+            $more = $summary['invalid_rows'] > 10
+                ? sprintf("\n... and %d more", $summary['invalid_rows'] - 10)
+                : '';
+
+            throw new RuntimeException(
+                sprintf(
+                    "Import failed: %d invalid row(s) found.\n%s%s",
+                    $summary['invalid_rows'],
+                    implode("\n", $lines),
+                    $more
+                )
+            );
         }
 
         $summary['valid_rows'] = count($validRows);
@@ -231,6 +258,20 @@ class OutsourceMasterDataImportService
 
             return $header;
         }, $headers);
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    protected function isBlankRow(array $row): bool
+    {
+        foreach ($row as $value) {
+            if ($this->normalizeString($value) !== null) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     protected function normalizeRow(array $row, int $rowNumber): array
