@@ -20,5 +20,6 @@ final readonly class AttendanceOperationData
         public ?int $workLocationId,
         public CarbonImmutable $occurredAt,
         public AttendanceEventType $eventType,
+        public ?int $pinId = null,
     ) {}
 }

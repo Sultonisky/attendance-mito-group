@@ -4,12 +4,13 @@ namespace App\Domain\Attendance\Rules;
 
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
 use App\Models\WorkLocation;
+use App\Models\WorkLocationPin;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Validates whether a point is inside a work location's geofence.
+ * Validates whether a point is inside a work location or pin geofence.
  *
- * Uses PostGIS when available; falls back to a simple scalar check on SQLite.
+ * Uses PostGIS when available; falls back to Haversine on SQLite.
  */
 class GeofenceRule
 {
@@ -18,25 +19,55 @@ class GeofenceRule
         $driver = DB::connection()->getDriverName();
 
         if ($driver === 'pgsql' && ! empty($workLocation->location_point)) {
-            $this->validatePostgis($workLocation, $latitude, $longitude, $radiusMeters);
+            $this->validatePostgisTable('work_locations', $workLocation->id, $latitude, $longitude, $radiusMeters ?? $workLocation->radius_meters);
         } else {
-            $this->validateScalar($workLocation, $latitude, $longitude, $radiusMeters);
+            $this->validateScalar(
+                $workLocation->latitude,
+                $workLocation->longitude,
+                $latitude,
+                $longitude,
+                $radiusMeters ?? $workLocation->radius_meters,
+                'Work location coordinates are not configured.',
+            );
         }
     }
 
-    private function validatePostgis(WorkLocation $workLocation, float $latitude, float $longitude, ?float $radiusMeters = null): void
+    public function validatePin(WorkLocationPin $pin, float $latitude, float $longitude, ?float $radiusMeters = null): void
     {
-        $radius = $radiusMeters ?? $workLocation->radius_meters ?? 0;
+        $driver = DB::connection()->getDriverName();
+
+        if ($driver === 'pgsql' && ! empty($pin->location_point)) {
+            $this->validatePostgisTable('work_location_pins', $pin->id, $latitude, $longitude, $radiusMeters ?? $pin->radius_meters);
+        } else {
+            $this->validateScalar(
+                $pin->latitude,
+                $pin->longitude,
+                $latitude,
+                $longitude,
+                $radiusMeters ?? $pin->radius_meters,
+                'Pin coordinates are not configured.',
+            );
+        }
+    }
+
+    private function validatePostgisTable(
+        string $table,
+        int $id,
+        float $latitude,
+        float $longitude,
+        ?float $radiusMeters,
+    ): void {
+        $radius = $radiusMeters ?? 0;
 
         $inside = DB::selectOne(
-            'SELECT ST_DWithin(
-                wl.location_point::geography,
+            "SELECT ST_DWithin(
+                t.location_point::geography,
                 ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
                 COALESCE(?, 0)
             ) AS inside
-            FROM work_locations wl
-            WHERE wl.id = ?',
-            [$longitude, $latitude, $radius, $workLocation->id]
+            FROM {$table} t
+            WHERE t.id = ?",
+            [$longitude, $latitude, $radius, $id]
         );
 
         if (empty($inside->inside)) {
@@ -44,20 +75,26 @@ class GeofenceRule
         }
     }
 
-    private function validateScalar(WorkLocation $workLocation, float $latitude, float $longitude, ?float $radiusMeters = null): void
-    {
-        if ($workLocation->latitude === null || $workLocation->longitude === null) {
-            throw new OutsideGeofenceException('Work location coordinates are not configured.');
+    private function validateScalar(
+        mixed $centerLat,
+        mixed $centerLng,
+        float $latitude,
+        float $longitude,
+        ?float $radiusMeters,
+        string $missingCoordsMessage,
+    ): void {
+        if ($centerLat === null || $centerLng === null) {
+            throw new OutsideGeofenceException($missingCoordsMessage);
         }
 
         $distance = $this->haversineDistance(
             $latitude,
             $longitude,
-            (float) $workLocation->latitude,
-            (float) $workLocation->longitude
+            (float) $centerLat,
+            (float) $centerLng
         );
 
-        $radius = $radiusMeters !== null ? (float) $radiusMeters : (float) ($workLocation->radius_meters ?? 0);
+        $radius = $radiusMeters !== null ? (float) $radiusMeters : 0.0;
 
         if ($distance > $radius) {
             throw new OutsideGeofenceException('Employee is outside the work location geofence.');

@@ -8,7 +8,6 @@ use App\Domain\Attendance\DTOs\AttendanceResultData;
 use App\Domain\Attendance\Exceptions\AttendanceAlreadyCheckedInException;
 use App\Domain\Attendance\Exceptions\AttendanceBlockedByPolicyException;
 use App\Domain\Attendance\Exceptions\AttendanceDayAlreadyCompletedException;
-use App\Domain\Attendance\Exceptions\AttendanceOutsideGeofenceException;
 use App\Domain\Attendance\Exceptions\AttendanceSessionExpiredException;
 use App\Domain\Attendance\Exceptions\InvalidLocationException;
 use App\Domain\Attendance\Exceptions\NoOpenAttendanceSessionException;
@@ -35,6 +34,8 @@ use App\Models\PolicyAssignment;
 use App\Models\ScheduleAssignment;
 use App\Models\Shift;
 use App\Models\WorkLocation;
+use App\Models\WorkLocationPin;
+use App\Services\Outsource\ResolveOutsourceAllowedPins;
 use App\Support\AttendanceDateTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -60,6 +61,7 @@ class AttendanceEngine
         private EarlyCheckoutRule $earlyCheckoutRule,
         private AttendanceStateRule $attendanceStateRule,
         private OutsourceSessionExpiry $outsourceSessionExpiry,
+        private ResolveOutsourceAllowedPins $resolveOutsourceAllowedPins,
     ) {}
 
     /**
@@ -94,16 +96,20 @@ class AttendanceEngine
             throw new AttendanceBlockedByPolicyException('No active schedule found for this date.');
         }
 
-        $workLocation = $this->resolveWorkLocation($data->workLocationId);
+        $pin = null;
+        $workLocation = null;
+        $geofenceRadius = null;
 
         if ($subject instanceof Outsource) {
-            $this->validateOutsourceAssignment($subject, $workLocation);
+            $pin = $this->resolveOutsourcePin($subject, $data);
+            $workLocation = $pin->workLocation;
+            $geofenceRadius = (float) config('attendance.outsource_geofence_radius_meters', 150);
+            $geofenceResult = $this->evaluatePinGeofence($pin, $data->latitude, $data->longitude, $geofenceRadius);
+        } else {
+            $workLocation = $this->resolveWorkLocation($data->workLocationId);
+            $geofenceResult = $this->evaluateGeofence($workLocation, $data->latitude, $data->longitude, $geofenceRadius);
         }
 
-        $geofenceRadius = $subject instanceof Outsource
-            ? (float) config('attendance.outsource_geofence_radius_meters', 150)
-            : null;
-        $geofenceResult = $this->evaluateGeofence($workLocation, $data->latitude, $data->longitude, $geofenceRadius);
         if (! $geofenceResult['passed']) {
             throw new OutsideGeofenceException('Subject is outside the approved work location geofence.');
         }
@@ -123,7 +129,7 @@ class AttendanceEngine
         }
 
         $session = $this->createSession($record, $data->occurredAt);
-        $event = $this->createEvent($subject, $record, $session, $data);
+        $event = $this->createEvent($subject, $record, $session, $data, $pin);
 
         // Open IN without OUT is always incomplete — Present/Late only after a closed session.
         $status = $this->attendanceStateRule->determine(
@@ -187,16 +193,20 @@ class AttendanceEngine
             $this->assertOutsourceSessionStillCloseable($openSession, $data->occurredAt);
         }
 
-        $workLocation = $this->resolveWorkLocation($data->workLocationId);
+        $pin = null;
+        $workLocation = null;
+        $geofenceRadius = null;
 
         if ($subject instanceof Outsource) {
-            $this->validateOutsourceAssignment($subject, $workLocation);
+            $pin = $this->resolveOutsourcePin($subject, $data);
+            $workLocation = $pin->workLocation;
+            $geofenceRadius = (float) config('attendance.outsource_geofence_radius_meters', 150);
+            $geofenceResult = $this->evaluatePinGeofence($pin, $data->latitude, $data->longitude, $geofenceRadius);
+        } else {
+            $workLocation = $this->resolveWorkLocation($data->workLocationId);
+            $geofenceResult = $this->evaluateGeofence($workLocation, $data->latitude, $data->longitude, $geofenceRadius);
         }
 
-        $geofenceRadius = $subject instanceof Outsource
-            ? (float) config('attendance.outsource_geofence_radius_meters', 150)
-            : null;
-        $geofenceResult = $this->evaluateGeofence($workLocation, $data->latitude, $data->longitude, $geofenceRadius);
         if (! $geofenceResult['passed']) {
             throw new OutsideGeofenceException('Subject is outside the approved work location geofence.');
         }
@@ -232,7 +242,7 @@ class AttendanceEngine
             'status' => AttendanceSessionStatus::Closed->value,
         ]);
 
-        $event = $this->createEvent($subject, $record, $openSession, $data);
+        $event = $this->createEvent($subject, $record, $openSession, $data, $pin);
 
         // Outsource daily status is only incomplete (open/expired) or present (closed).
         // Employee keeps late / early-checkout → late via AttendanceStateRule.
@@ -294,11 +304,64 @@ class AttendanceEngine
             $distanceMeters = $this->queryGeofenceDistance($workLocation, $latitude, $longitude);
 
             return ['passed' => true, 'distance_meters' => $distanceMeters, 'method' => 'postgis'];
-        } catch (AttendanceOutsideGeofenceException $e) {
+        } catch (OutsideGeofenceException $e) {
             $distanceMeters = $this->queryGeofenceDistance($workLocation, $latitude, $longitude);
 
             return ['passed' => false, 'distance_meters' => $distanceMeters, 'method' => 'postgis'];
         }
+    }
+
+    private function evaluatePinGeofence(WorkLocationPin $pin, float $latitude, float $longitude, ?float $radiusMeters = null): array
+    {
+        try {
+            $this->geofenceRule->validatePin($pin, $latitude, $longitude, $radiusMeters);
+            $distanceMeters = $this->queryPinGeofenceDistance($pin, $latitude, $longitude);
+
+            return [
+                'passed' => true,
+                'distance_meters' => $distanceMeters,
+                'method' => 'pin',
+                'pin_id' => $pin->id,
+            ];
+        } catch (OutsideGeofenceException $e) {
+            $distanceMeters = $this->queryPinGeofenceDistance($pin, $latitude, $longitude);
+
+            return [
+                'passed' => false,
+                'distance_meters' => $distanceMeters,
+                'method' => 'pin',
+                'pin_id' => $pin->id,
+            ];
+        }
+    }
+
+    private function resolveOutsourcePin(Outsource $outsource, AttendanceOperationData $data): WorkLocationPin
+    {
+        if ($data->pinId === null) {
+            throw new InvalidLocationException('Pin is required for outsource attendance.');
+        }
+
+        try {
+            $pin = $this->resolveOutsourceAllowedPins->assertPinAllowed(
+                $outsource,
+                $data->pinId,
+                $data->workLocationId,
+            );
+        } catch (\InvalidArgumentException $e) {
+            throw new InvalidLocationException($e->getMessage(), previous: $e);
+        }
+
+        $pin->loadMissing('workLocation');
+
+        if ($pin->workLocation === null || $pin->workLocation->status !== 'active' || $pin->workLocation->trashed()) {
+            throw new InvalidLocationException('Work location is inactive.');
+        }
+
+        if ($outsource->status !== 'active' || $outsource->trashed()) {
+            throw new InactiveSubjectException('Outsource is inactive.');
+        }
+
+        return $pin;
     }
 
     private function validateOutsourceAssignment(Outsource $outsource, ?WorkLocation $workLocation): void
@@ -367,6 +430,17 @@ class AttendanceEngine
     {
         try {
             return WorkLocation::where('id', $workLocation->id)
+                ->selectRaw('ST_Distance(location_point::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) AS distance_meters', [$longitude, $latitude])
+                ->value('distance_meters');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function queryPinGeofenceDistance(WorkLocationPin $pin, float $latitude, float $longitude): ?float
+    {
+        try {
+            return WorkLocationPin::where('id', $pin->id)
                 ->selectRaw('ST_Distance(location_point::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) AS distance_meters', [$longitude, $latitude])
                 ->value('distance_meters');
         } catch (\Throwable $e) {
@@ -573,6 +647,7 @@ class AttendanceEngine
         AttendanceRecord $record,
         AttendanceSession $session,
         AttendanceOperationData $data,
+        ?WorkLocationPin $pin = null,
     ): AttendanceEvent {
         $attributes = [
             'attendance_id' => $record->id,
@@ -583,6 +658,7 @@ class AttendanceEngine
             'longitude' => $data->longitude,
             'accuracy_meters' => $data->accuracy,
             'source' => $data->source,
+            'work_location_pin_id' => $pin?->id ?? $data->pinId,
             'device_metadata' => array_filter([
                 'device_fingerprint' => $data->deviceIdentifier,
             ]),
