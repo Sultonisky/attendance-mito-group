@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\OvertimeController;
 use App\Http\Controllers\Api\V1\OutsourceAttendanceController;
 use App\Http\Controllers\Api\V1\OutsourcePersonController;
 use App\Http\Controllers\Api\V1\OutsourceWorkLocationController;
+use App\Http\Controllers\Api\V1\OutsourceWorkLocationPinController;
 use App\Http\Controllers\Api\V1\PermissionController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\PenaltyController;
@@ -50,9 +51,22 @@ Route::prefix('v1')->group(function () {
             ->middleware('throttle:outsource-session-init')
             ->name('outsource.session.init');
 
+        Route::post('/login', [OutsourceAttendanceController::class, 'login'])
+            ->middleware('throttle:outsource-session-init')
+            ->name('outsource.login');
+
         Route::get('/session/current', [OutsourceAttendanceController::class, 'currentSession'])
             ->middleware('throttle:60,1')
             ->name('outsource.session.current');
+
+        Route::get('/pins', [OutsourceAttendanceController::class, 'pins'])
+            ->middleware('throttle:60,1')
+            ->name('outsource.pins');
+
+        // Kept for later: FE currently disables history via ENABLE_OUTSOURCE_ATTENDANCE_HISTORY
+        Route::get('/attendance/history', [OutsourceAttendanceController::class, 'history'])
+            ->middleware('throttle:60,1')
+            ->name('outsource.attendance.history');
 
         Route::post('/attendance/check-in', [OutsourceAttendanceController::class, 'checkIn'])
             ->middleware('throttle:20,1')
@@ -214,6 +228,17 @@ Route::prefix('v1')->group(function () {
             Route::patch('/{outsourceWorkLocation}',        [OutsourceWorkLocationController::class, 'update'])       ->middleware('can:outsource_work_location.update');
             Route::post('/{outsourceWorkLocation}/toggle-status', [OutsourceWorkLocationController::class, 'toggleStatus'])->middleware('can:outsource_work_location.update');
             Route::delete('/{outsourceWorkLocation}',       [OutsourceWorkLocationController::class, 'destroy'])      ->middleware('can:outsource_work_location.delete');
+
+            Route::get('/{outsourceWorkLocation}/pins', [OutsourceWorkLocationPinController::class, 'index'])
+                ->middleware('can:outsource_work_location.view');
+            Route::post('/{outsourceWorkLocation}/pins', [OutsourceWorkLocationPinController::class, 'store'])
+                ->middleware('can:outsource_work_location.create');
+            Route::put('/{outsourceWorkLocation}/pins/{pin}', [OutsourceWorkLocationPinController::class, 'update'])
+                ->middleware('can:outsource_work_location.update');
+            Route::patch('/{outsourceWorkLocation}/pins/{pin}', [OutsourceWorkLocationPinController::class, 'update'])
+                ->middleware('can:outsource_work_location.update');
+            Route::delete('/{outsourceWorkLocation}/pins/{pin}', [OutsourceWorkLocationPinController::class, 'destroy'])
+                ->middleware('can:outsource_work_location.delete');
         });
 
         // ── Outsource attendance void (admin) ───────────────────────────────────
