@@ -393,6 +393,10 @@ async function submitForm(): Promise<void> {
     formError.value = 'Radius must be between 1 and 100,000 meters.'
     return
   }
+  if (form.address.trim().length > 1000) {
+    formError.value = 'Address may not exceed 1000 characters.'
+    return
+  }
 
   formBusy.value = true
   formError.value = ''
@@ -607,8 +611,8 @@ onMounted(async () => {
           <UInput v-model="form.pin_name" placeholder="e.g. Gate A / Wilayah Bangka" class="w-full" />
         </UFormField>
 
-        <UFormField label="Alamat">
-          <UInput v-model="form.address" placeholder="Street address" class="w-full" />
+        <UFormField label="Alamat" hint="Max 1000 characters">
+          <UInput v-model="form.address" placeholder="Street address" maxlength="1000" class="w-full" />
         </UFormField>
 
         <div class="grid grid-cols-2 gap-3">
