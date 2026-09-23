@@ -7,43 +7,42 @@ import { useReportPage } from '../../../composables/useReportPage'
 import { useDataTableSort } from '../../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../../composables/useDataTableDisplay'
 import { usePermission } from '../../../features/auth/composables/usePermission'
+import { useAppToast } from '../../../composables/useAppToast'
 import {
   fetchOutsourceWorkLocations,
   fetchWorkLocationCities,
   createWorkLocation,
-  updateWorkLocation,
-  toggleWorkLocationStatus,
-  deleteWorkLocation,
-  fetchWorkLocationPins,
   createWorkLocationPin,
   updateWorkLocationPin,
   deleteWorkLocationPin,
+  fetchWorkLocationPinOutsources,
   type OutsourceWorkLocationRow,
   type OutsourceWorkLocationFilters,
-  type WorkLocationPinRow,
+  type WorkLocationPinOutsourceRow,
 } from '../../../services/outsourceWorkLocationApi'
+import { fetchOutsourceStores } from '../../../services/outsourceService'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
-import { createSortableHeader, createStatusBadge } from '../../../utils/dataTable'
+import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../../utils/dataTable'
 
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 const { can } = usePermission()
+const toast = useAppToast()
 
-// ── Table data ────────────────────────────────────────────────────────────────
-const data         = ref<OutsourceWorkLocationRow[]>([])
-const cities       = ref<{ id: number; name: string }[]>([])
+const data = ref<OutsourceWorkLocationRow[]>([])
+const cities = ref<{ id: number; name: string }[]>([])
 const columnVisibility = ref<VisibilityState>()
-const statusTab    = ref('active')
-const searchInput  = ref('')
+const statusTab = ref('active')
+const searchInput = ref('')
 
 const filters = reactive<OutsourceWorkLocationFilters>({
-  search:    '',
-  city_id:   '',
-  status:    'active',
-  per_page:  25,
-  sort:      'name',
+  search: '',
+  city_id: '',
+  status: 'active',
+  per_page: 25,
+  sort: 'cabang',
   direction: 'asc',
-  page:      1,
+  page: 1,
 })
 
 const { sorting } = useDataTableSort(filters, () => {
@@ -52,134 +51,102 @@ const { sorting } = useDataTableSort(filters, () => {
 })
 
 const statusOptions = [
-  { label: 'Active',   value: 'active'   },
+  { label: 'Active', value: 'active' },
   { label: 'Inactive', value: 'inactive' },
-  { label: 'All',      value: 'all'      },
+  { label: 'All', value: 'all' },
 ]
 
 const hideableColumns = [
-  { id: 'code',            label: 'Code'       },
-  { id: 'name',            label: 'Store'      },
-  { id: 'city',            label: 'City'       },
-  { id: 'address',         label: 'Address'    },
-  { id: 'outsource_count', label: 'Outsources' },
-  { id: 'coordinates',     label: 'Coords'     },
-  { id: 'radius_meters',   label: 'Radius'     },
-  { id: 'status',          label: 'Status'     },
-  { id: 'pins',            label: 'Pins'       },
-  { id: 'actions',         label: 'Actions'    },
+  { id: 'cabang', label: 'Cabang/Kota' },
+  { id: 'address', label: 'Alamat' },
+  { id: 'outsource_count', label: 'Outsource' },
+  { id: 'status', label: 'Status' },
+  { id: 'pins', label: 'Pins' },
+  { id: 'actions', label: 'Actions' },
 ]
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
 const statusColor: Record<string, 'success' | 'error'> = {
-  active:   'success',
+  active: 'success',
   inactive: 'error',
 }
 
-// ── Modal — create/edit ───────────────────────────────────────────────────────
 const showFormModal = ref(false)
-const formMode      = ref<'create' | 'edit'>('create')
-const formBusy      = ref(false)
-const formError     = ref('')
-const editingId     = ref<number | null>(null)
+const formMode = ref<'create' | 'edit'>('create')
+const formBusy = ref(false)
+const formError = ref('')
+const editingRow = ref<OutsourceWorkLocationRow | null>(null)
 
 const form = reactive({
-  name:          '',
-  city_id:       '' as string,
-  latitude:      '' as string,
-  longitude:     '' as string,
-  radius_meters: '' as string,
-})
-
-// ── Modal — delete confirm ────────────────────────────────────────────────────
-const showDeleteModal = ref(false)
-const deleteTarget    = ref<OutsourceWorkLocationRow | null>(null)
-const deleteBusy      = ref(false)
-
-// ── Modal — manage pins ───────────────────────────────────────────────────────
-const showPinsModal   = ref(false)
-const pinsTarget      = ref<OutsourceWorkLocationRow | null>(null)
-const pinsLoading     = ref(false)
-const pinsBusy        = ref(false)
-const pinsError       = ref('')
-const pins            = ref<WorkLocationPinRow[]>([])
-const pinFormMode     = ref<'create' | 'edit'>('create')
-const editingPinId    = ref<number | null>(null)
-const pinForm = reactive({
-  name:          '',
-  address:       '',
-  latitude:      '',
-  longitude:     '',
+  city_id: '' as string,
+  work_location_id: '' as string,
+  pin_name: '',
+  address: '',
+  latitude: '',
+  longitude: '',
   radius_meters: '150',
-  status:        'active' as 'active' | 'inactive',
+  status: 'active' as 'active' | 'inactive',
 })
 
-// ── Columns ───────────────────────────────────────────────────────────────────
+const formCabangs = ref<{ id: number; name: string }[]>([])
+
+const showDeleteModal = ref(false)
+const deleteTarget = ref<OutsourceWorkLocationRow | null>(null)
+const deleteBusy = ref(false)
+
+const showOutsourcesModal = ref(false)
+const outsourcesTarget = ref<OutsourceWorkLocationRow | null>(null)
+const outsourcesLoading = ref(false)
+const outsourcesError = ref('')
+const outsourcesList = ref<WorkLocationPinOutsourceRow[]>([])
+
+function formatRadius(meters: number | null | undefined): string {
+  if (meters == null || !Number.isFinite(meters)) return '150 m'
+  if (meters >= 1000) {
+    const km = meters / 1000
+    return Number.isInteger(km) ? `${km} km` : `${km.toFixed(1)} km`
+  }
+  return `${Math.round(meters)} m`
+}
+
 const columns = computed<TableColumn<OutsourceWorkLocationRow>[]>(() => [
   {
-    accessorKey: 'code',
-    header: ({ column }) => createSortableHeader(column, 'Code'),
-    cell: ({ row }) => h('span', {
-      class: 'block w-[8rem] truncate font-mono text-xs text-[var(--ui-text-muted)] tracking-tight cursor-default',
-      title: row.original.code,
-    }, row.original.code || '—'),
-  },
-  {
-    accessorKey: 'name',
-    header: ({ column }) => createSortableHeader(column, 'Store'),
-    cell: ({ row }) => h('span', { class: 'font-medium' }, row.original.name),
-  },
-  {
-    id: 'city',
-    header: ({ column }) => createSortableHeader(column, 'City'),
-    accessorFn: (row) => row.city?.name ?? '',
-    cell: ({ row }) => row.original.city?.name ?? '—',
+    id: 'cabang',
+    header: ({ column }) => createSortableHeader(column, 'Cabang/Kota'),
+    accessorFn: (row) => row.city?.name ?? row.cabang?.name ?? '',
+    cell: ({ row }) => {
+      const name = row.original.city?.name ?? row.original.cabang?.name ?? '—'
+      return createTruncatedText(name, 'font-medium text-sm')
+    },
   },
   {
     id: 'address',
-    header: 'Address',
-    accessorFn: (row) => row.address,
-    cell: ({ row }) => h('span', {
-      class: 'block max-w-[14rem] truncate text-[var(--ui-text-muted)] text-xs cursor-default',
-      title: row.original.address,
-    }, row.original.address || '—'),
+    header: ({ column }) => createSortableHeader(column, 'Alamat'),
+    accessorFn: (row) => row.address ?? '',
+    cell: ({ row }) => createTruncatedText(row.original.address),
   },
   {
     id: 'outsource_count',
-    header: ({ column }) => createSortableHeader(column, 'Outsources'),
+    header: ({ column }) => createSortableHeader(column, 'Outsource'),
     accessorFn: (row) => row.outsource_count,
     cell: ({ row }) => {
-      const count = row.original.outsource_count
-      return h('span', {
-        class: count > 0
-          ? 'inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-0.5 text-xs font-semibold'
-          : 'text-[var(--ui-text-dimmed)] text-xs',
-      }, count > 0 ? String(count) : '—')
-    },
-  },
-  {
-    id: 'coordinates',
-    header: 'Coords',
-    cell: ({ row }) => {
-      const { latitude: lat, longitude: lng } = row.original
-      if (lat === null || lng === null) return h('span', { class: 'text-[var(--ui-text-dimmed)] text-xs' }, '—')
-      return h('a', {
-        href: `https://maps.google.com/?q=${lat},${lng}`,
-        target: '_blank',
-        rel: 'noopener noreferrer',
-        class: 'font-mono text-xs text-primary hover:underline',
-        title: 'Open in Google Maps',
-      }, `${lat.toFixed(5)}, ${lng.toFixed(5)}`)
-    },
-  },
-  {
-    accessorKey: 'radius_meters',
-    header: 'Radius',
-    cell: ({ row }) => {
-      const r = row.original.radius_meters
-      return r !== null
-        ? h('span', { class: 'text-xs tabular-nums' }, `${r} m`)
-        : h('span', { class: 'text-[var(--ui-text-dimmed)] text-xs' }, '—')
+      const loc = row.original
+      const count = loc.outsource_count
+      if (count < 1) {
+        return h('span', { class: 'text-[var(--ui-text-dimmed)] text-xs' }, '—')
+      }
+      return h(resolveComponent('UButton'), {
+        size: 'xs',
+        color: 'primary',
+        variant: 'soft',
+        icon: 'i-lucide-users',
+        label: String(count),
+        title: 'View outsources assigned to this pin',
+        onClick: (e: Event) => {
+          e.stopPropagation()
+          openOutsources(loc)
+        },
+      })
     },
   },
   {
@@ -192,20 +159,28 @@ const columns = computed<TableColumn<OutsourceWorkLocationRow>[]>(() => [
   },
   {
     id: 'pins',
-    header: 'Pins',
+    header: ({ column }) => createSortableHeader(column, 'Pins'),
+    accessorFn: (row) => row.pin_name,
     cell: ({ row }) => {
-      const loc = row.original
-      if (!can('outsource_work_location.view') && !can('outsource_work_location.update')) {
-        return null
-      }
-      return h(resolveComponent('UButton'), {
-        size: 'xs',
-        color: 'primary',
-        variant: 'soft',
-        icon: 'i-lucide-map-pin',
-        label: 'Manage pins',
-        onClick: () => openPins(loc),
-      })
+      const pin = row.original
+      const coords = pin.latitude != null && pin.longitude != null
+        ? `${pin.latitude}, ${pin.longitude}`
+        : null
+      return h('div', { class: 'min-w-0' }, [
+        h('p', { class: 'truncate text-sm font-medium', title: pin.pin_name }, pin.pin_name || '—'),
+        h('p', { class: 'truncate text-xs text-muted' }, [
+          formatRadius(pin.radius_meters),
+          coords
+            ? h('a', {
+                href: `https://maps.google.com/?q=${pin.latitude},${pin.longitude}`,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+                class: 'ml-1 text-primary hover:underline cursor-pointer',
+                onClick: (e: Event) => e.stopPropagation(),
+              }, '· map')
+            : null,
+        ]),
+      ])
     },
   },
   {
@@ -218,11 +193,6 @@ const columns = computed<TableColumn<OutsourceWorkLocationRow>[]>(() => [
           label: 'Edit',
           icon: 'i-lucide-pencil',
           onSelect: () => openEdit(loc),
-        },
-        can('outsource_work_location.view') && {
-          label: 'Manage pins',
-          icon: 'i-lucide-map-pin',
-          onSelect: () => openPins(loc),
         },
         can('outsource_work_location.update') && {
           label: loc.status === 'active' ? 'Deactivate' : 'Activate',
@@ -254,7 +224,6 @@ const columns = computed<TableColumn<OutsourceWorkLocationRow>[]>(() => [
   },
 ])
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 const ALL = '__all__'
 function toSelectId(raw: string): string { return raw === '' ? ALL : raw }
 function fromSelectId(raw: unknown): string {
@@ -262,11 +231,32 @@ function fromSelectId(raw: unknown): string {
   return v === ALL ? '' : v
 }
 
+function parseDecimal(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const n = Number(trimmed.replace(',', '.'))
+  return Number.isFinite(n) ? n : null
+}
+
 async function loadCities(): Promise<void> {
   try { cities.value = await fetchWorkLocationCities() } catch { /* non-blocking */ }
 }
 
-// ── Watches ───────────────────────────────────────────────────────────────────
+async function loadFormCabangs(cityId: string): Promise<void> {
+  formCabangs.value = []
+  form.work_location_id = ''
+  if (!cityId) return
+  try {
+    const stores = await fetchOutsourceStores(Number(cityId))
+    formCabangs.value = stores.map(s => ({ id: s.id, name: s.name }))
+    if (formCabangs.value.length === 1) {
+      form.work_location_id = String(formCabangs.value[0].id)
+    }
+  } catch {
+    formCabangs.value = []
+  }
+}
+
 watch(statusTab, (value) => {
   filters.status = value
   if (!ready.value) return
@@ -297,13 +287,13 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     const res = await fetchOutsourceWorkLocations({
-      search:    filters.search  || undefined,
-      city_id:   filters.city_id || undefined,
-      status:    filters.status,
-      per_page:  filters.per_page,
-      sort:      filters.sort,
+      search: filters.search || undefined,
+      city_id: filters.city_id || undefined,
+      status: filters.status,
+      per_page: filters.per_page,
+      sort: filters.sort,
       direction: filters.direction,
-      page:      meta.current_page,
+      page: meta.current_page,
     })
     data.value = res.data
     applyMeta(res.meta)
@@ -315,85 +305,127 @@ async function load(): Promise<void> {
 }
 
 function resetFilters(): void {
-  filters.search    = ''
-  filters.city_id   = ''
-  filters.status    = 'active'
-  filters.per_page  = 25
-  filters.sort      = 'name'
+  filters.search = ''
+  filters.city_id = ''
+  filters.status = 'active'
+  filters.per_page = 25
+  filters.sort = 'cabang'
   filters.direction = 'asc'
-  statusTab.value   = 'active'
+  statusTab.value = 'active'
   searchInput.value = ''
   meta.current_page = 1
   load()
 }
 
-// ── CRUD actions ──────────────────────────────────────────────────────────────
 function resetForm(): void {
-  form.name          = ''
-  form.city_id       = ''
-  form.latitude      = ''
-  form.longitude     = ''
-  form.radius_meters = ''
-  formError.value    = ''
+  form.city_id = ''
+  form.work_location_id = ''
+  form.pin_name = ''
+  form.address = ''
+  form.latitude = ''
+  form.longitude = ''
+  form.radius_meters = '150'
+  form.status = 'active'
+  formCabangs.value = []
+  formError.value = ''
+  editingRow.value = null
 }
 
 function openCreate(): void {
-  formMode.value  = 'create'
-  editingId.value = null
+  formMode.value = 'create'
   resetForm()
   showFormModal.value = true
 }
 
-function openEdit(loc: OutsourceWorkLocationRow): void {
-  formMode.value     = 'edit'
-  editingId.value    = loc.id
-  form.name          = loc.name
-  form.city_id       = loc.city ? String(loc.city.id) : ''
-  form.latitude      = loc.latitude  !== null ? String(loc.latitude)  : ''
-  form.longitude     = loc.longitude !== null ? String(loc.longitude) : ''
-  form.radius_meters = loc.radius_meters !== null ? String(loc.radius_meters) : ''
-  formError.value    = ''
+async function openEdit(row: OutsourceWorkLocationRow): Promise<void> {
+  formMode.value = 'edit'
+  editingRow.value = row
+  form.city_id = row.city ? String(row.city.id) : ''
+  form.work_location_id = String(row.work_location_id)
+  form.pin_name = row.pin_name
+  form.address = row.address ?? ''
+  form.latitude = row.latitude != null ? String(row.latitude) : ''
+  form.longitude = row.longitude != null ? String(row.longitude) : ''
+  form.radius_meters = row.radius_meters != null ? String(row.radius_meters) : '150'
+  form.status = row.status
+  formError.value = ''
+  formCabangs.value = [{ id: row.work_location_id, name: row.cabang.name }]
+  if (form.city_id) {
+    try {
+      const stores = await fetchOutsourceStores(Number(form.city_id))
+      formCabangs.value = stores.map(s => ({ id: s.id, name: s.name }))
+    } catch { /* keep current */ }
+  }
   showFormModal.value = true
 }
 
-/** Parse decimal string; accepts both "." and "," as decimal separator. */
-function parseDecimal(raw: string): number | null {
-  const trimmed = raw.trim()
-  if (!trimmed) return null
-  // Indonesian/EU often type " -6,1754 "; JS Number() only accepts "."
-  const normalized = trimmed.replace(',', '.')
-  const n = Number(normalized)
-  return Number.isFinite(n) ? n : null
+async function resolveCabangId(): Promise<number | null> {
+  if (form.work_location_id) return Number(form.work_location_id)
+  if (!form.city_id) return null
+
+  const city = cities.value.find(c => String(c.id) === form.city_id)
+  if (!city) return null
+
+  const existing = formCabangs.value.find(c => c.name.toUpperCase() === city.name.toUpperCase())
+    ?? formCabangs.value[0]
+  if (existing) return existing.id
+
+  const created = await createWorkLocation({
+    name: city.name,
+    city_id: Number(form.city_id),
+  })
+  return created.data.id
 }
 
 async function submitForm(): Promise<void> {
-  if (!form.name.trim()) { formError.value = 'Store name is required.'; return }
-
-  const latitude = parseDecimal(form.latitude)
-  const longitude = parseDecimal(form.longitude)
-  if (form.latitude.trim() && latitude === null) {
-    formError.value = 'Latitude must be a valid number (use . or , as decimal).'
+  if (!form.pin_name.trim()) {
+    formError.value = 'Pin name is required.'
     return
   }
-  if (form.longitude.trim() && longitude === null) {
-    formError.value = 'Longitude must be a valid number (use . or , as decimal).'
+  const latitude = parseDecimal(form.latitude)
+  const longitude = parseDecimal(form.longitude)
+  if (latitude === null || longitude === null) {
+    formError.value = 'Latitude and longitude are required.'
+    return
+  }
+  const radius = form.radius_meters ? Number(form.radius_meters) : 150
+  if (!Number.isFinite(radius) || radius < 1 || radius > 100000) {
+    formError.value = 'Radius must be between 1 and 100,000 meters.'
     return
   }
 
   formBusy.value = true
   formError.value = ''
   try {
-    const payload = {
-      name:          form.name.trim(),
-      city_id:       form.city_id ? Number(form.city_id) : null,
-      latitude,
-      longitude,
-      radius_meters: form.radius_meters ? Number(form.radius_meters) : null,
-    }
     if (formMode.value === 'create') {
-      await createWorkLocation(payload)
-    } else if (editingId.value !== null) {
-      await updateWorkLocation(editingId.value, payload)
+      if (!form.city_id) {
+        formError.value = 'City is required.'
+        return
+      }
+      const cabangId = await resolveCabangId()
+      if (!cabangId) {
+        formError.value = 'Unable to resolve cabang for this city.'
+        return
+      }
+      await createWorkLocationPin(cabangId, {
+        name: form.pin_name.trim(),
+        address: form.address.trim() || null,
+        latitude,
+        longitude,
+        radius_meters: radius,
+        status: form.status,
+      })
+      toast.success('Work location created')
+    } else if (editingRow.value) {
+      await updateWorkLocationPin(editingRow.value.work_location_id, editingRow.value.id, {
+        name: form.pin_name.trim(),
+        address: form.address.trim() || null,
+        latitude,
+        longitude,
+        radius_meters: radius,
+        status: form.status,
+      })
+      toast.success('Work location updated')
     }
     showFormModal.value = false
     await load()
@@ -404,116 +436,36 @@ async function submitForm(): Promise<void> {
   }
 }
 
-async function handleToggle(loc: OutsourceWorkLocationRow): Promise<void> {
+async function handleToggle(row: OutsourceWorkLocationRow): Promise<void> {
   try {
-    const res = await toggleWorkLocationStatus(loc.id)
-    const idx = data.value.findIndex(l => l.id === loc.id)
-    if (idx !== -1) data.value[idx] = { ...data.value[idx], status: res.data.status as 'active' | 'inactive' }
-  } catch { await load() }
+    const next = row.status === 'active' ? 'inactive' : 'active'
+    await updateWorkLocationPin(row.work_location_id, row.id, { status: next })
+    const idx = data.value.findIndex(r => r.id === row.id)
+    if (idx !== -1) data.value[idx] = { ...data.value[idx], status: next }
+    toast.success(next === 'active' ? 'Pin activated' : 'Pin deactivated')
+  } catch (e: unknown) {
+    toast.fromError(e, 'Unable to update pin status.')
+    await load()
+  }
 }
 
-function confirmDelete(loc: OutsourceWorkLocationRow): void {
-  deleteTarget.value = loc
+function confirmDelete(row: OutsourceWorkLocationRow): void {
+  deleteTarget.value = row
   showDeleteModal.value = true
 }
 
-function resetPinForm(): void {
-  pinFormMode.value = 'create'
-  editingPinId.value = null
-  pinForm.name = ''
-  pinForm.address = ''
-  pinForm.latitude = pinsTarget.value?.latitude != null ? String(pinsTarget.value.latitude) : ''
-  pinForm.longitude = pinsTarget.value?.longitude != null ? String(pinsTarget.value.longitude) : ''
-  pinForm.radius_meters = pinsTarget.value?.radius_meters != null
-    ? String(pinsTarget.value.radius_meters)
-    : '150'
-  pinForm.status = 'active'
-  pinsError.value = ''
-}
-
-async function openPins(loc: OutsourceWorkLocationRow): Promise<void> {
-  pinsTarget.value = loc
-  showPinsModal.value = true
-  resetPinForm()
-  await loadPins()
-}
-
-async function loadPins(): Promise<void> {
-  if (!pinsTarget.value) return
-  pinsLoading.value = true
-  pinsError.value = ''
+async function openOutsources(row: OutsourceWorkLocationRow): Promise<void> {
+  outsourcesTarget.value = row
+  outsourcesList.value = []
+  outsourcesError.value = ''
+  showOutsourcesModal.value = true
+  outsourcesLoading.value = true
   try {
-    pins.value = await fetchWorkLocationPins(pinsTarget.value.id)
+    outsourcesList.value = await fetchWorkLocationPinOutsources(row.work_location_id, row.id)
   } catch (e: unknown) {
-    pinsError.value = e instanceof Error ? e.message : 'Failed to load pins.'
-    pins.value = []
+    outsourcesError.value = e instanceof Error ? e.message : 'Failed to load outsources.'
   } finally {
-    pinsLoading.value = false
-  }
-}
-
-function startEditPin(pin: WorkLocationPinRow): void {
-  pinFormMode.value = 'edit'
-  editingPinId.value = pin.id
-  pinForm.name = pin.name
-  pinForm.address = pin.address ?? ''
-  pinForm.latitude = pin.latitude != null ? String(pin.latitude) : ''
-  pinForm.longitude = pin.longitude != null ? String(pin.longitude) : ''
-  pinForm.radius_meters = pin.radius_meters != null ? String(pin.radius_meters) : '150'
-  pinForm.status = pin.status
-  pinsError.value = ''
-}
-
-async function submitPinForm(): Promise<void> {
-  if (!pinsTarget.value) return
-  if (!pinForm.name.trim()) {
-    pinsError.value = 'Pin name is required.'
-    return
-  }
-  const latitude = parseDecimal(pinForm.latitude)
-  const longitude = parseDecimal(pinForm.longitude)
-  if (latitude === null || longitude === null) {
-    pinsError.value = 'Latitude and longitude are required numbers.'
-    return
-  }
-
-  pinsBusy.value = true
-  pinsError.value = ''
-  try {
-    const payload = {
-      name: pinForm.name.trim(),
-      address: pinForm.address.trim() || null,
-      latitude,
-      longitude,
-      radius_meters: pinForm.radius_meters ? Number(pinForm.radius_meters) : null,
-      status: pinForm.status,
-    }
-    if (pinFormMode.value === 'create') {
-      await createWorkLocationPin(pinsTarget.value.id, payload)
-    } else if (editingPinId.value !== null) {
-      await updateWorkLocationPin(pinsTarget.value.id, editingPinId.value, payload)
-    }
-    resetPinForm()
-    await loadPins()
-  } catch (e: unknown) {
-    pinsError.value = e instanceof Error ? e.message : 'Failed to save pin.'
-  } finally {
-    pinsBusy.value = false
-  }
-}
-
-async function removePin(pin: WorkLocationPinRow): Promise<void> {
-  if (!pinsTarget.value) return
-  pinsBusy.value = true
-  pinsError.value = ''
-  try {
-    await deleteWorkLocationPin(pinsTarget.value.id, pin.id)
-    if (editingPinId.value === pin.id) resetPinForm()
-    await loadPins()
-  } catch (e: unknown) {
-    pinsError.value = e instanceof Error ? e.message : 'Failed to delete pin.'
-  } finally {
-    pinsBusy.value = false
+    outsourcesLoading.value = false
   }
 }
 
@@ -521,11 +473,14 @@ async function executeDelete(): Promise<void> {
   if (!deleteTarget.value) return
   deleteBusy.value = true
   try {
-    await deleteWorkLocation(deleteTarget.value.id)
+    await deleteWorkLocationPin(deleteTarget.value.work_location_id, deleteTarget.value.id)
     showDeleteModal.value = false
     deleteTarget.value = null
+    toast.success('Work location deleted')
     await load()
-  } catch { /* keep modal open */ } finally {
+  } catch (e: unknown) {
+    toast.fromError(e, 'Unable to delete this work location.')
+  } finally {
     deleteBusy.value = false
   }
 }
@@ -562,7 +517,6 @@ onMounted(async () => {
 
     <template #body>
       <div class="p-4 sm:p-6 space-y-4">
-
         <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-triangle-alert" title="Failed to load" :description="error">
           <template #actions>
             <UButton color="primary" variant="subtle" size="sm" icon="i-lucide-refresh-cw" @click="load">Retry</UButton>
@@ -572,14 +526,18 @@ onMounted(async () => {
         <template v-else>
           <div class="flex items-center gap-2 text-sm text-muted">
             <UIcon name="i-lucide-map-pin" class="size-4 shrink-0" />
-            <span><strong class="text-highlighted font-semibold">{{ meta.total }}</strong> work location{{ meta.total !== 1 ? 's' : '' }}</span>
+            <span>
+              <strong class="text-highlighted font-semibold">{{ meta.total }}</strong>
+              work location{{ meta.total !== 1 ? 's' : '' }}
+              <span class="text-muted"> (1 row = 1 address/pin)</span>
+            </span>
           </div>
 
           <DataTableToolbar
             v-model:search="searchInput"
             v-model:status="statusTab"
             v-model:per-page="filters.per_page"
-            search-placeholder="Search store, code, or city…"
+            search-placeholder="Search cabang, address, or pin…"
             :status-options="statusOptions"
             :display-items="displayItems"
             show-per-page
@@ -612,53 +570,76 @@ onMounted(async () => {
     </template>
   </UDashboardPanel>
 
-  <!-- ── Create / Edit modal ───────────────────────────────────────────────── -->
-  <UModal v-model:open="showFormModal" :title="formMode === 'create' ? 'Add work location' : 'Edit work location'">
+  <UModal
+    v-model:open="showFormModal"
+    :title="formMode === 'create' ? 'Add work location' : 'Edit work location'"
+  >
     <template #body>
       <div class="space-y-4">
-        <UFormField label="Store name" required>
-          <UInput v-model="form.name" placeholder="e.g. MALL KELAPA GADING" class="w-full" />
-        </UFormField>
+        <p class="text-sm text-muted">
+          Each row is one address/pin under a cabang (city). Default radius is 150 m.
+        </p>
 
-        <UFormField label="City">
+        <UFormField v-if="formMode === 'create'" label="City" required>
           <USelect
             :model-value="toSelectId(form.city_id)"
-            :items="[{ label: 'No city', value: ALL }, ...cities.map(c => ({ label: c.name, value: String(c.id) }))]"
+            :items="[{ label: 'Select city', value: ALL }, ...cities.map(c => ({ label: c.name, value: String(c.id) }))]"
             value-key="value"
             class="w-full"
-            @update:model-value="(v: unknown) => { form.city_id = fromSelectId(v) }"
+            @update:model-value="(v: unknown) => { form.city_id = fromSelectId(v); loadFormCabangs(form.city_id) }"
           />
         </UFormField>
 
+        <UFormField v-if="formMode === 'create' && form.city_id" label="Cabang">
+          <USelect
+            :model-value="toSelectId(form.work_location_id)"
+            :items="[
+              { label: formCabangs.length ? 'Auto / select cabang' : 'Will create cabang from city', value: ALL },
+              ...formCabangs.map(s => ({ label: s.name, value: String(s.id) })),
+            ]"
+            value-key="value"
+            class="w-full"
+            @update:model-value="(v: unknown) => { form.work_location_id = fromSelectId(v) }"
+          />
+        </UFormField>
+
+        <UFormField label="Pin name" required>
+          <UInput v-model="form.pin_name" placeholder="e.g. Gate A / Wilayah Bangka" class="w-full" />
+        </UFormField>
+
+        <UFormField label="Alamat">
+          <UInput v-model="form.address" placeholder="Street address" class="w-full" />
+        </UFormField>
+
         <div class="grid grid-cols-2 gap-3">
-          <UFormField label="Latitude">
-            <UInput
-              v-model="form.latitude"
-              type="text"
-              inputmode="decimal"
-              placeholder="-6.1754"
-              class="w-full"
-            />
+          <UFormField label="Latitude" required>
+            <UInput v-model="form.latitude" type="text" inputmode="decimal" class="w-full" />
           </UFormField>
-          <UFormField label="Longitude">
-            <UInput
-              v-model="form.longitude"
-              type="text"
-              inputmode="decimal"
-              placeholder="106.8272"
+          <UFormField label="Longitude" required>
+            <UInput v-model="form.longitude" type="text" inputmode="decimal" class="w-full" />
+          </UFormField>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <UFormField label="Radius (m)" hint="Default 150. Area pins up to 100,000.">
+            <UInput v-model="form.radius_meters" type="number" min="1" max="100000" step="1" class="w-full" />
+          </UFormField>
+          <UFormField label="Status">
+            <USelect
+              v-model="form.status"
+              :items="[
+                { label: 'Active', value: 'active' },
+                { label: 'Inactive', value: 'inactive' },
+              ]"
+              value-key="value"
               class="w-full"
             />
           </UFormField>
         </div>
 
-        <UFormField label="Radius (meters)">
-          <UInput v-model="form.radius_meters" type="number" step="1" placeholder="150" class="w-full" />
-        </UFormField>
-
         <UAlert v-if="formError" color="error" variant="subtle" :description="formError" />
       </div>
     </template>
-
     <template #footer>
       <div class="flex justify-end gap-2">
         <UButton color="neutral" variant="outline" :disabled="formBusy" @click="showFormModal = false">Cancel</UButton>
@@ -669,13 +650,13 @@ onMounted(async () => {
     </template>
   </UModal>
 
-  <!-- ── Delete confirm modal ───────────────────────────────────────────────── -->
   <UModal v-model:open="showDeleteModal" title="Delete work location">
     <template #body>
       <p class="text-sm text-muted">
-        Are you sure you want to delete
-        <strong class="text-highlighted">{{ deleteTarget?.name }}</strong>?
-        All outsource assignments for this location will also be deactivated.
+        Delete pin
+        <strong class="text-highlighted">{{ deleteTarget?.pin_name }}</strong>
+        at
+        <strong class="text-highlighted">{{ deleteTarget?.address || 'no address' }}</strong>?
       </p>
     </template>
     <template #footer>
@@ -686,121 +667,59 @@ onMounted(async () => {
     </template>
   </UModal>
 
-  <!-- ── Manage pins modal ──────────────────────────────────────────────────── -->
   <UModal
-    v-model:open="showPinsModal"
-    :title="`Pins — ${pinsTarget?.name ?? ''}`"
-    :ui="{ content: 'sm:max-w-2xl' }"
+    v-model:open="showOutsourcesModal"
+    :title="`Outsources — ${outsourcesTarget?.pin_name || 'pin'}`"
   >
     <template #body>
-      <div class="space-y-5">
-        <div class="space-y-2">
-          <p class="text-sm text-muted">
-            Multiple addresses/geofences under this cabang. Outsource people can be limited to a subset.
-          </p>
-          <div v-if="pinsLoading" class="text-sm text-muted">Loading pins…</div>
-          <div v-else-if="pins.length === 0" class="rounded-md border border-dashed border-default p-3 text-sm text-muted">
-            No pins yet. Add the first pin below.
-          </div>
-          <ul v-else class="divide-y divide-default rounded-md border border-default">
-            <li
-              v-for="pin in pins"
-              :key="pin.id"
-              class="flex items-start justify-between gap-3 px-3 py-2.5"
-            >
-              <div class="min-w-0">
-                <p class="truncate text-sm font-medium">{{ pin.name }}</p>
-                <p class="truncate text-xs text-muted">
-                  {{ pin.address || 'No address' }}
-                  · {{ pin.latitude }}, {{ pin.longitude }}
-                  · {{ pin.radius_meters ?? '—' }} m
-                  · {{ pin.status }}
-                </p>
-              </div>
-              <div class="flex shrink-0 gap-1">
-                <UButton
-                  v-if="can('outsource_work_location.update')"
-                  size="xs"
-                  color="neutral"
-                  variant="ghost"
-                  icon="i-lucide-pencil"
-                  @click="startEditPin(pin)"
-                />
-                <UButton
-                  v-if="can('outsource_work_location.delete')"
-                  size="xs"
-                  color="error"
-                  variant="ghost"
-                  icon="i-lucide-trash-2"
-                  :disabled="pinsBusy"
-                  @click="removePin(pin)"
-                />
-              </div>
-            </li>
-          </ul>
-        </div>
+      <div class="space-y-3">
+        <p class="text-sm text-muted">
+          People who can check in/out at
+          <strong class="text-highlighted">{{ outsourcesTarget?.address || outsourcesTarget?.pin_name }}</strong>
+          ({{ outsourcesTarget?.city?.name || outsourcesTarget?.cabang?.name }}).
+        </p>
 
-        <div class="space-y-3 rounded-md border border-default p-3">
-          <p class="text-sm font-medium">
-            {{ pinFormMode === 'create' ? 'Add pin' : 'Edit pin' }}
-          </p>
-          <UFormField label="Name" required>
-            <UInput v-model="pinForm.name" placeholder="e.g. Gate A / Lobby" class="w-full" />
-          </UFormField>
-          <UFormField label="Address">
-            <UInput v-model="pinForm.address" placeholder="Optional street address" class="w-full" />
-          </UFormField>
-          <div class="grid grid-cols-2 gap-3">
-            <UFormField label="Latitude" required>
-              <UInput v-model="pinForm.latitude" type="text" inputmode="decimal" class="w-full" />
-            </UFormField>
-            <UFormField label="Longitude" required>
-              <UInput v-model="pinForm.longitude" type="text" inputmode="decimal" class="w-full" />
-            </UFormField>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <UFormField label="Radius (m)">
-              <UInput v-model="pinForm.radius_meters" type="number" class="w-full" />
-            </UFormField>
-            <UFormField label="Status">
-              <USelect
-                v-model="pinForm.status"
-                :items="[
-                  { label: 'Active', value: 'active' },
-                  { label: 'Inactive', value: 'inactive' },
-                ]"
-                value-key="value"
-                class="w-full"
-              />
-            </UFormField>
-          </div>
-          <div class="flex justify-end gap-2">
-            <UButton
-              v-if="pinFormMode === 'edit'"
-              color="neutral"
-              variant="outline"
-              :disabled="pinsBusy"
-              @click="resetPinForm"
-            >
-              Cancel edit
-            </UButton>
-            <UButton
-              color="primary"
-              :loading="pinsBusy"
-              :disabled="!can('outsource_work_location.create') && !can('outsource_work_location.update')"
-              @click="submitPinForm"
-            >
-              {{ pinFormMode === 'create' ? 'Add pin' : 'Save pin' }}
-            </UButton>
-          </div>
+        <div v-if="outsourcesLoading" class="text-sm text-muted">Loading…</div>
+        <UAlert v-else-if="outsourcesError" color="error" variant="subtle" :description="outsourcesError" />
+        <div
+          v-else-if="outsourcesList.length === 0"
+          class="rounded-md border border-dashed border-default p-3 text-sm text-muted"
+        >
+          No outsource assigned to this pin yet.
         </div>
-
-        <UAlert v-if="pinsError" color="error" variant="subtle" :description="pinsError" />
+        <ul v-else class="divide-y divide-default rounded-md border border-default">
+          <li
+            v-for="person in outsourcesList"
+            :key="person.id"
+            class="flex items-center justify-between gap-3 px-3 py-2.5"
+          >
+            <div class="min-w-0">
+              <p class="truncate text-sm font-medium">{{ person.name }}</p>
+              <p class="truncate font-mono text-xs text-muted">{{ person.outsource_code }}</p>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              <UBadge
+                size="sm"
+                variant="subtle"
+                :color="person.assignment_scope === 'pin' ? 'primary' : 'neutral'"
+              >
+                {{ person.assignment_scope === 'pin' ? 'This pin' : 'All cabang pins' }}
+              </UBadge>
+              <UBadge
+                size="sm"
+                variant="subtle"
+                :color="person.status === 'active' ? 'success' : 'error'"
+              >
+                {{ person.status }}
+              </UBadge>
+            </div>
+          </li>
+        </ul>
       </div>
     </template>
     <template #footer>
       <div class="flex justify-end">
-        <UButton color="neutral" variant="outline" @click="showPinsModal = false">Close</UButton>
+        <UButton color="neutral" variant="outline" @click="showOutsourcesModal = false">Close</UButton>
       </div>
     </template>
   </UModal>

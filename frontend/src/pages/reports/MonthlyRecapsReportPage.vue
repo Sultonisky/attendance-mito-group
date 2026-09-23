@@ -7,6 +7,7 @@ import { useReportPage } from '../../composables/useReportPage'
 import { useDataTableSort } from '../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
 import { usePermission } from '../../features/auth/composables/usePermission'
+import { useAppToast } from '../../composables/useAppToast'
 import { fetchMonthlyRecaps } from '../../services/reports/monthlyRecapApi'
 import {
   exportMonthlyRecap,
@@ -24,6 +25,7 @@ import type { MonthlyRecapRow } from '../../types/reports'
 
 const route = useRoute()
 const { can } = usePermission()
+const toast = useAppToast()
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 
 const data = ref<MonthlyRecapRow[]>([])
@@ -207,10 +209,12 @@ async function generate(): Promise<void> {
       year: year.value,
       month: month.value,
     })
+    toast.success('Monthly recap generated')
     await load()
   }
   catch {
     error.value = 'Unable to generate the monthly recap. Please try again.'
+    toast.error('Generate failed', 'Unable to generate the monthly recap. Please try again.')
   }
   finally {
     generating.value = false
@@ -221,13 +225,26 @@ async function handleRowAction(action: string, id: number): Promise<void> {
   actionBusyId.value = id
   error.value = ''
   try {
-    if (action === 'review')   await reviewMonthlyRecap(id)
-    if (action === 'finalize') await finalizeMonthlyRecap(id)
-    if (action === 'export')   await exportMonthlyRecap(id)
-    if (action === 'reopen')   await reopenMonthlyRecap(id)
+    if (action === 'review') {
+      await reviewMonthlyRecap(id)
+      toast.success('Recap marked for review')
+    }
+    if (action === 'finalize') {
+      await finalizeMonthlyRecap(id)
+      toast.success('Recap finalized')
+    }
+    if (action === 'export') {
+      await exportMonthlyRecap(id)
+      toast.success('Recap exported')
+    }
+    if (action === 'reopen') {
+      await reopenMonthlyRecap(id)
+      toast.success('Recap reopened')
+    }
     await load()
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Unable to update this monthly recap. Please try again.'
+    toast.fromError(e, 'Unable to update this monthly recap.')
   } finally {
     actionBusyId.value = null
   }

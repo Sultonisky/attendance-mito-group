@@ -8,6 +8,7 @@ import { useReportPage } from '../../../composables/useReportPage'
 import { useDataTableSort } from '../../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../../composables/useDataTableDisplay'
 import { usePermission } from '../../../features/auth/composables/usePermission'
+import { useAppToast } from '../../../composables/useAppToast'
 import {
   fetchOutsourceAttendanceReport,
   voidOutsourceAttendance,
@@ -16,13 +17,14 @@ import { fetchOutsourceCities, fetchOutsourceStores, fetchOutsourceOutsources } 
 import ReportDataToolbar from '../../../components/ReportDataToolbar.vue'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
-import { createSortableHeader, createStatusBadge } from '../../../utils/dataTable'
+import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../../utils/dataTable'
 import { formatAttendanceDateTime } from '../../../utils/attendanceDateTime'
 import type { OutsourceAttendanceReportRow, OutsourceAttendanceReportFilters } from '../../../types/reports'
 import { defaultReportDates } from '../../../types/reportDates'
 
 const route = useRoute()
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const toast = useAppToast()
 const { can } = usePermission()
 
 const data = ref<OutsourceAttendanceReportRow[]>([])
@@ -60,7 +62,7 @@ const hideableColumns = [
   { id: 'attendance_date', label: 'Date' },
   { id: 'outsource', label: 'Outsource' },
   { id: 'city', label: 'City' },
-  { id: 'store', label: 'Store' },
+  { id: 'store', label: 'Cabang' },
   { id: 'check_in_at', label: 'Clock In' },
   { id: 'check_out_at', label: 'Clock Out' },
   { id: 'session_count', label: 'Sessions' },
@@ -87,20 +89,21 @@ const columns = computed<TableColumn<OutsourceAttendanceReportRow>[]>(() => [
     accessorFn: row => row.outsource?.name ?? '',
     cell: ({ row }) => {
       const o = row.original.outsource
-      return o ? `${o.name}${o.code ? ` (${o.code})` : ''}` : '—'
+      const label = o ? `${o.name}${o.code ? ` (${o.code})` : ''}` : null
+      return createTruncatedText(label)
     },
   },
   {
     id: 'city',
     header: ({ column }) => createSortableHeader(column, 'City'),
     accessorFn: row => row.city?.name ?? '',
-    cell: ({ row }) => row.original.city?.name ?? '—',
+    cell: ({ row }) => createTruncatedText(row.original.city?.name),
   },
   {
     id: 'store',
-    header: ({ column }) => createSortableHeader(column, 'Store'),
+    header: ({ column }) => createSortableHeader(column, 'Cabang'),
     accessorFn: row => row.store?.name ?? '',
-    cell: ({ row }) => row.original.store?.name ?? '—',
+    cell: ({ row }) => createTruncatedText(row.original.store?.name),
   },
   {
     accessorKey: 'check_in_at',
@@ -294,8 +297,11 @@ async function executeVoid(): Promise<void> {
     await voidOutsourceAttendance(voidTarget.value.attendance_id)
     showVoidModal.value = false
     voidTarget.value = null
+    toast.success('Attendance voided')
     await load()
-  } catch { /* keep modal open */ } finally {
+  } catch (e: unknown) {
+    toast.fromError(e, 'Unable to void this attendance record.')
+  } finally {
     voidBusy.value = false
   }
 }
@@ -363,7 +369,7 @@ onMounted(async () => {
               />
               <USelect
                 :model-value="toSelectId(filters.store_id)"
-                :items="[{ label: 'All stores', value: ALL }, ...stores.map(s => ({ label: s.name, value: String(s.id) }))]"
+                :items="[{ label: 'All cabangs', value: ALL }, ...stores.map(s => ({ label: s.name, value: String(s.id) }))]"
                 value-key="value"
                 class="w-36"
                 :disabled="!filters.city_id"

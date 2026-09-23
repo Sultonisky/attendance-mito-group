@@ -33,7 +33,7 @@ class OutsourceLoginAndPinApiTest extends TestCase
         ]);
         $outsource = Outsource::factory()->create([
             'status' => 'active',
-            'password' => 'secret123',
+            'password' => '123456',
         ]);
         OutsourceStoreAssignment::factory()
             ->forOutsource($outsource)
@@ -42,7 +42,7 @@ class OutsourceLoginAndPinApiTest extends TestCase
 
         $response = $this->postJson('/api/v1/outsource/login', [
             'outsource_code' => $outsource->outsource_code,
-            'password' => 'secret123',
+            'password' => '123456',
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
@@ -60,7 +60,7 @@ class OutsourceLoginAndPinApiTest extends TestCase
         WorkLocationPin::factory()->forLocation($store)->create(['status' => 'active']);
         $outsource = Outsource::factory()->create([
             'status' => 'active',
-            'password' => 'secret123',
+            'password' => '123456',
         ]);
         OutsourceStoreAssignment::factory()
             ->forOutsource($outsource)
@@ -69,7 +69,7 @@ class OutsourceLoginAndPinApiTest extends TestCase
 
         $response = $this->postJson('/api/v1/outsource/login', [
             'outsource_code' => $outsource->outsource_code,
-            'password' => 'wrong-password',
+            'password' => '999999',
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
 
@@ -91,7 +91,7 @@ class OutsourceLoginAndPinApiTest extends TestCase
         WorkLocationPin::factory()->forLocation($store)->create(['status' => 'active']);
         $outsource = Outsource::factory()->create([
             'status' => 'active',
-            'password' => 'secret123',
+            'password' => '123456',
         ]);
         OutsourceStoreAssignment::factory()
             ->forOutsource($outsource)
@@ -113,7 +113,7 @@ class OutsourceLoginAndPinApiTest extends TestCase
 
         $login = $this->postJson('/api/v1/outsource/login', [
             'outsource_code' => $outsource->outsource_code,
-            'password' => 'secret123',
+            'password' => '123456',
             'device_fingerprint' => self::DEVICE_FINGERPRINT,
         ]);
         $login->assertStatus(201);

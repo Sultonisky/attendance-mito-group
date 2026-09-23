@@ -125,6 +125,26 @@ class OutsourceAttendanceTest extends TestCase
         $engine->checkIn($outsource, $this->makeOperationData(-6.3, 106.9, $store->id, null, $this->defaultPin($store)->id));
     }
 
+    public function test_outsource_check_in_uses_custom_pin_radius_not_default_150(): void
+    {
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $store = $this->makeStore(-2.17, 106.12, 80000);
+        $this->makeActiveAssignment($outsource, $store);
+
+        $pin = $this->defaultPin($store);
+        $this->assertSame(80000.0, $pin->effectiveRadiusMeters());
+
+        $engine = $this->makeEngine();
+        // ~5km away — outside 150m default but inside 80km area pin.
+        $result = $engine->checkIn(
+            $outsource,
+            $this->makeOperationData(-2.20, 106.15, $store->id, null, $pin->id)
+        );
+
+        $this->assertTrue($result->geofence['passed']);
+        $this->assertSame($pin->id, $result->geofence['pin_id']);
+    }
+
     public function test_outsource_without_assignment_cannot_check_in(): void
     {
         $outsource = Outsource::factory()->create(['status' => 'active']);

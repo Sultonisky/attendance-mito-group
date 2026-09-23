@@ -21,6 +21,9 @@ class Outsource extends Model implements AttendanceSubject
     /** @use HasFactory<OutsourceFactory> */
     use HasFactory, SoftDeletes;
 
+    /** Default numeric login PIN when none is provided (create / import / backfill). */
+    public const DEFAULT_LOGIN_PIN = '123456';
+
     /**
      * @var list<string>
      */

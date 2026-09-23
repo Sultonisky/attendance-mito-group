@@ -1,2 +1,2 @@
+# For scripts/normalize_outsource_os_locations.py
 openpyxl>=3.1.0
-openlocationcode>=1.0.1

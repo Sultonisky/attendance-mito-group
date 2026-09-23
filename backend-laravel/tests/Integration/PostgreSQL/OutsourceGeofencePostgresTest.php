@@ -127,8 +127,9 @@ class OutsourceGeofencePostgresTest extends TestCase
         $engine->checkIn($outsource, $this->makeOperationData(-6.3, 106.9, $store->id, null, $this->defaultPin($store)->id));
     }
 
-    public function test_outsource_geofence_uses_exactly_150m_regardless_of_store_radius(): void
+    public function test_outsource_geofence_uses_pin_radius_meters(): void
     {
+        // Pin radius 500m (store radius is irrelevant for outsource pin geofence).
         $store = $this->makeStoreWithPostGis(-6.2, 106.8, 500);
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $this->makeActiveAssignment($outsource, $store);
@@ -136,12 +137,12 @@ class OutsourceGeofencePostgresTest extends TestCase
         $engine = $this->makeEngine();
         $pinId = $this->defaultPin($store)->id;
 
-        // Exactly at the 150m boundary should be inside (ST_DWithin uses <=).
-        $result = $engine->checkIn($outsource, $this->makeOperationData(-6.198644, 106.8, $store->id, null, $pinId));
+        // ~200m away — inside 500m pin radius.
+        $result = $engine->checkIn($outsource, $this->makeOperationData(-6.1982, 106.8, $store->id, null, $pinId));
         $this->assertTrue($result->geofence['passed']);
 
-        // Beyond 150m should be rejected even if the store radius is 500m.
+        // Far outside 500m — rejected.
         $this->expectException(\App\Domain\Attendance\Exceptions\OutsideGeofenceException::class);
-        $engine->checkIn($outsource, $this->makeOperationData(-6.198553, 106.8, $store->id, null, $pinId));
+        $engine->checkIn($outsource, $this->makeOperationData(-6.3, 106.9, $store->id, null, $pinId));
     }
 }

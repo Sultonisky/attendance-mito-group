@@ -600,13 +600,12 @@ Do not blindly clear individual caches if optimize:clear is already used appropr
 
 After a successful CI run on `main`, [`.github/workflows/DEPLOY.yml`](.github/workflows/DEPLOY.yml) on the VPS:
 
-1. Builds the image (bundles `data/outsource_master_from_excel.csv` and `data/stores.json` at `/opt/seed-data/`).
+1. Builds the image (bundles `data/stores.json` at `/opt/seed-data/`).
 2. Recreates the attendance container and waits until `php artisan about` responds.
-3. Verifies `/opt/seed-data/*` exists inside the container.
+3. Verifies `/opt/seed-data/stores.json` exists inside the container.
 4. Runs `php artisan migrate --force`.
 5. Seeds **roles and permissions only** (`RolesAndPermissionsSeeder`, idempotent).
-6. Imports outsource master data (`outsource:import /opt/seed-data/outsource_master.csv --require-min=1`) — deploy fails if zero outsources remain.
-7. Imports store coordinates (`outsource:locations:import /opt/seed-data/stores.json --allow-partial`).
+6. Imports outsource cabang/kota + people + pins (`outsource:import /opt/seed-data/stores.json --require-min=1 --allow-partial`) — deploy fails if zero outsources remain.
 
 Production seeding: the deploy runs the full `php artisan db:seed --force`,
 which seeds roles & permissions **and** the initial dashboard accounts
@@ -615,7 +614,7 @@ which seeds roles & permissions **and** the initial dashboard accounts
 `SEED_USER_PASSWORD` in the deployment environment before the first seed,
 or rotate the seeded passwords immediately afterwards.
 
-If master data is missing after a green deploy, check the Deploy job logs for the import table (Cities/Stores/Outsources/Assignments) and the `--require-min` guard.
+If master data is missing after a green deploy, check the Deploy job logs for the import table (Cities/Cabangs/Outsources/Assignments/Pins) and the `--require-min` guard.
 
 ## 21. Important Development Principle
 

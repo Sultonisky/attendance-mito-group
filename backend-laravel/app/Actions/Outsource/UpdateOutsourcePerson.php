@@ -27,8 +27,12 @@ class UpdateOutsourcePerson implements Action
             $fillable = array_filter([
                 'name'   => $input['name']   ?? null,
                 'status' => $input['status'] ?? null,
-                'password' => $input['password'] ?? null,
             ], fn ($v) => $v !== null);
+
+            $password = isset($input['password']) ? trim((string) $input['password']) : '';
+            if ($password !== '') {
+                $fillable['password'] = $password;
+            }
 
             if (!empty($fillable)) {
                 $person->update($fillable);

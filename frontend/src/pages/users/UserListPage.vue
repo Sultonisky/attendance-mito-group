@@ -7,6 +7,7 @@ import { useReportPage } from '../../composables/useReportPage'
 import { useDataTableSort } from '../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
 import { usePermission } from '../../features/auth/composables/usePermission'
+import { useAppToast } from '../../composables/useAppToast'
 import { useAuthStore } from '../../stores/auth'
 import {
   fetchUsers,
@@ -23,10 +24,11 @@ import {
 } from '../../services/userApi'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
-import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
+import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../utils/dataTable'
 
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 const { can } = usePermission()
+const toast = useAppToast()
 const auth = useAuthStore()
 
 // ── Table data ────────────────────────────────────────────────────────────────
@@ -126,17 +128,17 @@ const columns = computed<TableColumn<UserRow>[]>(() => [
   {
     accessorKey: 'name',
     header: ({ column }) => createSortableHeader(column, 'Name'),
-    cell: ({ row }) => h('div', [
-      h('p', { class: 'font-medium text-sm' }, row.original.name),
+    cell: ({ row }) => h('div', { class: 'min-w-0' }, [
+      createTruncatedText(row.original.name, 'font-medium text-sm'),
       row.original.has_employee
-        ? h('p', { class: 'text-xs text-[var(--ui-text-muted)]' }, 'Linked to employee')
+        ? h('p', { class: 'truncate text-xs text-[var(--ui-text-muted)]' }, 'Linked to employee')
         : null,
     ]),
   },
   {
     accessorKey: 'email',
     header: ({ column }) => createSortableHeader(column, 'Email'),
-    cell: ({ row }) => h('span', { class: 'text-sm text-[var(--ui-text-muted)]' }, row.original.email),
+    cell: ({ row }) => createTruncatedText(row.original.email, 'text-sm text-[var(--ui-text-muted)]'),
   },
   {
     id: 'role',
@@ -163,7 +165,7 @@ const columns = computed<TableColumn<UserRow>[]>(() => [
   {
     accessorKey: 'created_at',
     header: ({ column }) => createSortableHeader(column, 'Created'),
-    cell: ({ row }) => h('span', { class: 'text-xs text-[var(--ui-text-muted)]' }, row.original.created_at ?? '—'),
+    cell: ({ row }) => createTruncatedText(row.original.created_at, 'text-xs text-[var(--ui-text-muted)]'),
   },
   {
     id: 'actions',
@@ -318,6 +320,7 @@ async function submitForm(): Promise<void> {
         password: form.password,
         role:     form.role,
       })
+      toast.success('User created')
     } else if (editingId.value !== null) {
       await updateUser(editingId.value, {
         name:     form.name.trim(),
@@ -325,6 +328,7 @@ async function submitForm(): Promise<void> {
         password: form.password || null,
         role:     form.role,
       })
+      toast.success('User updated')
     }
     showFormModal.value = false
     await load()
@@ -340,7 +344,11 @@ async function handleToggle(user: UserRow): Promise<void> {
     const res = await toggleUserStatus(user.id)
     const idx = data.value.findIndex(u => u.id === user.id)
     if (idx !== -1) data.value[idx] = { ...data.value[idx], status: res.data.status as 'active' | 'inactive' }
-  } catch { await load() }
+    toast.success(res.data.status === 'active' ? 'User activated' : 'User deactivated')
+  } catch (e: unknown) {
+    toast.fromError(e, 'Unable to update user status.')
+    await load()
+  }
 }
 
 function confirmDelete(user: UserRow): void {
@@ -357,13 +365,16 @@ async function executeDelete(): Promise<void> {
     const res = await deleteUser(deleteTarget.value.id)
     if (!res.success) {
       deleteError.value = res.message ?? 'Failed to delete user.'
+      toast.error('Delete failed', deleteError.value)
       return
     }
     showDeleteModal.value = false
     deleteTarget.value    = null
+    toast.success('User deleted')
     await load()
   } catch (e: unknown) {
     deleteError.value = e instanceof Error ? e.message : 'Failed to delete user.'
+    toast.fromError(e, 'Unable to delete this user.')
   } finally {
     deleteBusy.value = false
   }
@@ -398,6 +409,7 @@ async function submitPermissions(): Promise<void> {
   try {
     await syncUserPermissions(permissionsTarget.value.id, selectedPermissions.value)
     showPermissionsModal.value = false
+    toast.success('Permissions updated')
   } catch (e: unknown) {
     permissionsError.value = e instanceof Error ? e.message : 'Failed to save permissions.'
   } finally {

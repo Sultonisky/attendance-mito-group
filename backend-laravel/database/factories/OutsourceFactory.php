@@ -17,6 +17,7 @@ class OutsourceFactory extends Factory
         return [
             'outsource_code' => sprintf('%03d', fake()->unique()->numberBetween(1, 9999)),
             'name' => fake()->name(),
+            'password' => Outsource::DEFAULT_LOGIN_PIN,
             'status' => 'active',
         ];
     }

@@ -1,15 +1,17 @@
 import { apiFetch } from './apiClient'
 
+/** One table row = one pin/address under a cabang. */
 export type OutsourceWorkLocationRow = {
   id: number
-  code: string
-  name: string
-  status: 'active' | 'inactive'
-  city: { id: number; name: string; code: string | null } | null
-  address: string
+  work_location_id: number
+  pin_name: string
+  address: string | null
   latitude: number | null
   longitude: number | null
   radius_meters: number | null
+  status: 'active' | 'inactive'
+  cabang: { id: number; name: string; code: string | null }
+  city: { id: number; name: string; code: string | null } | null
   outsource_count: number
   created_at: string | null
 }
@@ -56,8 +58,6 @@ export type UpdateWorkLocationPayload = {
   status?: 'active' | 'inactive'
 }
 
-// ── READ ──────────────────────────────────────────────────────────────────────
-
 export async function fetchOutsourceWorkLocations(
   filters: Partial<OutsourceWorkLocationFilters>,
 ): Promise<OutsourceWorkLocationResponse> {
@@ -90,30 +90,24 @@ export async function fetchWorkLocationCities(): Promise<{ id: number; name: str
   return res.data
 }
 
-// ── CREATE ────────────────────────────────────────────────────────────────────
-
 export async function createWorkLocation(
   payload: WorkLocationPayload,
-): Promise<{ success: boolean; data: OutsourceWorkLocationRow }> {
+): Promise<{ success: boolean; data: { id: number; name: string } }> {
   return apiFetch(`/outsource-work-locations`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
 }
 
-// ── UPDATE ────────────────────────────────────────────────────────────────────
-
 export async function updateWorkLocation(
   id: number,
   payload: UpdateWorkLocationPayload,
-): Promise<{ success: boolean; data: OutsourceWorkLocationRow }> {
+): Promise<{ success: boolean; data: { id: number } }> {
   return apiFetch(`/outsource-work-locations/${id}`, {
     method: 'PUT',
     body: JSON.stringify(payload),
   })
 }
-
-// ── TOGGLE STATUS ─────────────────────────────────────────────────────────────
 
 export async function toggleWorkLocationStatus(
   id: number,
@@ -121,15 +115,11 @@ export async function toggleWorkLocationStatus(
   return apiFetch(`/outsource-work-locations/${id}/toggle-status`, { method: 'POST' })
 }
 
-// ── DELETE ────────────────────────────────────────────────────────────────────
-
 export async function deleteWorkLocation(
   id: number,
 ): Promise<{ success: boolean }> {
   return apiFetch(`/outsource-work-locations/${id}`, { method: 'DELETE' })
 }
-
-// ── PINS ──────────────────────────────────────────────────────────────────────
 
 export type WorkLocationPinRow = {
   id: number
@@ -190,4 +180,22 @@ export async function deleteWorkLocationPin(
   return apiFetch(`/outsource-work-locations/${workLocationId}/pins/${pinId}`, {
     method: 'DELETE',
   })
+}
+
+export type WorkLocationPinOutsourceRow = {
+  id: number
+  name: string
+  outsource_code: string
+  status: string
+  assignment_scope: 'pin' | 'all_cabang_pins'
+}
+
+export async function fetchWorkLocationPinOutsources(
+  workLocationId: number,
+  pinId: number,
+): Promise<WorkLocationPinOutsourceRow[]> {
+  const res = await apiFetch<{ success: boolean; data: WorkLocationPinOutsourceRow[] }>(
+    `/outsource-work-locations/${workLocationId}/pins/${pinId}/outsources`,
+  )
+  return Array.isArray(res.data) ? res.data : []
 }

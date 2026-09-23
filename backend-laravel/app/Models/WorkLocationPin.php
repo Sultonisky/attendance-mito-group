@@ -46,6 +46,18 @@ class WorkLocationPin extends Model
     }
 
     /**
+     * Geofence radius for attendance: pin override, else default config (150m).
+     */
+    public function effectiveRadiusMeters(): float
+    {
+        if ($this->radius_meters !== null && (float) $this->radius_meters > 0) {
+            return (float) $this->radius_meters;
+        }
+
+        return (float) config('attendance.outsource_geofence_radius_meters', 150);
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array

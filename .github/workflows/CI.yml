@@ -179,8 +179,8 @@ jobs:
       - name: Verify production seed data files exist
         # Dockerfile COPY + deploy import depend on these paths.
         run: |
-          test -f data/outsource_master_from_excel.csv
           test -f data/stores.json
+          python -c "import json; d=json.load(open('data/stores.json',encoding='utf-8')); assert isinstance(d,list) and len(d)>0"
 
       - name: Build production image
         run: |

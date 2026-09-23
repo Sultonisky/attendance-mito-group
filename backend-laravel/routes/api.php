@@ -237,6 +237,8 @@ Route::prefix('v1')->group(function () {
                 ->middleware('can:outsource_work_location.update');
             Route::patch('/{outsourceWorkLocation}/pins/{pin}', [OutsourceWorkLocationPinController::class, 'update'])
                 ->middleware('can:outsource_work_location.update');
+            Route::get('/{outsourceWorkLocation}/pins/{pin}/outsources', [OutsourceWorkLocationPinController::class, 'outsources'])
+                ->middleware('can:outsource_work_location.view');
             Route::delete('/{outsourceWorkLocation}/pins/{pin}', [OutsourceWorkLocationPinController::class, 'destroy'])
                 ->middleware('can:outsource_work_location.delete');
         });

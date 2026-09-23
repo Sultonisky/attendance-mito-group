@@ -119,8 +119,7 @@ class DevelopmentDataSeeder extends Seeder
      *
      * Dummy cities & work locations (HQ + stores) are DISABLED: real data
      * comes from the artisan import commands instead:
-     *   php artisan outsource:import ...           (cities + stores + outsources)
-     *   php artisan outsource:locations:import ... (store coordinates)
+     *   php artisan outsource:import data/stores.json  (cabang/kota + people + pins)
      * The seeder reuses imported active work locations when available.
      * Re-enable the commented blocks below to restore dummy data.
      *

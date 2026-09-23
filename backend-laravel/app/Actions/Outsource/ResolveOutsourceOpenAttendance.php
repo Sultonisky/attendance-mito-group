@@ -88,7 +88,7 @@ class ResolveOutsourceOpenAttendance
                 'address' => $pin->address,
                 'latitude' => $pin->latitude,
                 'longitude' => $pin->longitude,
-                'radius_meters' => (float) config('attendance.outsource_geofence_radius_meters', 150),
+                'radius_meters' => $pin->effectiveRadiusMeters(),
             ])->values()->all();
         } catch (\InvalidArgumentException) {
             $pins = [];
