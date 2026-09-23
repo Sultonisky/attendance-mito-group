@@ -18,8 +18,11 @@ class UpdateOutsourcePersonRequest extends FormRequest
     {
         return [
             'name'     => ['sometimes', 'required', 'string', 'max:255'],
+            'password' => ['nullable', 'string', 'min:4', 'max:255'],
             'status'   => ['sometimes', 'required', 'string', 'in:active,inactive'],
             'store_id' => ['nullable', 'integer', 'exists:work_locations,id'],
+            'pin_ids'  => ['nullable', 'array'],
+            'pin_ids.*' => ['integer', 'exists:work_location_pins,id'],
         ];
     }
 

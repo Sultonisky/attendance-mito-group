@@ -128,3 +128,66 @@ export async function deleteWorkLocation(
 ): Promise<{ success: boolean }> {
   return apiFetch(`/outsource-work-locations/${id}`, { method: 'DELETE' })
 }
+
+// ── PINS ──────────────────────────────────────────────────────────────────────
+
+export type WorkLocationPinRow = {
+  id: number
+  work_location_id: number
+  name: string
+  address: string | null
+  latitude: number | null
+  longitude: number | null
+  radius_meters: number | null
+  status: 'active' | 'inactive'
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type WorkLocationPinPayload = {
+  name: string
+  address?: string | null
+  latitude: number
+  longitude: number
+  radius_meters?: number | null
+  status?: 'active' | 'inactive'
+}
+
+export async function fetchWorkLocationPins(
+  workLocationId: number,
+): Promise<WorkLocationPinRow[]> {
+  const res = await apiFetch<{ success: boolean; data: WorkLocationPinRow[] }>(
+    `/outsource-work-locations/${workLocationId}/pins`,
+  )
+  return Array.isArray(res.data) ? res.data : []
+}
+
+export async function createWorkLocationPin(
+  workLocationId: number,
+  payload: WorkLocationPinPayload,
+): Promise<{ success: boolean; data: WorkLocationPinRow }> {
+  return apiFetch(`/outsource-work-locations/${workLocationId}/pins`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateWorkLocationPin(
+  workLocationId: number,
+  pinId: number,
+  payload: Partial<WorkLocationPinPayload>,
+): Promise<{ success: boolean; data: WorkLocationPinRow }> {
+  return apiFetch(`/outsource-work-locations/${workLocationId}/pins/${pinId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteWorkLocationPin(
+  workLocationId: number,
+  pinId: number,
+): Promise<{ success: boolean }> {
+  return apiFetch(`/outsource-work-locations/${workLocationId}/pins/${pinId}`, {
+    method: 'DELETE',
+  })
+}

@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'employee_id',
     'outsource_id',
+    'work_location_pin_id',
     'attendance_id',
     'attendance_session_id',
     'event_type',
@@ -40,6 +41,14 @@ class AttendanceEvent extends Model
     public function outsource(): BelongsTo
     {
         return $this->belongsTo(Outsource::class);
+    }
+
+    /**
+     * Pin used for this attendance event (outsource multi-pin).
+     */
+    public function workLocationPin(): BelongsTo
+    {
+        return $this->belongsTo(WorkLocationPin::class, 'work_location_pin_id');
     }
 
     /**

@@ -22,6 +22,15 @@ export interface Outsource {
   outsource_code: string
 }
 
+export interface OutsourcePin {
+  id: number
+  name: string
+  address?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  radius_meters?: number | null
+}
+
 export interface OutsourceAttendanceSnapshot {
   attendance_id: number
   status: string
@@ -35,9 +44,30 @@ export interface OutsourceSessionPayload {
   status: 'NONE' | 'READY' | 'ACTIVE' | string
   expires_at: string | null
   outsource: Outsource | null
-  store: (Pick<Store, 'id' | 'name'> & { city_id?: number | null }) | null
+  store: (Pick<Store, 'id' | 'name' | 'latitude' | 'longitude'> & {
+    city_id?: number | null
+    city_name?: string | null
+  }) | null
+  city?: { id: number; name: string } | null
+  pins?: OutsourcePin[]
   attendance: OutsourceAttendanceSnapshot | null
+  can_clock_in?: boolean
+  can_clock_out?: boolean
   code?: string
+}
+
+/**
+ * Outsource own attendance history (greeting page).
+ * Frontend currently DISABLED via ENABLE_OUTSOURCE_ATTENDANCE_HISTORY — keep API for later.
+ */
+export interface OutsourceHistoryItem {
+  attendance_id: number
+  attendance_date: string
+  status: string
+  check_in_at: string | null
+  check_out_at: string | null
+  duration_minutes: number | null
+  session_count: number
 }
 
 export interface OutsourceSessionResponse {
@@ -78,6 +108,35 @@ export async function fetchOutsourceSessionCurrent(): Promise<OutsourceSessionRe
   return apiFetch<OutsourceSessionResponse>('/outsource/session/current')
 }
 
+export async function fetchOutsourcePins(): Promise<OutsourcePin[]> {
+  const response = await apiFetch<{ success: boolean; data: OutsourcePin[] }>('/outsource/pins')
+  return Array.isArray(response?.data) ? response.data : []
+}
+
+/** Disabled on FE for now — endpoint kept; re-enable with ENABLE_OUTSOURCE_ATTENDANCE_HISTORY. */
+export async function fetchOutsourceAttendanceHistory(
+  limit = 14,
+): Promise<OutsourceHistoryItem[]> {
+  const response = await apiFetch<{ success: boolean; data: OutsourceHistoryItem[] }>(
+    `/outsource/attendance/history?limit=${limit}`,
+  )
+  return Array.isArray(response?.data) ? response.data : []
+}
+
+export async function loginOutsourceSession(
+  outsourceCode: string,
+  password: string,
+): Promise<OutsourceSessionResponse> {
+  return apiFetch<OutsourceSessionResponse>('/outsource/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      outsource_code: outsourceCode,
+      password,
+      device_fingerprint: getOutsourceDeviceFingerprint(),
+    }),
+  })
+}
+
 export async function initOutsourceSession(
   cityId: number,
   storeId: number,
@@ -97,6 +156,7 @@ export async function initOutsourceSession(
 export async function outsourceCheckIn(
   latitude: number,
   longitude: number,
+  pinId: number,
   accuracy?: number,
 ): Promise<OutsourceAttendanceResponse> {
   return apiFetch<OutsourceAttendanceResponse>('/outsource/attendance/check-in', {
@@ -107,6 +167,7 @@ export async function outsourceCheckIn(
       accuracy_meters: accuracy,
       source: 'web',
       device_fingerprint: getOutsourceDeviceFingerprint(),
+      pin_id: pinId,
     }),
   })
 }
@@ -114,6 +175,7 @@ export async function outsourceCheckIn(
 export async function outsourceCheckOut(
   latitude: number,
   longitude: number,
+  pinId: number,
   accuracy?: number,
 ): Promise<OutsourceAttendanceResponse> {
   return apiFetch<OutsourceAttendanceResponse>('/outsource/attendance/check-out', {
@@ -124,6 +186,7 @@ export async function outsourceCheckOut(
       accuracy_meters: accuracy,
       source: 'web',
       device_fingerprint: getOutsourceDeviceFingerprint(),
+      pin_id: pinId,
     }),
   })
 }

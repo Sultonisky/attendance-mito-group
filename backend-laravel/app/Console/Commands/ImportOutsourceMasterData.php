@@ -33,6 +33,7 @@ class ImportOutsourceMasterData extends Command
         $this->line('');
         $this->line('Source: '.basename($file));
         $this->line('Rows: '.($result['total_rows'] ?? 0));
+        $this->line('Skipped blank: '.($result['skipped_blank_rows'] ?? 0));
         $this->line('Valid rows: '.($result['valid_rows'] ?? 0));
         $this->line('Invalid rows: '.($result['invalid_rows'] ?? 0));
         $this->line('');

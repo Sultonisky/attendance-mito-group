@@ -14,8 +14,13 @@ import {
   updateWorkLocation,
   toggleWorkLocationStatus,
   deleteWorkLocation,
+  fetchWorkLocationPins,
+  createWorkLocationPin,
+  updateWorkLocationPin,
+  deleteWorkLocationPin,
   type OutsourceWorkLocationRow,
   type OutsourceWorkLocationFilters,
+  type WorkLocationPinRow,
 } from '../../../services/outsourceWorkLocationApi'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
@@ -61,6 +66,7 @@ const hideableColumns = [
   { id: 'coordinates',     label: 'Coords'     },
   { id: 'radius_meters',   label: 'Radius'     },
   { id: 'status',          label: 'Status'     },
+  { id: 'pins',            label: 'Pins'       },
   { id: 'actions',         label: 'Actions'    },
 ]
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
@@ -89,6 +95,24 @@ const form = reactive({
 const showDeleteModal = ref(false)
 const deleteTarget    = ref<OutsourceWorkLocationRow | null>(null)
 const deleteBusy      = ref(false)
+
+// ── Modal — manage pins ───────────────────────────────────────────────────────
+const showPinsModal   = ref(false)
+const pinsTarget      = ref<OutsourceWorkLocationRow | null>(null)
+const pinsLoading     = ref(false)
+const pinsBusy        = ref(false)
+const pinsError       = ref('')
+const pins            = ref<WorkLocationPinRow[]>([])
+const pinFormMode     = ref<'create' | 'edit'>('create')
+const editingPinId    = ref<number | null>(null)
+const pinForm = reactive({
+  name:          '',
+  address:       '',
+  latitude:      '',
+  longitude:     '',
+  radius_meters: '150',
+  status:        'active' as 'active' | 'inactive',
+})
 
 // ── Columns ───────────────────────────────────────────────────────────────────
 const columns = computed<TableColumn<OutsourceWorkLocationRow>[]>(() => [
@@ -167,6 +191,24 @@ const columns = computed<TableColumn<OutsourceWorkLocationRow>[]>(() => [
     },
   },
   {
+    id: 'pins',
+    header: 'Pins',
+    cell: ({ row }) => {
+      const loc = row.original
+      if (!can('outsource_work_location.view') && !can('outsource_work_location.update')) {
+        return null
+      }
+      return h(resolveComponent('UButton'), {
+        size: 'xs',
+        color: 'primary',
+        variant: 'soft',
+        icon: 'i-lucide-map-pin',
+        label: 'Manage pins',
+        onClick: () => openPins(loc),
+      })
+    },
+  },
+  {
     id: 'actions',
     header: 'Actions',
     cell: ({ row }) => {
@@ -176,6 +218,11 @@ const columns = computed<TableColumn<OutsourceWorkLocationRow>[]>(() => [
           label: 'Edit',
           icon: 'i-lucide-pencil',
           onSelect: () => openEdit(loc),
+        },
+        can('outsource_work_location.view') && {
+          label: 'Manage pins',
+          icon: 'i-lucide-map-pin',
+          onSelect: () => openPins(loc),
         },
         can('outsource_work_location.update') && {
           label: loc.status === 'active' ? 'Deactivate' : 'Activate',
@@ -370,6 +417,106 @@ function confirmDelete(loc: OutsourceWorkLocationRow): void {
   showDeleteModal.value = true
 }
 
+function resetPinForm(): void {
+  pinFormMode.value = 'create'
+  editingPinId.value = null
+  pinForm.name = ''
+  pinForm.address = ''
+  pinForm.latitude = pinsTarget.value?.latitude != null ? String(pinsTarget.value.latitude) : ''
+  pinForm.longitude = pinsTarget.value?.longitude != null ? String(pinsTarget.value.longitude) : ''
+  pinForm.radius_meters = pinsTarget.value?.radius_meters != null
+    ? String(pinsTarget.value.radius_meters)
+    : '150'
+  pinForm.status = 'active'
+  pinsError.value = ''
+}
+
+async function openPins(loc: OutsourceWorkLocationRow): Promise<void> {
+  pinsTarget.value = loc
+  showPinsModal.value = true
+  resetPinForm()
+  await loadPins()
+}
+
+async function loadPins(): Promise<void> {
+  if (!pinsTarget.value) return
+  pinsLoading.value = true
+  pinsError.value = ''
+  try {
+    pins.value = await fetchWorkLocationPins(pinsTarget.value.id)
+  } catch (e: unknown) {
+    pinsError.value = e instanceof Error ? e.message : 'Failed to load pins.'
+    pins.value = []
+  } finally {
+    pinsLoading.value = false
+  }
+}
+
+function startEditPin(pin: WorkLocationPinRow): void {
+  pinFormMode.value = 'edit'
+  editingPinId.value = pin.id
+  pinForm.name = pin.name
+  pinForm.address = pin.address ?? ''
+  pinForm.latitude = pin.latitude != null ? String(pin.latitude) : ''
+  pinForm.longitude = pin.longitude != null ? String(pin.longitude) : ''
+  pinForm.radius_meters = pin.radius_meters != null ? String(pin.radius_meters) : '150'
+  pinForm.status = pin.status
+  pinsError.value = ''
+}
+
+async function submitPinForm(): Promise<void> {
+  if (!pinsTarget.value) return
+  if (!pinForm.name.trim()) {
+    pinsError.value = 'Pin name is required.'
+    return
+  }
+  const latitude = parseDecimal(pinForm.latitude)
+  const longitude = parseDecimal(pinForm.longitude)
+  if (latitude === null || longitude === null) {
+    pinsError.value = 'Latitude and longitude are required numbers.'
+    return
+  }
+
+  pinsBusy.value = true
+  pinsError.value = ''
+  try {
+    const payload = {
+      name: pinForm.name.trim(),
+      address: pinForm.address.trim() || null,
+      latitude,
+      longitude,
+      radius_meters: pinForm.radius_meters ? Number(pinForm.radius_meters) : null,
+      status: pinForm.status,
+    }
+    if (pinFormMode.value === 'create') {
+      await createWorkLocationPin(pinsTarget.value.id, payload)
+    } else if (editingPinId.value !== null) {
+      await updateWorkLocationPin(pinsTarget.value.id, editingPinId.value, payload)
+    }
+    resetPinForm()
+    await loadPins()
+  } catch (e: unknown) {
+    pinsError.value = e instanceof Error ? e.message : 'Failed to save pin.'
+  } finally {
+    pinsBusy.value = false
+  }
+}
+
+async function removePin(pin: WorkLocationPinRow): Promise<void> {
+  if (!pinsTarget.value) return
+  pinsBusy.value = true
+  pinsError.value = ''
+  try {
+    await deleteWorkLocationPin(pinsTarget.value.id, pin.id)
+    if (editingPinId.value === pin.id) resetPinForm()
+    await loadPins()
+  } catch (e: unknown) {
+    pinsError.value = e instanceof Error ? e.message : 'Failed to delete pin.'
+  } finally {
+    pinsBusy.value = false
+  }
+}
+
 async function executeDelete(): Promise<void> {
   if (!deleteTarget.value) return
   deleteBusy.value = true
@@ -535,6 +682,125 @@ onMounted(async () => {
       <div class="flex justify-end gap-2">
         <UButton color="neutral" variant="outline" :disabled="deleteBusy" @click="showDeleteModal = false">Cancel</UButton>
         <UButton color="error" :loading="deleteBusy" @click="executeDelete">Delete</UButton>
+      </div>
+    </template>
+  </UModal>
+
+  <!-- ── Manage pins modal ──────────────────────────────────────────────────── -->
+  <UModal
+    v-model:open="showPinsModal"
+    :title="`Pins — ${pinsTarget?.name ?? ''}`"
+    :ui="{ content: 'sm:max-w-2xl' }"
+  >
+    <template #body>
+      <div class="space-y-5">
+        <div class="space-y-2">
+          <p class="text-sm text-muted">
+            Multiple addresses/geofences under this cabang. Outsource people can be limited to a subset.
+          </p>
+          <div v-if="pinsLoading" class="text-sm text-muted">Loading pins…</div>
+          <div v-else-if="pins.length === 0" class="rounded-md border border-dashed border-default p-3 text-sm text-muted">
+            No pins yet. Add the first pin below.
+          </div>
+          <ul v-else class="divide-y divide-default rounded-md border border-default">
+            <li
+              v-for="pin in pins"
+              :key="pin.id"
+              class="flex items-start justify-between gap-3 px-3 py-2.5"
+            >
+              <div class="min-w-0">
+                <p class="truncate text-sm font-medium">{{ pin.name }}</p>
+                <p class="truncate text-xs text-muted">
+                  {{ pin.address || 'No address' }}
+                  · {{ pin.latitude }}, {{ pin.longitude }}
+                  · {{ pin.radius_meters ?? '—' }} m
+                  · {{ pin.status }}
+                </p>
+              </div>
+              <div class="flex shrink-0 gap-1">
+                <UButton
+                  v-if="can('outsource_work_location.update')"
+                  size="xs"
+                  color="neutral"
+                  variant="ghost"
+                  icon="i-lucide-pencil"
+                  @click="startEditPin(pin)"
+                />
+                <UButton
+                  v-if="can('outsource_work_location.delete')"
+                  size="xs"
+                  color="error"
+                  variant="ghost"
+                  icon="i-lucide-trash-2"
+                  :disabled="pinsBusy"
+                  @click="removePin(pin)"
+                />
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="space-y-3 rounded-md border border-default p-3">
+          <p class="text-sm font-medium">
+            {{ pinFormMode === 'create' ? 'Add pin' : 'Edit pin' }}
+          </p>
+          <UFormField label="Name" required>
+            <UInput v-model="pinForm.name" placeholder="e.g. Gate A / Lobby" class="w-full" />
+          </UFormField>
+          <UFormField label="Address">
+            <UInput v-model="pinForm.address" placeholder="Optional street address" class="w-full" />
+          </UFormField>
+          <div class="grid grid-cols-2 gap-3">
+            <UFormField label="Latitude" required>
+              <UInput v-model="pinForm.latitude" type="text" inputmode="decimal" class="w-full" />
+            </UFormField>
+            <UFormField label="Longitude" required>
+              <UInput v-model="pinForm.longitude" type="text" inputmode="decimal" class="w-full" />
+            </UFormField>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <UFormField label="Radius (m)">
+              <UInput v-model="pinForm.radius_meters" type="number" class="w-full" />
+            </UFormField>
+            <UFormField label="Status">
+              <USelect
+                v-model="pinForm.status"
+                :items="[
+                  { label: 'Active', value: 'active' },
+                  { label: 'Inactive', value: 'inactive' },
+                ]"
+                value-key="value"
+                class="w-full"
+              />
+            </UFormField>
+          </div>
+          <div class="flex justify-end gap-2">
+            <UButton
+              v-if="pinFormMode === 'edit'"
+              color="neutral"
+              variant="outline"
+              :disabled="pinsBusy"
+              @click="resetPinForm"
+            >
+              Cancel edit
+            </UButton>
+            <UButton
+              color="primary"
+              :loading="pinsBusy"
+              :disabled="!can('outsource_work_location.create') && !can('outsource_work_location.update')"
+              @click="submitPinForm"
+            >
+              {{ pinFormMode === 'create' ? 'Add pin' : 'Save pin' }}
+            </UButton>
+          </div>
+        </div>
+
+        <UAlert v-if="pinsError" color="error" variant="subtle" :description="pinsError" />
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end">
+        <UButton color="neutral" variant="outline" @click="showPinsModal = false">Close</UButton>
       </div>
     </template>
   </UModal>

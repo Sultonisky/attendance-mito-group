@@ -10,13 +10,19 @@ import {
   fetchOutsourceStores,
   fetchOutsourceOutsources,
   fetchOutsourceSessionCurrent,
+  // Disabled: riwayat presensi (re-enable with ENABLE_OUTSOURCE_ATTENDANCE_HISTORY)
+  fetchOutsourceAttendanceHistory,
   initOutsourceSession,
+  loginOutsourceSession,
   outsourceCheckIn,
   outsourceCheckOut,
   type City,
   type Store,
   type Outsource,
+  type OutsourcePin,
   type OutsourceAttendanceResponse,
+  // Disabled: riwayat presensi
+  type OutsourceHistoryItem,
   type OutsourceSessionPayload,
 } from "../../services/outsourceService";
 import {
@@ -27,6 +33,8 @@ import {
 } from "../../utils/attendanceDateTime";
 
 type Step =
+  | "login"
+  | "greet"
   | "city"
   | "store"
   | "outsource"
@@ -64,8 +72,20 @@ function resolveBasemap(): { url: string; attribution: string; subdomains: strin
   };
 }
 
-const step = ref<Step>("city");
+const step = ref<Step>("login");
+
+function isInitiationStep(
+  value: Step,
+): value is Exclude<Step, "login" | "greet" | "completed"> {
+  return value !== "login" && value !== "greet" && value !== "completed";
+}
+
 const expiresAt = ref<string | null>(null);
+const loginCode = ref("");
+const loginPassword = ref("");
+const showLoginPassword = ref(false);
+const allowedPins = ref<OutsourcePin[]>([]);
+const selectedPinId = ref<number | null>(null);
 const hasServerSession = ref(false);
 const mapContainer = ref<HTMLElement | null>(null);
 const mapError = ref("");
@@ -138,13 +158,84 @@ const cityFallbackCoordinates: Record<string, { lat: number; lng: number }> = {
 const selectedCity = ref<number | null>(null);
 const selectedStore = ref<number | null>(null);
 const selectedStoreName = ref<string>("");
+const selectedCityName = ref<string>("");
 const selectedOutsource = ref<Outsource | null>(null);
+
+/**
+ * Riwayat presensi di greeting page — DISABLED (kept for later).
+ * Set true to show UI + fetch /outsource/attendance/history again.
+ */
+const ENABLE_OUTSOURCE_ATTENDANCE_HISTORY = false;
+
+// Disabled history state (inactive while flag is false)
+const attendanceHistory = ref<OutsourceHistoryItem[]>([]);
+const isLoadingHistory = ref(false);
 
 const selectedOutsourceLabel = computed(() => {
   if (!selectedOutsource.value) return "";
 
   return selectedOutsource.value.name;
 });
+
+const greetFirstName = computed(() => {
+  const name = selectedOutsource.value?.name?.trim() ?? "";
+  if (!name) return "Personel";
+  return name.split(/\s+/)[0] ?? name;
+});
+
+const greetStatusLabel = computed(() =>
+  checkInAt.value ? "Sedang bertugas" : "Siap clock in",
+);
+
+const greetHint = computed(() => {
+  if (checkInAt.value) {
+    return "Sesi masih terbuka. Lanjutkan clock out di pin point yang sesuai saat Anda selesai.";
+  }
+  return "Lanjut ke langkah berikutnya untuk memilih pin point, cek jarak GPS, lalu clock in.";
+});
+
+const greetAllowedPinsLabel = computed(() => {
+  const count = allowedPins.value.length;
+  if (count === 0) return "Semua pin toko";
+  if (count === 1) return allowedPins.value[0]?.name || "1 pin point";
+  return `${count} pin point`;
+});
+
+const greetPinsSectionTitle = computed(() => {
+  const count = allowedPins.value.length;
+  if (count > 1) return `${count} pin point tersedia`;
+  if (count === 1) return "Pin point penugasan";
+  return "Lokasi kerja yang diizinkan";
+});
+
+const greetPinsSectionHint = computed(() => {
+  if (allowedPins.value.length > 1) {
+    return "Pin aktif dipilih nanti saat clock in / clock out — tidak dikunci di halaman ini.";
+  }
+  if (allowedPins.value.length === 1) {
+    return "Satu pin point terhubung ke penugasan Anda.";
+  }
+  return "Semua pin aktif di toko dapat dipilih saat absensi.";
+});
+
+function formatHistoryStatus(status: string): string {
+  // Disabled helper — used only when ENABLE_OUTSOURCE_ATTENDANCE_HISTORY is true
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "present" || normalized === "completed") return "Selesai";
+  if (normalized === "incomplete" || normalized === "open") return "Belum clock out";
+  if (normalized === "absent") return "Tidak hadir";
+  return status || "—";
+}
+
+function formatHistoryDuration(minutes: number | null): string {
+  // Disabled helper — used only when ENABLE_OUTSOURCE_ATTENDANCE_HISTORY is true
+  if (minutes === null || !Number.isFinite(minutes) || minutes <= 0) return "—";
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours <= 0) return `${mins} m`;
+  if (mins <= 0) return `${hours} j`;
+  return `${hours} j ${mins} m`;
+}
 
 function formatSelectLabel(name: string, code?: string | null): string {
   const label = (name || "").trim();
@@ -344,17 +435,20 @@ const distanceHeroUnit = computed(() => {
 });
 
 const distanceHeroCaption = computed(() => {
+  if (allowedPins.value.length > 1 && !selectedPin.value) {
+    return "Pilih pin point dulu untuk mengukur jarak";
+  }
   if (!selectedStoreLocation.value) {
-    return "Koordinat toko belum tersedia";
+    return "Koordinat pin point belum tersedia";
   }
   if (locationStatus.value === "locating") {
-    return "Mengukur jarak ke toko…";
+    return "Mengukur jarak ke pin point…";
   }
   if (locationStatus.value === "error" || distanceToStoreMeters.value === null) {
     return "Aktifkan GPS untuk mengukur jarak";
   }
   if (isInsideStoreRadius.value) {
-    return "Sudah dalam radius absensi";
+    return "Sudah dalam radius — siap absen";
   }
   const remaining = Math.max(
     0,
@@ -363,29 +457,81 @@ const distanceHeroCaption = computed(() => {
   return `${remaining} m lagi ke radius absensi`;
 });
 
-const trackerHint = computed(() => {
-  if (!selectedStoreLocation.value) {
-    return "Toko belum punya koordinat. Jarak absensi belum bisa dihitung.";
+const remainingToRadiusMeters = computed((): number | null => {
+  const distance = distanceToStoreMeters.value;
+  if (distance === null) return null;
+  return Math.max(0, Math.round(distance - STORE_GEOFENCE_RADIUS_METERS));
+});
+
+const selectedPinLabel = computed(() => selectedPin.value?.name ?? null);
+
+/** Assignment context only — never implies a specific active pin. */
+const assignmentLocationLabel = computed(() => {
+  const parts = [selectedCityName.value.trim(), selectedStoreName.value.trim()].filter(
+    (part) => part.length > 0,
+  );
+  return parts.length > 0 ? parts.join(" · ") : "Belum dipilih";
+});
+
+/**
+ * Active pin for stats: selected pin, single-pin auto case, or multi-pin pending.
+ * Does not silently treat the first of many pins as “aktif”.
+ */
+const activePinStatsLabel = computed(() => {
+  if (selectedPin.value?.name) {
+    return selectedPin.value.name;
   }
-  if (locationStatus.value === "error") {
-    return "Periksa izin GPS dan sinyal Anda agar jarak ke toko muncul.";
+  const count = allowedPins.value.length;
+  if (count === 1) {
+    return allowedPins.value[0]?.name || "1 pin point";
   }
-  if (locationStatus.value === "locating" || isRefreshingDistance.value) {
-    return "Tetap di tempat terbuka sementara GPS menstabilkan sinyal.";
+  if (count > 1) {
+    return `Belum dipilih · ${count} pin`;
   }
-  if (distanceToStoreMeters.value === null) {
-    return 'Tekan "Perbarui jarak" untuk mengukur jarak ke toko.';
+  return "Belum ada pin";
+});
+
+const activePinStatsDetail = computed(() => {
+  if (selectedPin.value) {
+    return (
+      selectedPin.value.address?.trim() ||
+      `Radius validasi ${STORE_GEOFENCE_RADIUS_METERS} m`
+    );
   }
-  if (followDistance.value) {
-    return "Mode ikuti jarak aktif (perkiraan). Angka bisa bergeser karena akurasi GPS.";
+  const count = allowedPins.value.length;
+  if (count > 1) {
+    return "Pilih pin point di kartu absensi sebelum clock in/out";
   }
-  if (isInsideStoreRadius.value) {
-    if (!isGpsAccuracyAcceptable.value) {
-      return `Anda sudah dalam radius ${STORE_GEOFENCE_RADIUS_METERS} m. Tunggu akurasi GPS ≤ ±${maxGpsAccuracyMeters} m sebelum absen.`;
-    }
-    return `Anda berada dalam radius ${STORE_GEOFENCE_RADIUS_METERS} m toko. Siap untuk absensi.`;
+  if (count === 1) {
+    return (
+      allowedPins.value[0]?.address?.trim() ||
+      `Radius validasi ${STORE_GEOFENCE_RADIUS_METERS} m`
+    );
   }
-  return `Dekati toko hingga jarak ≤ ${STORE_GEOFENCE_RADIUS_METERS} m, lalu tekan "Perbarui jarak" bila perlu.`;
+  return "Tidak ada pin aktif untuk penugasan ini";
+});
+
+const mapLocationMetaLabel = computed(() => {
+  if (selectedPin.value) return "Pin aktif";
+  if (allowedPins.value.length > 1) return "Preview pin";
+  return "Toko";
+});
+
+const mapLocationMetaValue = computed(() => {
+  if (selectedPinLabel.value) return selectedPinLabel.value;
+  if (allowedPins.value.length > 1) {
+    return `${allowedPins.value.length} opsi — pilih dulu`;
+  }
+  return selectedStoreName.value || "Toko";
+});
+
+const heroDistanceStatusClass = computed(() => {
+  if (locationStatus.value === "locating") return "hero-distance--pending";
+  if (locationStatus.value === "error" || distanceToStoreMeters.value === null) {
+    return "hero-distance--pending";
+  }
+  if (isInsideStoreRadius.value) return "hero-distance--inside";
+  return "hero-distance--outside";
 });
 
 const distanceBadgeLabel = computed(() => {
@@ -411,15 +557,10 @@ const statusTitle = computed(() => {
   return "Inisiasi Sesi";
 });
 
-const selectedStoreLocation = computed(() => {
-  if (selectedStore.value === null) return null;
-
-  const store = stores.value.find((item) => item.id === selectedStore.value);
-  if (!store) return null;
-
-  const rawLatitude: unknown = store.latitude;
-  const rawLongitude: unknown = store.longitude;
-
+function toMapCoords(
+  rawLatitude: unknown,
+  rawLongitude: unknown,
+): { lat: number; lng: number } | null {
   if (
     rawLatitude === null ||
     rawLatitude === undefined ||
@@ -440,6 +581,54 @@ const selectedStoreLocation = computed(() => {
   if (latitude === 0 && longitude === 0) return null;
 
   return { lat: latitude, lng: longitude };
+}
+
+/** Normalize select v-model (can arrive as string) to a numeric pin id. */
+function resolveSelectedPinId(): number | null {
+  const raw = selectedPinId.value as number | string | null;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const id = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(id) ? id : null;
+}
+
+const selectedPin = computed(() => {
+  const id = resolveSelectedPinId();
+  if (id === null) return null;
+  return allowedPins.value.find((pin) => pin.id === id) ?? null;
+});
+
+/**
+ * Geofence / distance target.
+ * Multi-pin: only the user-selected pin (never silently pick the first of many).
+ * Single pin: that pin's coordinates.
+ * Fallback: store coordinates when no pins exist.
+ */
+const selectedStoreLocation = computed(() => {
+  const pin = selectedPin.value;
+  if (pin) {
+    return toMapCoords(pin.latitude, pin.longitude);
+  }
+
+  if (allowedPins.value.length === 1) {
+    return toMapCoords(
+      allowedPins.value[0]?.latitude,
+      allowedPins.value[0]?.longitude,
+    );
+  }
+
+  // Multiple pins, none selected — wait for explicit choice for accurate distance.
+  if (allowedPins.value.length > 1) {
+    return null;
+  }
+
+  if (selectedStore.value !== null) {
+    const store = stores.value.find((item) => item.id === selectedStore.value);
+    if (store) {
+      return toMapCoords(store.latitude, store.longitude);
+    }
+  }
+
+  return null;
 });
 
 const selectedCityLocation = computed(() => {
@@ -451,27 +640,56 @@ const selectedCityLocation = computed(() => {
   return cityFallbackCoordinates[city.name.trim().toUpperCase()] ?? null;
 });
 
-const selectedMapLocation = computed(
-  () => selectedStoreLocation.value ?? selectedCityLocation.value,
-);
+/** Map preview center — may show first allowed pin only as preview when none selected. */
+const selectedMapLocation = computed(() => {
+  if (selectedStoreLocation.value) {
+    return selectedStoreLocation.value;
+  }
+
+  if (allowedPins.value.length > 1) {
+    for (const candidate of allowedPins.value) {
+      const pinCoords = toMapCoords(candidate.latitude, candidate.longitude);
+      if (pinCoords) return pinCoords;
+    }
+  }
+
+  if (selectedStore.value !== null) {
+    const store = stores.value.find((item) => item.id === selectedStore.value);
+    if (store) {
+      const storeCoords = toMapCoords(store.latitude, store.longitude);
+      if (storeCoords) return storeCoords;
+    }
+  }
+
+  return selectedCityLocation.value;
+});
 
 const isUsingCityFallback = computed(
-  () => !selectedStoreLocation.value && Boolean(selectedCityLocation.value),
+  () =>
+    !selectedStoreLocation.value &&
+    !allowedPins.value.some((pin) => toMapCoords(pin.latitude, pin.longitude)) &&
+    Boolean(selectedCityLocation.value),
 );
 
-const showStoreMap = computed(
-  () => selectedStore.value !== null && step.value !== "completed",
-);
+const showStoreMap = computed(() => {
+  if (selectedStore.value === null || !selectedMapLocation.value) return false;
+  return (
+    step.value === "store" ||
+    step.value === "outsource" ||
+    step.value === "session" ||
+    step.value === "attendance_open"
+  );
+});
 
 const mapDistanceLabel = computed(() => {
   const distance = distanceToStoreMeters.value;
   if (distance === null) return null;
 
   if (distance < 1000) {
-    return `${Math.round(distance)} m dari toko`;
+    return `${Math.round(distance)} m dari pin point`;
   }
 
-  return `${(distance / 1000).toFixed(1)} km dari toko`;
+  return `${(distance / 1000).toFixed(1)} km dari pin point`;
 });
 
 const actionButtonLabel = computed(() => {
@@ -542,7 +760,7 @@ function destroyCartoMap(): void {
   storeRadius = null;
 }
 
-function updateCartoMap(): void {
+function updateCartoMap(options?: { recenterOnTarget?: boolean }): void {
   if (!selectedMapLocation.value || !mapContainer.value) {
     return;
   }
@@ -555,12 +773,14 @@ function updateCartoMap(): void {
     selectedMapLocation.value.lat,
     selectedMapLocation.value.lng,
   ];
+  const isNewMap = !cartoMap;
+  const shouldRecenter = isNewMap || options?.recenterOnTarget === true;
 
   if (!cartoMap) {
     cartoMap = L.map(mapContainer.value, {
       zoomControl: true,
       attributionControl: true,
-    }).setView(center, 15);
+    }).setView(center, 16);
 
     const basemap = resolveBasemap();
     L.tileLayer(basemap.url, {
@@ -571,23 +791,31 @@ function updateCartoMap(): void {
 
     // Leaflet needs a layout pass after the container becomes visible.
     window.setTimeout(() => cartoMap?.invalidateSize(), 0);
-  } else {
-    cartoMap.setView(center, cartoMap.getZoom(), { animate: true });
+  } else if (shouldRecenter) {
+    if (selectedStoreLocation.value && currentMapLocation.value) {
+      const bounds = L.latLngBounds([
+        [selectedStoreLocation.value.lat, selectedStoreLocation.value.lng],
+        [currentMapLocation.value.latitude, currentMapLocation.value.longitude],
+      ]);
+      cartoMap.fitBounds(bounds, { padding: [48, 48], maxZoom: 17, animate: true });
+    } else {
+      cartoMap.setView(center, Math.max(cartoMap.getZoom(), 16), { animate: true });
+    }
   }
 
-  const storeTitle = isUsingCityFallback.value
+  const targetTitle = isUsingCityFallback.value
     ? "Perkiraan pusat kota"
-    : selectedStoreName.value || "Store";
+    : selectedPinLabel.value || selectedStoreName.value || "Pin point";
 
   if (!storeMarker) {
     storeMarker = L.marker(center, {
       icon: createDivIcon("store", 18, { rotate: true }),
-      title: storeTitle,
+      title: targetTitle,
       zIndexOffset: 200,
     }).addTo(cartoMap);
   } else {
     storeMarker.setLatLng(center);
-    storeMarker.options.title = storeTitle;
+    storeMarker.options.title = targetTitle;
   }
 
   if (!selectedStoreLocation.value) {
@@ -635,7 +863,7 @@ function updateCartoMap(): void {
   }
 }
 
-async function ensureCartoMapReady(): Promise<void> {
+async function ensureCartoMapReady(options?: { recenterOnTarget?: boolean }): Promise<void> {
   if (!selectedMapLocation.value) {
     return;
   }
@@ -645,13 +873,35 @@ async function ensureCartoMapReady(): Promise<void> {
     if (!isUsingCityFallback.value) {
       mapError.value = "";
     }
-    updateCartoMap();
+    updateCartoMap({ recenterOnTarget: options?.recenterOnTarget ?? true });
   } catch (error) {
     console.error("CARTO map initialization failed.", error);
     mapError.value =
       error instanceof Error
         ? `Peta gagal dimuat: ${error.message}`
         : "Peta gagal dimuat. Silakan coba lagi nanti.";
+  }
+}
+
+async function onPinSelected(): Promise<void> {
+  const normalized = resolveSelectedPinId();
+  selectedPinId.value = normalized;
+
+  if (normalized === null) {
+    return;
+  }
+
+  const pin = allowedPins.value.find((item) => item.id === normalized);
+  if (!pin || !toMapCoords(pin.latitude, pin.longitude)) {
+    error.value =
+      "Pin point yang dipilih belum punya koordinat. Pilih pin lain atau hubungi admin.";
+    return;
+  }
+
+  error.value = "";
+  await nextTick();
+  if (showStoreMap.value) {
+    await ensureCartoMapReady({ recenterOnTarget: true });
   }
 }
 
@@ -1268,6 +1518,74 @@ async function onOutsourceSelected(): Promise<void> {
   currentMapLocation.value = null;
 }
 
+async function submitLogin(): Promise<void> {
+  if (!loginCode.value.trim() || !loginPassword.value) {
+    error.value = "Masukkan kode outsource dan password.";
+    return;
+  }
+
+  isSubmitting.value = true;
+  error.value = "";
+  message.value = "";
+
+  try {
+    const response = await loginOutsourceSession(
+      loginCode.value.trim(),
+      loginPassword.value,
+    );
+    hasServerSession.value = true;
+    expiresAt.value = response.data.expires_at;
+    applySessionPayload(response.data);
+    // Disabled: riwayat presensi
+    // await loadAttendanceHistory();
+    message.value =
+      response.data.status === "ACTIVE"
+        ? `Selamat datang kembali, ${response.data.outsource?.name ?? ""}. Lanjutkan clock-out bila sudah selesai.`
+        : `Selamat datang, ${response.data.outsource?.name ?? ""}. Pilih Clock In untuk mulai.`;
+  } catch (e: unknown) {
+    const err = e as Error;
+    if (err instanceof ApiError) {
+      if (err.status === 409) {
+        error.value =
+          err.message ||
+          "Perangkat ini masih dipakai absensi personel lain. Clock-out dulu sebelum ganti orang.";
+      } else if (err.status === 422) {
+        error.value = err.message || "Kode atau password tidak valid.";
+      } else if (err.status === 429) {
+        error.value = "Terlalu banyak percobaan login. Mohon tunggu sebentar.";
+      } else {
+        error.value = err.message ?? "Gagal masuk.";
+      }
+    } else {
+      error.value = "Koneksi bermasalah. Periksa jaringan internet Anda.";
+    }
+  } finally {
+    isSubmitting.value = false;
+  }
+}
+
+function startClockInFromGreet(): void {
+  void enterAttendanceStep("session");
+}
+
+function startClockOutFromGreet(): void {
+  void enterAttendanceStep("attendance_open");
+}
+
+async function enterAttendanceStep(
+  target: "session" | "attendance_open",
+): Promise<void> {
+  error.value = "";
+  step.value = target;
+  await nextTick();
+  if (selectedMapLocation.value) {
+    await ensureCartoMapReady();
+  }
+  if (locationStatus.value === "idle" || locationStatus.value === "error") {
+    activateLocation();
+  }
+}
+
 async function startSession(): Promise<void> {
   if (!selectedStoreLocation.value) {
     error.value =
@@ -1352,6 +1670,42 @@ function applySessionPayload(payload: OutsourceSessionPayload): void {
     selectedCity.value = payload.store.city_id;
   }
 
+  selectedCityName.value =
+    payload.city?.name?.trim() ||
+    payload.store.city_name?.trim() ||
+    cities.value.find((item) => item.id === payload.store?.city_id)?.name ||
+    "";
+
+  // Hydrate store coords so map/distance work after login (wizard stores list skipped).
+  const hydratedStore: Store = {
+    id: payload.store.id,
+    name: payload.store.name,
+    city_id: payload.store.city_id ?? 0,
+    latitude: payload.store.latitude ?? null,
+    longitude: payload.store.longitude ?? null,
+  };
+  const storeIndex = stores.value.findIndex((item) => item.id === hydratedStore.id);
+  if (storeIndex >= 0) {
+    stores.value[storeIndex] = {
+      ...stores.value[storeIndex],
+      ...hydratedStore,
+      latitude: hydratedStore.latitude ?? stores.value[storeIndex].latitude,
+      longitude: hydratedStore.longitude ?? stores.value[storeIndex].longitude,
+    };
+  } else {
+    stores.value = [hydratedStore];
+  }
+
+  allowedPins.value = Array.isArray(payload.pins) ? payload.pins : [];
+  if (allowedPins.value.length === 1) {
+    selectedPinId.value = allowedPins.value[0].id;
+  } else if (
+    selectedPinId.value !== null &&
+    !allowedPins.value.some((pin) => pin.id === selectedPinId.value)
+  ) {
+    selectedPinId.value = null;
+  }
+
   hasServerSession.value = true;
   expiresAt.value = payload.expires_at;
 
@@ -1363,7 +1717,7 @@ function applySessionPayload(payload: OutsourceSessionPayload): void {
     checkInAt.value = attendance.check_in_at;
     checkOutAt.value = attendance.check_out_at;
     durationMinutes.value = attendance.duration_minutes;
-    step.value = "attendance_open";
+    step.value = "greet";
     return;
   }
 
@@ -1373,7 +1727,30 @@ function applySessionPayload(payload: OutsourceSessionPayload): void {
   checkInAt.value = null;
   checkOutAt.value = null;
   durationMinutes.value = null;
-  step.value = "session";
+  step.value = "greet";
+}
+
+async function loadAttendanceHistory(): Promise<void> {
+  // Feature disabled — keep implementation for later re-enable.
+  if (!ENABLE_OUTSOURCE_ATTENDANCE_HISTORY) {
+    attendanceHistory.value = [];
+    isLoadingHistory.value = false;
+    return;
+  }
+
+  if (!hasServerSession.value) {
+    attendanceHistory.value = [];
+    return;
+  }
+
+  isLoadingHistory.value = true;
+  try {
+    attendanceHistory.value = await fetchOutsourceAttendanceHistory(14);
+  } catch {
+    attendanceHistory.value = [];
+  } finally {
+    isLoadingHistory.value = false;
+  }
 }
 
 async function restoreSessionFromServer(): Promise<void> {
@@ -1414,6 +1791,9 @@ async function restoreSessionFromServer(): Promise<void> {
       locationStatus.value = "idle";
     }
 
+    // Disabled: riwayat presensi
+    // await loadAttendanceHistory();
+
     message.value =
       response.data.status === "ACTIVE"
         ? `Sesi clock-in dipulihkan untuk ${response.data.outsource?.name ?? "personel"}.`
@@ -1436,8 +1816,13 @@ function isValidCoordinate(latitude: number, longitude: number): boolean {
 
 async function submitAttendance(): Promise<void> {
   if (!hasServerSession.value) {
-    error.value = "Sesi telah kedaluwarsa. Silakan inisiasi sesi kembali.";
-    step.value = "city";
+    error.value = "Sesi telah kedaluwarsa. Silakan login kembali.";
+    step.value = "login";
+    return;
+  }
+
+  if (resolveSelectedPinId() === null) {
+    error.value = "Pilih pin point / alamat absensi terlebih dahulu.";
     return;
   }
 
@@ -1473,15 +1858,22 @@ async function submitAttendance(): Promise<void> {
       return;
     }
 
+    const pinId = resolveSelectedPinId();
+    if (pinId === null) {
+      error.value = "Pilih pin point / alamat absensi terlebih dahulu.";
+      return;
+    }
     const response: OutsourceAttendanceResponse = await (isAttendanceOpen.value
       ? outsourceCheckOut(
           locationData.latitude,
           locationData.longitude,
+          pinId,
           locationData.accuracy,
         )
       : outsourceCheckIn(
           locationData.latitude,
           locationData.longitude,
+          pinId,
           locationData.accuracy,
         ));
 
@@ -1554,7 +1946,9 @@ function resetSelection(): void {
   selectedCity.value = null;
   selectedStore.value = null;
   selectedStoreName.value = "";
+  selectedCityName.value = "";
   selectedOutsource.value = null;
+  attendanceHistory.value = [];
   stores.value = [];
   outsources.value = [];
   step.value = "city";
@@ -1580,6 +1974,17 @@ watch(isSessionActive, (active) => {
   }
 });
 
+watch(selectedPinId, async (nextId, prevId) => {
+  if (nextId === prevId) return;
+  await onPinSelected();
+});
+
+watch(showStoreMap, async (visible) => {
+  if (!visible || !selectedMapLocation.value) return;
+  await nextTick();
+  await ensureCartoMapReady({ recenterOnTarget: true });
+});
+
 onUnmounted(() => {
   if (clockTimer !== null) {
     clearInterval(clockTimer);
@@ -1592,7 +1997,85 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="outsource-app">
+  <main class="outsource-app" :class="{ 'outsource-app--login': step === 'login' }">
+    <template v-if="step === 'login'">
+      <section class="login-visual" aria-label="MITO Outsource App">
+        <div class="visual-content">
+          <div class="logo-frame">
+            <img class="brand-logo" src="/images/mito.png" alt="MITO electronic" />
+          </div>
+          <p class="visual-kicker">OUTSOURCE APP</p>
+          <h1>Assigned sites,<br /><strong>one login.</strong></h1>
+          <p class="visual-copy">
+            Sign in with your outsource code, choose an allowed pin, then clock in or out with GPS.
+          </p>
+        </div>
+      </section>
+
+      <section class="login-panel">
+        <div class="login-heading">
+          <p class="eyebrow">OUTSOURCE ACCESS</p>
+          <h2>Sign in to outsource app</h2>
+          <p class="login-intro">Use your outsource code and password to continue.</p>
+        </div>
+
+        <form novalidate @submit.prevent="submitLogin">
+          <label class="field-label">
+            <span>Outsource code</span>
+            <span class="field-control">
+              <AppIcon name="UserRound" class-name="field-icon" :size="16" :stroke-width="2" aria-hidden="true" />
+              <input
+                v-model="loginCode"
+                type="text"
+                name="outsource-code"
+                autocomplete="username"
+                placeholder="Contoh: 001"
+                :disabled="isSubmitting"
+              />
+            </span>
+          </label>
+
+          <label class="field-label">
+            <span>Password</span>
+            <span class="field-control">
+              <AppIcon name="LockKeyhole" class-name="field-icon" :size="16" :stroke-width="2" aria-hidden="true" />
+              <input
+                v-model="loginPassword"
+                :type="showLoginPassword ? 'text' : 'password'"
+                name="password"
+                autocomplete="current-password"
+                placeholder="Enter your password"
+                :disabled="isSubmitting"
+              />
+              <button
+                type="button"
+                class="password-toggle"
+                :aria-label="showLoginPassword ? 'Hide password' : 'Show password'"
+                @click="showLoginPassword = !showLoginPassword"
+              >
+                <AppIcon v-if="!showLoginPassword" name="Eye" :size="16" :stroke-width="2" />
+                <AppIcon v-else name="EyeOff" :size="16" :stroke-width="2" />
+              </button>
+            </span>
+          </label>
+
+          <p v-if="error" class="error error-banner" role="alert">{{ error }}</p>
+
+          <p v-if="message" class="success success-banner" role="status">{{ message }}</p>
+
+          <AppButton type="submit" :disabled="isSubmitting" icon="ArrowRight">
+            {{ isSubmitting ? "Signing in…" : "Sign in" }}
+          </AppButton>
+        </form>
+
+        <p class="login-note">
+          <AppIcon name="ShieldCheck" class-name="secure-mark" :size="14" :stroke-width="2.5" />
+          Your connection is protected and secure.
+        </p>
+      </section>
+    </template>
+
+    <template v-else>
     <header class="app-header">
       <div class="brand-lockup">
         <img class="brand-logo" src="/images/mito.png" alt="MITO electronic" />
@@ -1627,11 +2110,22 @@ onUnmounted(() => {
         <p class="welcome-kicker">{{ formatCurrentDate() }}</p>
         <span class="clock-live">{{ formatCurrentTime() }}</span>
       </div>
-      <h1 v-if="isSessionActive && selectedOutsource">
+      <h1 v-if="step === 'greet' && selectedOutsource">
+        Halo, {{ greetFirstName }}
+      </h1>
+      <h1 v-else-if="isSessionActive && selectedOutsource">
         Hi, {{ selectedOutsource.name.split(" ")[0] }}
       </h1>
       <h1 v-else>Presensi Outsource</h1>
-      <p v-if="isSessionActive">
+      <p v-if="step === 'greet'">
+        <template v-if="checkInAt">
+          Sesi masih terbuka. Lanjutkan clock out di pin point yang sesuai bila sudah selesai.
+        </template>
+        <template v-else>
+          Pilih aksi di bawah untuk melanjutkan. Pin point dipilih saat clock in.
+        </template>
+      </p>
+      <p v-else-if="isSessionActive">
         Sesi individu aktif di
         <strong>{{ selectedStoreName || "Toko Penugasan" }}</strong
         >.
@@ -1710,7 +2204,156 @@ onUnmounted(() => {
       </div>
     </Teleport>
 
-    <template v-if="!isSessionActive && step !== 'completed'">
+    <template v-if="step === 'greet' && selectedOutsource">
+      <section class="greet-card" aria-label="Ringkasan penugasan">
+        <div class="greet-card__top">
+          <div class="greet-card__identity">
+            <div class="greet-card__avatar" aria-hidden="true">
+              {{ selectedOutsource.name.charAt(0).toUpperCase() }}
+            </div>
+            <div class="greet-card__who">
+              <p class="greet-card__eyebrow">
+                {{ checkInAt ? "Sesi masih terbuka" : "Akun outsource" }}
+              </p>
+              <h2>{{ selectedOutsource.name }}</h2>
+              <p class="greet-card__code">
+                Kode
+                <strong>{{ selectedOutsource.outsource_code || "—" }}</strong>
+              </p>
+            </div>
+          </div>
+          <span
+            class="greet-card__status"
+            :class="checkInAt ? 'greet-card__status--active' : 'greet-card__status--ready'"
+          >
+            {{ greetStatusLabel }}
+          </span>
+        </div>
+
+        <div class="greet-card__facts">
+          <div class="greet-fact">
+            <span>Kota</span>
+            <strong>{{ selectedCityName || "—" }}</strong>
+          </div>
+          <div class="greet-fact">
+            <span>Toko</span>
+            <strong>{{ selectedStoreName || "—" }}</strong>
+          </div>
+          <div class="greet-fact">
+            <span>{{ allowedPins.length > 1 ? "Pin tersedia" : "Pin point" }}</span>
+            <strong>{{ greetAllowedPinsLabel }}</strong>
+          </div>
+          <div v-if="checkInAt" class="greet-fact">
+            <span>Clock in</span>
+            <strong>{{ formatTime(checkInAt) }}</strong>
+          </div>
+        </div>
+
+        <div class="greet-card__pins">
+          <div class="greet-card__pins-head">
+            <span>{{ greetPinsSectionTitle }}</span>
+          </div>
+
+          <ul v-if="allowedPins.length" class="greet-pin-list">
+            <li v-for="pin in allowedPins" :key="pin.id">
+              <span class="greet-pin-list__icon" aria-hidden="true">
+                <AppIcon name="MapPinned" :size="15" :stroke-width="2.2" />
+              </span>
+              <div>
+                <strong>{{ pin.name }}</strong>
+                <small v-if="pin.address">{{ pin.address }}</small>
+              </div>
+            </li>
+          </ul>
+          <p v-else class="greet-card__empty">
+            Belum ada subset pin khusus — semua pin aktif di toko dapat dipilih saat absensi.
+          </p>
+          <p v-if="allowedPins.length > 0" class="greet-card__pins-note">
+            {{ greetPinsSectionHint }}
+          </p>
+        </div>
+
+        <div class="greet-card__action">
+          <p class="greet-card__hint">{{ greetHint }}</p>
+
+          <AppButton
+            v-if="!checkInAt"
+            type="button"
+            class="hero-action-button greet-card__cta"
+            variant="primary"
+            icon="ArrowRight"
+            @click="startClockInFromGreet"
+          >
+            Lanjut Clock In
+          </AppButton>
+          <AppButton
+            v-else
+            type="button"
+            class="hero-action-button greet-card__cta"
+            variant="primary"
+            icon="LogOut"
+            @click="startClockOutFromGreet"
+          >
+            Lanjut Clock Out
+          </AppButton>
+        </div>
+      </section>
+
+      <!-- Disabled: riwayat presensi (set ENABLE_OUTSOURCE_ATTENDANCE_HISTORY = true to show) -->
+      <section
+        v-if="ENABLE_OUTSOURCE_ATTENDANCE_HISTORY"
+        class="history-card"
+        aria-label="Riwayat presensi"
+      >
+        <div class="history-card__head">
+          <div>
+            <h2>Riwayat presensi</h2>
+            <p>14 hari terakhir untuk akun ini</p>
+          </div>
+          <button
+            type="button"
+            class="history-card__refresh"
+            :disabled="isLoadingHistory"
+            @click="loadAttendanceHistory"
+          >
+            <AppIcon name="RefreshCw" :size="14" :stroke-width="2.3" />
+            {{ isLoadingHistory ? "Memuat…" : "Muat ulang" }}
+          </button>
+        </div>
+
+        <p v-if="isLoadingHistory && attendanceHistory.length === 0" class="history-card__empty">
+          Memuat riwayat…
+        </p>
+        <p v-else-if="attendanceHistory.length === 0" class="history-card__empty">
+          Belum ada riwayat presensi.
+        </p>
+        <ul v-else class="history-list">
+          <li v-for="item in attendanceHistory" :key="item.attendance_id">
+            <div class="history-list__main">
+              <strong>{{ formatDate(item.attendance_date) }}</strong>
+              <span
+                class="history-list__status"
+                :class="{
+                  'history-list__status--ok':
+                    item.status === 'present' || item.status === 'completed',
+                  'history-list__status--open':
+                    item.status === 'incomplete' || !item.check_out_at,
+                }"
+              >
+                {{ formatHistoryStatus(item.status) }}
+              </span>
+            </div>
+            <div class="history-list__meta">
+              <span>In {{ formatTime(item.check_in_at) }}</span>
+              <span>Out {{ formatTime(item.check_out_at) }}</span>
+              <span>{{ formatHistoryDuration(item.duration_minutes) }}</span>
+            </div>
+          </li>
+        </ul>
+      </section>
+    </template>
+
+    <template v-else-if="!isSessionActive && step !== 'completed' && step !== 'greet'">
       <div class="wizard-stepper" aria-label="Langkah Inisiasi Sesi">
         <div
           class="step-item"
@@ -2002,6 +2645,140 @@ onUnmounted(() => {
           </AppButton>
         </div>
       </section>
+    </template>
+
+    <template v-if="isSessionActive">
+      <section class="hero-attendance-card" aria-live="polite">
+        <div class="card-header-line">
+          <div>
+            <p class="hero-kicker">STATUS HARI INI</p>
+            <h2>{{ statusTitle }}</h2>
+          </div>
+          <span
+            class="status-pulse-dot"
+            :class="{ active: isAttendanceOpen }"
+            :title="isAttendanceOpen ? 'Sesi Terbuka' : 'Sesi Aktif'"
+          />
+        </div>
+
+        <div class="time-grid time-grid--three">
+          <div class="time-item">
+            <span>Check In</span>
+            <strong>{{ formatTime(checkInAt) }}</strong>
+          </div>
+          <div class="time-item">
+            <span>Durasi</span>
+            <strong>{{ attendanceDurationLabel }}</strong>
+          </div>
+          <div class="time-item">
+            <span>Check Out</span>
+            <strong>{{ formatTime(checkOutAt) }}</strong>
+          </div>
+        </div>
+
+        <div class="field-block hero-field">
+          <label for="pin-select">Pin Point / Alamat</label>
+          <div class="select-wrapper">
+            <select
+              id="pin-select"
+              v-model="selectedPinId"
+              :disabled="isSubmitting || allowedPins.length === 0"
+              @change="onPinSelected"
+            >
+              <option :value="null" disabled>-- Pilih alamat absensi --</option>
+              <option v-for="pin in allowedPins" :key="pin.id" :value="pin.id">
+                {{ pin.name }}{{ pin.address ? ` — ${pin.address}` : "" }}
+              </option>
+            </select>
+            <AppIcon
+              name="ChevronDown"
+              class="select-chevron"
+              :size="16"
+              :stroke-width="2.3"
+              aria-hidden="true"
+            />
+          </div>
+        </div>
+
+        <div class="hero-distance" :class="heroDistanceStatusClass">
+          <div class="hero-distance__main">
+            <p class="hero-distance__label">Jarak ke pin</p>
+            <div class="hero-distance__value-row">
+              <span class="hero-distance__value">{{ distanceHeroValue }}</span>
+              <span class="hero-distance__unit">{{ distanceHeroUnit }}</span>
+            </div>
+            <p class="hero-distance__pin">
+              {{ selectedPinLabel || selectedStoreName || "Pilih pin point" }}
+            </p>
+          </div>
+
+          <div class="hero-distance__aside">
+            <span class="hero-distance__badge" :class="distanceBadgeClass">
+              {{ distanceBadgeLabel }}
+            </span>
+            <p class="hero-distance__caption">{{ distanceHeroCaption }}</p>
+            <p
+              v-if="remainingToRadiusMeters !== null && !isInsideStoreRadius"
+              class="hero-distance__remain"
+            >
+              Sisa <strong>{{ remainingToRadiusMeters }} m</strong> ke radius
+              {{ STORE_GEOFENCE_RADIUS_METERS }} m
+            </p>
+            <p
+              v-else-if="isInsideStoreRadius && isGpsAccuracyAcceptable"
+              class="hero-distance__remain hero-distance__remain--ok"
+            >
+              GPS ±{{ locationAccuracy ?? 0 }} m — siap clock
+              {{ isAttendanceOpen ? "out" : "in" }}
+            </p>
+            <p
+              v-else-if="isInsideStoreRadius"
+              class="hero-distance__remain"
+            >
+              Dalam radius · tunggu GPS ≤ ±{{ maxGpsAccuracyMeters }} m
+            </p>
+            <div class="hero-distance__actions">
+              <button
+                type="button"
+                class="hero-distance__refresh"
+                :disabled="
+                  isRefreshingDistance ||
+                  locationStatus === 'locating' ||
+                  isSubmitting
+                "
+                @click="refreshDistance"
+              >
+                <AppIcon name="RefreshCw" :size="14" :stroke-width="2.3" />
+                {{
+                  isRefreshingDistance || locationStatus === "locating"
+                    ? "Mengukur…"
+                    : "Perbarui"
+                }}
+              </button>
+              <label class="hero-distance__follow">
+                <input
+                  v-model="followDistance"
+                  type="checkbox"
+                  :disabled="isSubmitting"
+                  @change="onFollowDistanceToggle"
+                />
+                <span>Ikuti</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <AppButton
+          type="button"
+          class="hero-action-button"
+          variant="primary"
+          icon="ArrowRight"
+          :disabled="isSubmitting || selectedPinId === null"
+          @click="submitAttendance"
+        >
+          {{ actionButtonLabel }}
+        </AppButton>
+      </section>
 
       <section v-if="showStoreMap" class="pwa-card map-card">
         <div class="card-title-row">
@@ -2009,9 +2786,15 @@ onUnmounted(() => {
             <AppIcon name="MapPinned" :size="18" :stroke-width="2" />
           </span>
           <div>
-            <h2>Lokasi Toko & Radius</h2>
+            <h2>{{ selectedPinLabel ? "Lokasi Pin & Radius" : "Lokasi & Radius" }}</h2>
             <p class="card-sub">
-              Visualisasi toko dan area validasi 150 meter.
+              {{
+                selectedPinLabel
+                  ? "Radius 150 m mengikuti pin point yang dipilih."
+                  : allowedPins.length > 1
+                    ? "Pilih pin point dulu agar jarak & radius akurat."
+                    : "Visualisasi lokasi absensi dan area validasi 150 meter."
+              }}
             </p>
           </div>
         </div>
@@ -2033,8 +2816,8 @@ onUnmounted(() => {
 
         <div class="map-meta-row">
           <div class="map-meta-pill">
-            <span>Store</span>
-            <strong>{{ selectedStoreName || "Toko" }}</strong>
+            <span>{{ mapLocationMetaLabel }}</span>
+            <strong>{{ mapLocationMetaValue }}</strong>
           </div>
           <div class="map-meta-pill">
             <span>Radius</span>
@@ -2056,156 +2839,15 @@ onUnmounted(() => {
           <span>{{ mapDistanceLabel ?? "Lokasi Anda belum diukur" }}</span>
         </div>
       </section>
-    </template>
-
-    <template v-if="isSessionActive">
-      <section class="hero-attendance-card" aria-live="polite">
-        <div class="card-header-line">
-          <div>
-            <p class="hero-kicker">STATUS HARI INI</p>
-            <h2>{{ statusTitle }}</h2>
-          </div>
-          <span
-            class="status-pulse-dot"
-            :class="{ active: isAttendanceOpen }"
-            :title="isAttendanceOpen ? 'Sesi Terbuka' : 'Sesi Aktif'"
-          />
-        </div>
-
-        <div class="time-grid">
-          <div class="time-item">
-            <span>Check In</span>
-            <strong>{{ formatTime(checkInAt) }}</strong>
-          </div>
-          <div class="time-item">
-            <span>Durasi</span>
-            <strong>{{ attendanceDurationLabel }}</strong>
-          </div>
-          <div class="time-item">
-            <span>Check Out</span>
-            <strong>{{ formatTime(checkOutAt) }}</strong>
-          </div>
-        </div>
-
-        <div class="summary-row">
-          <div class="summary-pill">
-            <span class="mini-label">Lokasi</span>
-            <strong>{{ selectedStoreName || "Menunggu penugasan" }}</strong>
-          </div>
-          <div class="summary-pill">
-            <span class="mini-label">Akurasi GPS</span>
-            <strong>{{
-              locationAccuracy !== null
-                ? `±${locationAccuracy} m`
-                : "Belum terukur"
-            }}</strong>
-          </div>
-        </div>
-
-        <AppButton
-          type="button"
-          class="hero-action-button"
-          variant="primary"
-          icon="ArrowRight"
-          :disabled="isSubmitting"
-          @click="submitAttendance"
-        >
-          {{ actionButtonLabel }}
-        </AppButton>
-      </section>
-
-      <section class="geo-tracker-card">
-        <div
-          class="distance-hero"
-          :class="{
-            'distance-hero--inside': isInsideStoreRadius,
-            'distance-hero--outside':
-              distanceToStoreMeters !== null && !isInsideStoreRadius,
-            'distance-hero--pending': distanceToStoreMeters === null,
-          }"
-        >
-          <p class="geo-label">Jarak ke toko</p>
-          <div class="distance-hero-value-row">
-            <span class="distance-hero-value">{{ distanceHeroValue }}</span>
-            <span class="distance-hero-unit">{{ distanceHeroUnit }}</span>
-          </div>
-          <p class="distance-hero-caption">{{ distanceHeroCaption }}</p>
-        </div>
-
-        <div class="geo-content">
-          <div class="geo-header-row">
-            <div>
-              <p class="geo-label">Jarak ke toko</p>
-              <h3>{{ selectedStoreName || "Toko penugasan" }}</h3>
-            </div>
-            <span
-              class="status-indicator-badge"
-              :class="distanceBadgeClass"
-            >
-              {{ distanceBadgeLabel }}
-            </span>
-          </div>
-
-          <p class="geo-hint">{{ trackerHint }}</p>
-
-          <div class="distance-actions">
-            <AppButton
-              type="button"
-              class="btn-secondary"
-              variant="secondary"
-              size="sm"
-              icon="RefreshCw"
-              icon-position="left"
-              :disabled="
-                isRefreshingDistance ||
-                locationStatus === 'locating' ||
-                isSubmitting
-              "
-              @click="refreshDistance"
-            >
-              {{
-                isRefreshingDistance || locationStatus === "locating"
-                  ? "Mengukur..."
-                  : "Perbarui jarak"
-              }}
-            </AppButton>
-
-            <label class="follow-distance-toggle">
-              <input
-                v-model="followDistance"
-                type="checkbox"
-                :disabled="isSubmitting"
-                @change="onFollowDistanceToggle"
-              />
-              <span>Ikuti jarak</span>
-            </label>
-          </div>
-
-          <div class="geo-metrics">
-            <div>
-              <span>Radius absensi</span>
-              <strong>{{ STORE_GEOFENCE_RADIUS_METERS }} m</strong>
-            </div>
-            <div>
-              <span>Akurasi GPS</span>
-              <strong>{{
-                locationAccuracy !== null
-                  ? `±${locationAccuracy} m`
-                  : "Belum ada"
-              }}</strong>
-            </div>
-            <div>
-              <span>Jam</span>
-              <strong>{{ formatCurrentTime() }}</strong>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section class="mini-summary-grid">
         <div class="mini-summary-item">
-          <span>Penugasan</span>
-          <strong>{{ selectedStoreName || "Belum dipilih" }}</strong>
+          <span>Toko</span>
+          <strong>{{ assignmentLocationLabel }}</strong>
+        </div>
+        <div class="mini-summary-item">
+          <span>Pin aktif</span>
+          <strong>{{ activePinStatsLabel }}</strong>
         </div>
         <div class="mini-summary-item">
           <span>Waktu</span>
@@ -2232,16 +2874,88 @@ onUnmounted(() => {
       <section class="info-grid">
         <div class="info-card">
           <span class="info-title">Toko</span>
-          <strong>{{ selectedStoreName }}</strong>
-          <small>Radius validasi 150 m</small>
+          <strong>{{ selectedStoreName || "—" }}</strong>
+          <small>{{ selectedCityName || "Penugasan cabang" }}</small>
+        </div>
+        <div class="info-card">
+          <span class="info-title">Pin aktif</span>
+          <strong>{{ activePinStatsLabel }}</strong>
+          <small>{{ activePinStatsDetail }}</small>
         </div>
         <div class="info-card">
           <span class="info-title">Personel</span>
-          <strong>{{ selectedOutsourceLabel || "-" }}</strong>
-          <small>Penugasan hari ini</small>
+          <strong>{{ selectedOutsourceLabel || "—" }}</strong>
+          <small>
+            {{
+              allowedPins.length > 1
+                ? `${allowedPins.length} pin point diizinkan`
+                : "Penugasan hari ini"
+            }}
+          </small>
         </div>
       </section>
     </template>
+
+    <!-- Wizard-only map (session map lives under the red attendance card). -->
+    <section v-if="showStoreMap && !isSessionActive" class="pwa-card map-card">
+      <div class="card-title-row">
+        <span class="card-icon-pill" aria-hidden="true">
+          <AppIcon name="MapPinned" :size="18" :stroke-width="2" />
+        </span>
+        <div>
+          <h2>{{ selectedPinLabel ? "Lokasi Pin & Radius" : "Lokasi & Radius" }}</h2>
+          <p class="card-sub">
+            {{
+              selectedPinLabel
+                ? "Radius 150 m mengikuti pin point yang dipilih."
+                : allowedPins.length > 1
+                  ? "Pilih pin point dulu agar jarak & radius akurat."
+                  : "Visualisasi lokasi absensi dan area validasi 150 meter."
+            }}
+          </p>
+        </div>
+      </div>
+
+      <div v-if="mapError && !isUsingCityFallback" class="map-warning">
+        {{ mapError }}
+      </div>
+
+      <div v-if="isUsingCityFallback" class="map-warning map-warning--notice">
+        {{ mapError }}
+      </div>
+
+      <div
+        v-if="!mapError || isUsingCityFallback"
+        ref="mapContainer"
+        class="carto-map"
+        aria-label="Peta lokasi toko dan GPS pengguna"
+      />
+
+      <div class="map-meta-row">
+        <div class="map-meta-pill">
+          <span>{{ mapLocationMetaLabel }}</span>
+          <strong>{{ mapLocationMetaValue }}</strong>
+        </div>
+        <div class="map-meta-pill">
+          <span>Radius</span>
+          <strong>{{
+            isUsingCityFallback ? "Belum tersedia" : "150 m"
+          }}</strong>
+        </div>
+        <div class="map-meta-pill">
+          <span>GPS</span>
+          <strong>{{
+            currentMapLocation
+              ? `±${Math.round(currentMapLocation.accuracy ?? 0)} m`
+              : "Belum ada"
+          }}</strong>
+        </div>
+      </div>
+
+      <div class="map-detail-row">
+        <span>{{ mapDistanceLabel ?? "Lokasi Anda belum diukur" }}</span>
+      </div>
+    </section>
 
     <template v-if="step === 'completed'">
       <section class="pwa-card completed-box">
@@ -2290,10 +3004,292 @@ onUnmounted(() => {
         </AppButton>
       </section>
     </template>
+    </template><!-- /v-else non-login -->
   </main>
 </template>
 
 <style scoped>
+/* ── Login mode — same split-screen UI style as Employee login ────────── */
+/* Must beat `.outsource-app { width: min(100%, 32rem) }` which comes later. */
+.outsource-app.outsource-app--login {
+  --accent: #eb1c24;
+  --accent-dark: #c9151c;
+  --accent-ring: rgba(235, 28, 36, 0.12);
+  --surface: #fff;
+  --login-text: #52525b;
+  --login-text-h: #18181b;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  min-height: 100svh;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  background: #f8f8f8;
+  color: var(--login-text-h);
+  text-align: left;
+}
+.outsource-app--login .login-visual {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 100svh;
+  padding: clamp(2rem, 5vw, 5rem);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  background: var(--accent);
+  color: #fff;
+}
+.outsource-app--login .login-visual::after {
+  content: '';
+  position: absolute;
+  right: -14rem;
+  bottom: -15rem;
+  width: 32rem;
+  height: 32rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3rem rgba(255, 255, 255, 0.04), 0 0 0 6rem rgba(255, 255, 255, 0.04);
+}
+.outsource-app--login .visual-content {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: min(100%, 30rem);
+  max-width: 100%;
+  margin-inline: auto;
+  padding-inline: 0.25rem;
+  text-align: center;
+  transform: translateY(-2vh);
+  animation: outsource-login-rise 0.7s ease both;
+}
+.outsource-app--login .logo-frame {
+  display: inline-flex;
+  padding: 0.45rem;
+  margin-bottom: 2rem;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(90, 0, 5, 0.2);
+}
+.outsource-app--login .login-visual .brand-logo {
+  display: block;
+  width: clamp(104px, 10vw, 146px);
+  height: clamp(104px, 10vw, 146px);
+  border-radius: 9px;
+  object-fit: cover;
+  box-shadow: none;
+}
+.outsource-app--login .visual-kicker {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+.outsource-app--login .visual-content h1 {
+  margin: 0.8rem 0 1.1rem;
+  color: #fff;
+  font-size: clamp(2.4rem, 4.2vw, 4.6rem);
+  line-height: 1.02;
+  letter-spacing: -0.05em;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.outsource-app--login .visual-content h1 strong {
+  font-weight: 700;
+}
+.outsource-app--login .visual-copy {
+  max-width: min(23rem, 100%);
+  margin-inline: auto;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.outsource-app--login .login-panel {
+  box-sizing: border-box;
+  min-width: 0;
+  width: min(100%, 32rem);
+  margin: auto;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  animation: outsource-login-rise 0.7s 0.1s ease both;
+}
+.outsource-app--login .login-heading { margin-bottom: 1.75rem; }
+.outsource-app--login .eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+.outsource-app--login .login-heading h2 {
+  margin: 0.55rem 0 0.45rem;
+  color: var(--login-text-h);
+  font-size: clamp(1.7rem, 3vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+.outsource-app--login .login-intro {
+  margin: 0;
+  color: var(--login-text);
+  line-height: 1.55;
+}
+
+/* ── Login form fields (mirror EmployeeLoginPage) ── */
+.outsource-app--login form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.outsource-app--login .login-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: var(--login-text-h);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.outsource-app--login .field-label { gap: 0.45rem; }
+.outsource-app--login .field-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.outsource-app--login .field-icon {
+  position: absolute;
+  left: 0.9rem;
+  z-index: 1;
+  color: #a1a1a8;
+  pointer-events: none;
+}
+.outsource-app--login .login-panel input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.9rem 2.5rem;
+  border: 1px solid #dedee2;
+  border-radius: 7px;
+  color: var(--login-text-h);
+  background: var(--surface);
+  font-size: 0.875rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.outsource-app--login .login-panel input::placeholder { color: #aaaab1; }
+.outsource-app--login .login-panel input:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 4px var(--accent-ring);
+}
+.outsource-app--login .login-panel input:-webkit-autofill,
+.outsource-app--login .login-panel input:autofill {
+  -webkit-text-fill-color: var(--login-text-h);
+  caret-color: var(--login-text-h);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+  box-shadow: 0 0 0 1000px var(--surface) inset;
+  transition: background-color 99999s ease-in-out 0s;
+}
+.outsource-app--login .password-toggle {
+  position: absolute;
+  right: 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  margin: 0;
+  padding: 0.25rem;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  box-shadow: none;
+}
+.outsource-app--login .password-toggle:hover { color: var(--accent-dark); }
+.outsource-app--login .login-panel :deep(.app-button) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 0.35rem;
+  min-height: 0;
+  padding: 0.9rem 1rem 0.9rem 1.1rem;
+  border: 0;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.outsource-app--login .login-panel :deep(.app-button):hover:not(:disabled) {
+  background: var(--accent-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(235, 28, 36, 0.2);
+}
+.outsource-app--login .login-panel :deep(.app-button):disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.outsource-app--login .error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.8rem;
+}
+.outsource-app--login .error-banner {
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: #fff1f2;
+  font-size: 0.85rem;
+}
+.outsource-app--login .success {
+  margin: 0;
+  color: #15803d;
+  font-size: 0.8rem;
+}
+.outsource-app--login .success-banner {
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  font-size: 0.85rem;
+}
+.outsource-app--login .login-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 1.25rem;
+  margin-bottom: 0;
+  color: #85858d;
+  font-size: 0.78rem;
+}
+.outsource-app--login .secure-mark {
+  display: inline-grid;
+  width: 1rem;
+  height: 1rem;
+  place-items: center;
+  border-radius: 50%;
+  background: #e8f7ee;
+  color: #25834a;
+  flex-shrink: 0;
+}
+@keyframes outsource-login-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 760px) {
+  .outsource-app.outsource-app--login { display: block; background: #f8f8f8; }
+  .outsource-app--login .login-visual { min-height: 300px; padding: 1.5rem; }
+  .outsource-app--login .visual-content { margin-top: 0; transform: none; }
+  .outsource-app--login .visual-content h1 { font-size: 2.35rem; }
+  .outsource-app--login .visual-copy { display: none; }
+  .outsource-app--login .logo-frame { margin-bottom: 1rem; }
+  .outsource-app--login .login-visual .brand-logo { width: 78px; height: 78px; }
+  .outsource-app--login .login-panel { width: 100%; padding: 2rem 1.25rem 2.5rem; }
+}
+
+/* ── Non-login outsource shell ── */
 .outsource-app {
   box-sizing: border-box;
   width: min(100%, 32rem);
@@ -2656,6 +3652,412 @@ onUnmounted(() => {
   margin-bottom: 1.25rem;
 }
 
+.pin-allowlist {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.greet-card {
+  padding: 1.2rem 1.15rem 0;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 22px rgba(24, 24, 28, 0.05);
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+}
+
+.greet-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.greet-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.greet-card__avatar {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #eb1c24, #c5151d);
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.greet-card__who {
+  min-width: 0;
+}
+
+.greet-card__eyebrow {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.greet-card__who h2 {
+  margin: 0.15rem 0 0.2rem;
+  font-size: 1.12rem;
+  font-weight: 700;
+  color: var(--text-h);
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.greet-card__code {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
+.greet-card__code strong {
+  color: var(--text-h);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.greet-card__status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.55rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.greet-card__status--ready {
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+.greet-card__status--active {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.greet-card__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin: 1rem 0 0.9rem;
+}
+
+.greet-fact {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.65rem 0.7rem;
+  border-radius: 10px;
+  background: #f7f7f8;
+  border: 1px solid #ececf0;
+}
+
+.greet-fact span {
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.greet-fact strong {
+  font-size: 0.86rem;
+  color: var(--text-h);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.greet-card__pins {
+  padding: 0.75rem 0.8rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid #ececf0;
+  background: #fafafa;
+}
+
+.greet-card__pins-head {
+  margin-bottom: 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.greet-pin-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.greet-pin-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 9px;
+  background: #fff;
+  border: 1px solid #ececf0;
+}
+
+.greet-pin-list__icon {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 8px;
+  background: rgba(235, 28, 36, 0.08);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.greet-pin-list li div {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.greet-pin-list strong {
+  font-size: 0.86rem;
+  color: var(--text-h);
+}
+
+.greet-pin-list small {
+  font-size: 0.74rem;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.greet-card__empty {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.greet-card__pins-note {
+  margin: 0.65rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.greet-card__hint {
+  margin: 0 0 0.85rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.greet-card__action {
+  /* Bleed to outer card edges (cancel .greet-card horizontal padding). */
+  margin: 1rem -1.15rem 0;
+  padding: 1rem 1.15rem 1.15rem;
+  background: linear-gradient(135deg, #eb1c24 0%, #c5151d 100%);
+  border-radius: 0 0 15px 15px;
+}
+
+.greet-card__cta {
+  width: 100%;
+}
+
+.greet-card__action :deep(.hero-action-button),
+.hero-attendance-card :deep(.hero-action-button) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 3.1rem;
+  padding: 0.9rem 1.15rem;
+  border-radius: 11px;
+  border: none;
+  background: #fff !important;
+  color: #eb1c24 !important;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 20px rgba(17, 17, 17, 0.08);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.greet-card__action :deep(.hero-action-button .app-button__icon),
+.greet-card__action :deep(.hero-action-button svg),
+.hero-attendance-card :deep(.hero-action-button .app-button__icon),
+.hero-attendance-card :deep(.hero-action-button svg) {
+  color: #eb1c24 !important;
+  stroke: #eb1c24 !important;
+}
+
+.greet-card__action :deep(.hero-action-button:hover:not(:disabled)),
+.hero-attendance-card :deep(.hero-action-button:hover:not(:disabled)) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(17, 17, 17, 0.12);
+}
+
+.greet-card__action :deep(.hero-action-button:active:not(:disabled)),
+.hero-attendance-card :deep(.hero-action-button:active:not(:disabled)) {
+  transform: scale(0.985);
+}
+
+.greet-card__action :deep(.hero-action-button:disabled),
+.hero-attendance-card :deep(.hero-action-button:disabled) {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.history-card {
+  padding: 1.1rem 1.05rem 1rem;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 22px rgba(24, 24, 28, 0.04);
+  margin-bottom: 1.25rem;
+}
+
+.history-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.history-card__head h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-h);
+}
+
+.history-card__head p {
+  margin: 0.2rem 0 0;
+  font-size: 0.76rem;
+  color: var(--text);
+}
+
+.history-card__refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.9rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fafafa;
+  color: var(--text-h);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.history-card__refresh:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.history-card__empty {
+  margin: 0;
+  padding: 0.85rem 0.2rem 0.4rem;
+  font-size: 0.82rem;
+  color: var(--text);
+  text-align: center;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.history-list li {
+  padding: 0.7rem 0.75rem;
+  border-radius: 11px;
+  border: 1px solid #ececf0;
+  background: #fafafa;
+}
+
+.history-list__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.history-list__main strong {
+  font-size: 0.88rem;
+  color: var(--text-h);
+}
+
+.history-list__status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.4rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  background: #f4f4f5;
+  color: #52525b;
+  white-space: nowrap;
+}
+
+.history-list__status--ok {
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+.history-list__status--open {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.history-list__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
+  margin-top: 0.4rem;
+  font-size: 0.74rem;
+  color: var(--text);
+}
+
+@media (max-width: 420px) {
+  .greet-card__facts {
+    grid-template-columns: 1fr;
+  }
+
+  .greet-card__top {
+    flex-direction: column;
+  }
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
 .profile-summary {
   display: flex;
   align-items: center;
@@ -2967,6 +4369,10 @@ onUnmounted(() => {
   border-top: 1px solid rgba(255, 255, 255, 0.22);
 }
 
+.time-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .time-item {
   display: grid;
   gap: 0.25rem;
@@ -2980,8 +4386,186 @@ onUnmounted(() => {
 }
 
 .time-item strong {
-  font-size: 1.3rem;
+  font-size: 1.05rem;
   font-family: var(--mono);
+}
+
+.hero-field {
+  margin-bottom: 0.85rem;
+}
+
+.hero-field label {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.hero-distance {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, 0.9fr) minmax(0, 1.2fr);
+  gap: 0.85rem;
+  margin: 0 0 1rem;
+  padding: 0.9rem 0.95rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.hero-distance--inside {
+  background: rgba(22, 163, 74, 0.28);
+  border-color: rgba(134, 239, 172, 0.35);
+}
+
+.hero-distance--outside {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.hero-distance--pending {
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.hero-distance__label,
+.hero-distance__pin,
+.hero-distance__caption,
+.hero-distance__remain {
+  margin: 0;
+}
+
+.hero-distance__label {
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.hero-distance__value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0.25rem;
+}
+
+.hero-distance__value {
+  font-size: 2rem;
+  font-weight: 700;
+  font-family: var(--mono);
+  line-height: 1;
+  color: #fff;
+}
+
+.hero-distance--inside .hero-distance__value {
+  color: #bbf7d0;
+}
+
+.hero-distance--outside .hero-distance__value {
+  color: #fecaca;
+}
+
+.hero-distance__unit {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.hero-distance__pin {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.25;
+}
+
+.hero-distance__aside {
+  display: grid;
+  gap: 0.35rem;
+  align-content: start;
+}
+
+.hero-distance__badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.hero-distance__badge.badge-ready {
+  background: rgba(74, 222, 128, 0.28);
+  color: #dcfce7;
+}
+
+.hero-distance__badge.badge-outside {
+  background: rgba(248, 113, 113, 0.28);
+  color: #fee2e2;
+}
+
+.hero-distance__badge.badge-locating,
+.hero-distance__badge.badge-error {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.hero-distance__caption {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.3;
+}
+
+.hero-distance__remain {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.3;
+}
+
+.hero-distance__remain strong {
+  color: #fff;
+  font-weight: 700;
+}
+
+.hero-distance__remain--ok {
+  color: #bbf7d0;
+}
+
+.hero-distance__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.15rem;
+  flex-wrap: wrap;
+}
+
+.hero-distance__refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.85rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hero-distance__refresh:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hero-distance__follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+}
+
+.hero-distance__follow input {
+  accent-color: #fff;
 }
 
 .hero-action-button {
@@ -3017,6 +4601,16 @@ onUnmounted(() => {
 .hero-action-button:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+@media (max-width: 420px) {
+  .hero-distance {
+    grid-template-columns: 1fr;
+  }
+
+  .time-item strong {
+    font-size: 0.95rem;
+  }
 }
 
 /* Quick Status / GPS Card */
@@ -3058,206 +4652,6 @@ onUnmounted(() => {
   color: var(--text);
 }
 
-.geo-tracker-card {
-  display: grid;
-  grid-template-columns: minmax(9.5rem, 11rem) minmax(0, 1fr);
-  gap: 1rem;
-  padding: 1rem;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: linear-gradient(135deg, #fff, #f9f9fb);
-  box-shadow: 0 10px 18px rgba(17, 17, 17, 0.02);
-  margin-bottom: 1rem;
-}
-
-.geo-tracker-card .geo-content {
-  gap: 0.7rem;
-}
-
-.distance-hero {
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  text-align: center;
-  gap: 0.2rem;
-  min-height: 120px;
-  padding: 0.85rem 0.65rem;
-  border-radius: 18px;
-  border: 1px solid rgba(17, 17, 17, 0.06);
-  background: linear-gradient(180deg, #f8f8fa 0%, #f1f1f4 100%);
-}
-
-.distance-hero--inside {
-  background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%);
-  border-color: rgba(21, 128, 61, 0.2);
-}
-
-.distance-hero--outside {
-  background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%);
-  border-color: rgba(194, 65, 12, 0.18);
-}
-
-.distance-hero--pending {
-  background: linear-gradient(180deg, #f4f4f5 0%, #e8e8ec 100%);
-}
-
-.distance-hero .geo-label {
-  margin: 0;
-}
-
-.distance-hero-value-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.28rem;
-  line-height: 1;
-}
-
-.distance-hero-value {
-  font-size: 2.35rem;
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  color: var(--text-h);
-  font-variant-numeric: tabular-nums;
-}
-
-.distance-hero--inside .distance-hero-value {
-  color: #15803d;
-}
-
-.distance-hero--outside .distance-hero-value {
-  color: #c2410c;
-}
-
-.distance-hero-unit {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--text);
-  text-transform: lowercase;
-}
-
-.distance-hero-caption {
-  margin: 0.15rem 0 0;
-  font-size: 0.68rem;
-  font-weight: 600;
-  line-height: 1.35;
-  color: var(--text);
-  max-width: 11rem;
-}
-
-.geo-content {
-  display: grid;
-  gap: 0.8rem;
-  align-content: center;
-}
-
-.geo-header-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.geo-label {
-  margin: 0 0 0.2rem;
-  color: var(--text);
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.geo-content h3 {
-  margin: 0;
-  font-size: 1rem;
-  color: var(--text-h);
-}
-
-.geo-hint {
-  margin: 0;
-  color: var(--text);
-  font-size: 0.78rem;
-  line-height: 1.5;
-}
-
-.distance-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.65rem 0.9rem;
-}
-
-.follow-distance-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--text-h);
-  cursor: pointer;
-  user-select: none;
-}
-
-.follow-distance-toggle input {
-  width: 1rem;
-  height: 1rem;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-.geo-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.6rem;
-}
-
-.geo-metrics div {
-  display: grid;
-  gap: 0.12rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #ececf0;
-}
-
-.geo-metrics span {
-  color: var(--text);
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.geo-metrics strong {
-  color: var(--text-h);
-  font-size: 0.72rem;
-}
-
-.status-indicator-badge {
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0.2rem 0.5rem;
-  border-radius: 6px;
-  background: #f4f4f5;
-  color: #71717a;
-  white-space: nowrap;
-}
-
-.status-indicator-badge.badge-ready {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.status-indicator-badge.badge-locating {
-  background: #fef9c3;
-  color: #a16207;
-}
-
-.status-indicator-badge.badge-error {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.status-indicator-badge.badge-outside {
-  background: #ffedd5;
-  color: #c2410c;
-}
-
 .mini-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3292,6 +4686,10 @@ onUnmounted(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.8rem;
   margin: 0 0 1rem;
+}
+
+.info-grid .info-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 
 .info-card {
@@ -3534,15 +4932,6 @@ onUnmounted(() => {
 @media (max-width: 420px) {
   .outsource-app {
     padding-inline: 0.75rem;
-  }
-
-  .geo-tracker-card {
-    grid-template-columns: 1fr;
-  }
-
-  .distance-hero {
-    min-height: 0;
-    padding: 1rem 0.85rem;
   }
 
   .info-grid {

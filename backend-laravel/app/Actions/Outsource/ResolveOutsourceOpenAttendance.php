@@ -5,8 +5,10 @@ namespace App\Actions\Outsource;
 use App\Domain\Attendance\Services\OutsourceSessionExpiry;
 use App\Enums\AttendanceSessionStatus;
 use App\Models\AttendanceSession;
+use App\Models\City;
 use App\Models\Outsource;
 use App\Models\WorkLocation;
+use App\Services\Outsource\ResolveOutsourceAllowedPins;
 use App\Support\AttendanceDateTime;
 use Carbon\CarbonImmutable;
 
@@ -14,6 +16,7 @@ class ResolveOutsourceOpenAttendance
 {
     public function __construct(
         protected OutsourceSessionExpiry $sessionExpiry,
+        protected ResolveOutsourceAllowedPins $resolveAllowedPins,
     ) {}
 
     /**
@@ -63,7 +66,9 @@ class ResolveOutsourceOpenAttendance
      *   status: string,
      *   expires_at: string,
      *   outsource: array{id: int, name: string, outsource_code: string|null},
-     *   store: array{id: int, name: string, city_id: int|null},
+     *   store: array{id: int, name: string, city_id: int|null, city_name: string|null, latitude: float|null, longitude: float|null},
+     *   city: array{id: int, name: string}|null,
+     *   pins: list<array{id: int, name: string, address: string|null, latitude: float|null, longitude: float|null, radius_meters: float}>,
      *   attendance: array<string, mixed>|null
      * }
      */
@@ -74,6 +79,30 @@ class ResolveOutsourceOpenAttendance
         WorkLocation $store,
         ?array $attendance,
     ): array {
+        $pins = [];
+        try {
+            $resolved = $this->resolveAllowedPins->execute($outsource);
+            $pins = $resolved['pins']->map(fn ($pin) => [
+                'id' => $pin->id,
+                'name' => $pin->name,
+                'address' => $pin->address,
+                'latitude' => $pin->latitude,
+                'longitude' => $pin->longitude,
+                'radius_meters' => (float) config('attendance.outsource_geofence_radius_meters', 150),
+            ])->values()->all();
+        } catch (\InvalidArgumentException) {
+            $pins = [];
+        }
+
+        $cityName = null;
+        if ($store->city_id) {
+            $cityName = City::query()
+                ->withoutGlobalScopes()
+                ->whereKey($store->city_id)
+                ->value('name');
+            $cityName = is_string($cityName) ? $cityName : null;
+        }
+
         return [
             'status' => $status,
             'expires_at' => $expiresAt,
@@ -86,7 +115,15 @@ class ResolveOutsourceOpenAttendance
                 'id' => $store->id,
                 'name' => $store->name,
                 'city_id' => $store->city_id,
+                'city_name' => $cityName,
+                'latitude' => $store->latitude !== null ? (float) $store->latitude : null,
+                'longitude' => $store->longitude !== null ? (float) $store->longitude : null,
             ],
+            'city' => $store->city_id ? [
+                'id' => (int) $store->city_id,
+                'name' => $cityName ?? '',
+            ] : null,
+            'pins' => $pins,
             'attendance' => $attendance,
         ];
     }

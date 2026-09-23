@@ -8,31 +8,36 @@ use App\Models\Outsource;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class CreateOutsourcePerson implements Action
 {
     public function __construct(
         private readonly RecordAuditAction $audit,
+        private readonly SyncOutsourceAssignmentPins $syncAssignmentPins,
     ) {}
 
     /**
-     * @param array{name: string, store_id?: int|null} $input
+     * @param array{name: string, store_id?: int|null, pin_ids?: list<int>|null, password?: string|null} $input
      */
     public function execute(array $input, ?User $actor, ?Request $request = null): Outsource
     {
         return DB::transaction(function () use ($input, $actor, $request): Outsource {
-            $code = $this->generateCode($input['name']);
+            $code = Outsource::generateNextCode();
 
             $person = Outsource::create([
                 'outsource_code' => $code,
                 'name'           => $input['name'],
+                'password'       => $input['password'] ?? null,
                 'status'         => 'active',
             ]);
 
             // Assign to store if provided
             if (!empty($input['store_id'])) {
                 $person->stores()->attach($input['store_id'], ['status' => 'active']);
+
+                if (array_key_exists('pin_ids', $input)) {
+                    $this->syncAssignmentPins->execute($person, (int) $input['store_id'], $input['pin_ids'] ?? []);
+                }
             }
 
             $this->audit->execute(
@@ -40,20 +45,16 @@ class CreateOutsourcePerson implements Action
                 'outsource_person.created',
                 $person,
                 null,
-                ['outsource_code' => $code, 'name' => $person->name, 'store_id' => $input['store_id'] ?? null],
+                [
+                    'outsource_code' => $code,
+                    'name' => $person->name,
+                    'store_id' => $input['store_id'] ?? null,
+                    'pin_ids' => $input['pin_ids'] ?? null,
+                ],
                 $request,
             );
 
             return $person->load('stores');
         });
-    }
-
-    private function generateCode(string $name): string
-    {
-        $slug = strtoupper(preg_replace('/[^A-Za-z0-9]+/', '-', trim($name)));
-        $slug = rtrim($slug, '-');
-        $hash = substr(Str::uuid()->toString(), 0, 8);
-
-        return "{$slug}-{$hash}";
     }
 }

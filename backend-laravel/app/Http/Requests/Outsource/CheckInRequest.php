@@ -20,6 +20,7 @@ class CheckInRequest extends FormRequest
             'source' => ['nullable', 'string', 'max:255'],
             'device_fingerprint' => ['required', 'string', 'min:16', 'max:128'],
             'device_metadata' => ['nullable', 'array'],
+            'pin_id' => ['required', 'integer', 'exists:work_location_pins,id'],
         ];
     }
 }

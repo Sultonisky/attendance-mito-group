@@ -15,7 +15,7 @@ class OutsourceFactory extends Factory
     public function definition(): array
     {
         return [
-            'outsource_code' => fake()->unique()->numerify('OUT-#####'),
+            'outsource_code' => sprintf('%03d', fake()->unique()->numberBetween(1, 9999)),
             'name' => fake()->name(),
             'status' => 'active',
         ];

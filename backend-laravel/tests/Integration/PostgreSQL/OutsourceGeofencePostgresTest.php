@@ -12,6 +12,7 @@ use App\Enums\AttendanceEventType;
 use App\Models\Outsource;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\WorkLocation;
+use App\Models\WorkLocationPin;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -37,17 +38,43 @@ class OutsourceGeofencePostgresTest extends TestCase
             new \App\Domain\Attendance\Rules\EarlyCheckoutRule,
             new \App\Domain\Attendance\Rules\AttendanceStateRule,
             new \App\Domain\Attendance\Services\OutsourceSessionExpiry,
+            new \App\Services\Outsource\ResolveOutsourceAllowedPins,
         );
     }
 
     private function makeStoreWithPostGis(float $lat, float $lng, float $radius = 150): WorkLocation
     {
-        return WorkLocation::factory()->create([
+        $store = WorkLocation::factory()->create([
             'latitude' => $lat,
             'longitude' => $lng,
             'radius_meters' => $radius,
             'location_point' => \DB::raw('ST_SetSRID(ST_MakePoint('.$lng.', '.$lat.'), 4326)'),
         ]);
+
+        $pin = WorkLocationPin::factory()
+            ->forLocation($store)
+            ->atCoordinates($lat, $lng, $radius)
+            ->create([
+                'name' => $store->name,
+                'status' => 'active',
+            ]);
+
+        if (\DB::getDriverName() === 'pgsql') {
+            \DB::statement(
+                'UPDATE work_location_pins SET location_point = ST_SetSRID(ST_MakePoint(?, ?), 4326) WHERE id = ?',
+                [$lng, $lat, $pin->id]
+            );
+        }
+
+        return $store;
+    }
+
+    private function defaultPin(WorkLocation $store): WorkLocationPin
+    {
+        return WorkLocationPin::query()
+            ->where('work_location_id', $store->id)
+            ->orderBy('id')
+            ->firstOrFail();
     }
 
     private function makeActiveAssignment(Outsource $outsource, WorkLocation $store): OutsourceStoreAssignment
@@ -58,7 +85,7 @@ class OutsourceGeofencePostgresTest extends TestCase
             ->create(['status' => 'active']);
     }
 
-    private function makeOperationData(float $lat, float $lng, int $workLocationId, ?CarbonImmutable $at = null): AttendanceOperationData
+    private function makeOperationData(float $lat, float $lng, int $workLocationId, ?CarbonImmutable $at = null, ?int $pinId = null): AttendanceOperationData
     {
         return new AttendanceOperationData(
             employeeId: 0,
@@ -70,6 +97,7 @@ class OutsourceGeofencePostgresTest extends TestCase
             workLocationId: $workLocationId,
             occurredAt: $at ?? CarbonImmutable::now(),
             eventType: AttendanceEventType::CheckIn,
+            pinId: $pinId,
         );
     }
 
@@ -80,7 +108,7 @@ class OutsourceGeofencePostgresTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
 
         $engine = $this->makeEngine();
-        $result = $engine->checkIn($outsource, $this->makeOperationData(-6.2001, 106.8001, $store->id));
+        $result = $engine->checkIn($outsource, $this->makeOperationData(-6.2001, 106.8001, $store->id, null, $this->defaultPin($store)->id));
 
         $this->assertNotNull($result->attendanceRecord);
         $this->assertTrue($result->geofence['passed']);
@@ -96,7 +124,7 @@ class OutsourceGeofencePostgresTest extends TestCase
 
         $this->expectException(\App\Domain\Attendance\Exceptions\OutsideGeofenceException::class);
 
-        $engine->checkIn($outsource, $this->makeOperationData(-6.3, 106.9, $store->id));
+        $engine->checkIn($outsource, $this->makeOperationData(-6.3, 106.9, $store->id, null, $this->defaultPin($store)->id));
     }
 
     public function test_outsource_geofence_uses_exactly_150m_regardless_of_store_radius(): void
@@ -106,13 +134,14 @@ class OutsourceGeofencePostgresTest extends TestCase
         $this->makeActiveAssignment($outsource, $store);
 
         $engine = $this->makeEngine();
+        $pinId = $this->defaultPin($store)->id;
 
         // Exactly at the 150m boundary should be inside (ST_DWithin uses <=).
-        $result = $engine->checkIn($outsource, $this->makeOperationData(-6.198644, 106.8, $store->id));
+        $result = $engine->checkIn($outsource, $this->makeOperationData(-6.198644, 106.8, $store->id, null, $pinId));
         $this->assertTrue($result->geofence['passed']);
 
         // Beyond 150m should be rejected even if the store radius is 500m.
         $this->expectException(\App\Domain\Attendance\Exceptions\OutsideGeofenceException::class);
-        $engine->checkIn($outsource, $this->makeOperationData(-6.198553, 106.8, $store->id));
+        $engine->checkIn($outsource, $this->makeOperationData(-6.198553, 106.8, $store->id, null, $pinId));
     }
 }

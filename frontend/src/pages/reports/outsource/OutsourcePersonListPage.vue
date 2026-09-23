@@ -17,6 +17,10 @@ import {
   type OutsourcePersonFilters,
 } from '../../../services/outsourcePersonApi'
 import { fetchOutsourceCities, fetchOutsourceStores } from '../../../services/outsourceService'
+import {
+  fetchWorkLocationPins,
+  type WorkLocationPinRow,
+} from '../../../services/outsourceWorkLocationApi'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
 import { createSortableHeader, createStatusBadge } from '../../../utils/dataTable'
@@ -78,11 +82,15 @@ const formBusy        = ref(false)
 const formError       = ref('')
 const editingId       = ref<number | null>(null)
 const formModalStores = ref<{ id: number; name: string }[]>([])
+const formPins = ref<WorkLocationPinRow[]>([])
+const showPassword = ref(false)
 
 const form = reactive({
   name:     '',
+  password: '',
   city_id:  '' as string,
   store_id: '' as string,
+  pin_ids:  [] as number[],
 })
 
 const formCities = ref<{ id: number; name: string }[]>([])
@@ -197,11 +205,33 @@ async function onCityChange(): Promise<void> {
 async function onFormCityChange(): Promise<void> {
   formModalStores.value = []
   form.store_id = ''
+  form.pin_ids = []
+  formPins.value = []
   if (!form.city_id) return
   try {
     const raw = await fetchOutsourceStores(Number(form.city_id))
     formModalStores.value = raw.map(s => ({ id: s.id, name: s.name }))
   } catch { formModalStores.value = [] }
+}
+
+async function onFormStoreChange(): Promise<void> {
+  form.pin_ids = []
+  formPins.value = []
+  if (!form.store_id) return
+  try {
+    formPins.value = (await fetchWorkLocationPins(Number(form.store_id)))
+      .filter(pin => pin.status === 'active')
+  } catch {
+    formPins.value = []
+  }
+}
+
+function toggleFormPin(pinId: number): void {
+  if (form.pin_ids.includes(pinId)) {
+    form.pin_ids = form.pin_ids.filter(id => id !== pinId)
+  } else {
+    form.pin_ids = [...form.pin_ids, pinId]
+  }
 }
 
 // ── Load ──────────────────────────────────────────────────────────────────────
@@ -273,39 +303,72 @@ function openCreate(): void {
   formMode.value  = 'create'
   editingId.value = null
   form.name       = ''
+  form.password   = ''
   form.city_id    = ''
   form.store_id   = ''
+  form.pin_ids    = []
+  formPins.value  = []
   formModalStores.value = []
   formError.value = ''
+  showPassword.value = false
   formCities.value = cities.value
   showFormModal.value = true
 }
 
-function openEdit(person: OutsourcePersonRow): void {
+async function openEdit(person: OutsourcePersonRow): Promise<void> {
   formMode.value  = 'edit'
   editingId.value = person.id
   form.name       = person.name
+  form.password   = ''
   form.city_id    = person.city ? String(person.city.id) : ''
   form.store_id   = person.store ? String(person.store.id) : ''
+  form.pin_ids    = [...(person.pin_ids ?? [])]
   formModalStores.value = person.store
     ? [{ id: person.store.id, name: person.store.name }]
     : []
   formError.value = ''
+  showPassword.value = false
   formCities.value = cities.value
   showFormModal.value = true
+
+  if (form.city_id) {
+    try {
+      const raw = await fetchOutsourceStores(Number(form.city_id))
+      formModalStores.value = raw.map(s => ({ id: s.id, name: s.name }))
+    } catch { /* keep existing store option */ }
+  }
+  if (form.store_id) {
+    try {
+      formPins.value = (await fetchWorkLocationPins(Number(form.store_id)))
+        .filter(pin => pin.status === 'active')
+    } catch {
+      formPins.value = []
+    }
+  } else {
+    formPins.value = []
+  }
 }
 
 async function submitForm(): Promise<void> {
   if (!form.name.trim()) { formError.value = 'Name is required.'; return }
+  if (formMode.value === 'create' && !form.password.trim()) {
+    formError.value = 'Password is required for login.'
+    return
+  }
   formBusy.value = true
   formError.value = ''
   try {
     const payload = {
       name:     form.name.trim(),
       store_id: form.store_id ? Number(form.store_id) : null,
+      pin_ids:  form.store_id ? form.pin_ids : [],
+      password: form.password.trim() || null,
     }
     if (formMode.value === 'create') {
-      await createOutsourcePerson(payload)
+      await createOutsourcePerson({
+        ...payload,
+        password: form.password.trim(),
+      })
     } else if (editingId.value !== null) {
       await updateOutsourcePerson(editingId.value, payload)
     }
@@ -465,8 +528,60 @@ onMounted(async () => {
             value-key="value"
             class="w-full"
             :disabled="!form.city_id"
-            @update:model-value="(v: unknown) => { form.store_id = fromSelectId(v) }"
+            @update:model-value="(v: unknown) => { form.store_id = fromSelectId(v); onFormStoreChange() }"
           />
+        </UFormField>
+
+        <UFormField
+          :label="formMode === 'create' ? 'Password' : 'New password'"
+          :hint="formMode === 'edit' ? 'Leave blank to keep current password' : 'Used for outsource attendance login'"
+          :required="formMode === 'create'"
+        >
+          <UInput
+            v-model="form.password"
+            :type="showPassword ? 'text' : 'password'"
+            autocomplete="new-password"
+            placeholder="Min. 4 characters"
+            class="w-full"
+            :ui="{ trailing: 'pe-1' }"
+          >
+            <template #trailing>
+              <UButton
+                color="neutral"
+                variant="link"
+                size="sm"
+                :icon="showPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'"
+                :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                @click="showPassword = !showPassword"
+              />
+            </template>
+          </UInput>
+        </UFormField>
+
+        <UFormField
+          v-if="form.store_id"
+          label="Allowed pins"
+          hint="Leave unchecked to allow all active pins of this store"
+        >
+          <div v-if="formPins.length === 0" class="text-sm text-muted">
+            No active pins on this store yet. Add pins from Work Locations.
+          </div>
+          <div v-else class="max-h-48 space-y-2 overflow-y-auto rounded-md border border-default p-3">
+            <label
+              v-for="pin in formPins"
+              :key="pin.id"
+              class="flex cursor-pointer items-start gap-2 text-sm"
+            >
+              <UCheckbox
+                :model-value="form.pin_ids.includes(pin.id)"
+                @update:model-value="() => toggleFormPin(pin.id)"
+              />
+              <span>
+                <span class="font-medium">{{ pin.name }}</span>
+                <span v-if="pin.address" class="text-muted"> — {{ pin.address }}</span>
+              </span>
+            </label>
+          </div>
         </UFormField>
 
         <UAlert v-if="formError" color="error" variant="subtle" :description="formError" />

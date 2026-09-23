@@ -39,6 +39,7 @@ class CreateWorkLocation implements Action
             // Sync PostGIS geography column when coordinates are provided
             if (isset($input['latitude'], $input['longitude'])) {
                 $this->syncLocationPoint($location, (float) $input['latitude'], (float) $input['longitude']);
+                $this->createDefaultPin($location, (float) $input['latitude'], (float) $input['longitude'], $input['radius_meters'] ?? null);
             }
 
             $this->audit->execute(
@@ -73,6 +74,25 @@ class CreateWorkLocation implements Action
             DB::statement(
                 'UPDATE work_locations SET location_point = ST_SetSRID(ST_MakePoint(?, ?), 4326) WHERE id = ?',
                 [$lng, $lat, $location->id],
+            );
+        }
+    }
+
+    private function createDefaultPin(WorkLocation $location, float $lat, float $lng, mixed $radiusMeters): void
+    {
+        $pin = $location->pins()->create([
+            'name' => $location->name,
+            'address' => null,
+            'latitude' => $lat,
+            'longitude' => $lng,
+            'radius_meters' => $radiusMeters,
+            'status' => 'active',
+        ]);
+
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement(
+                'UPDATE work_location_pins SET location_point = ST_SetSRID(ST_MakePoint(?, ?), 4326) WHERE id = ?',
+                [$lng, $lat, $pin->id],
             );
         }
     }

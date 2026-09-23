@@ -3,11 +3,11 @@
 namespace App\Models;
 
 use App\Models\Outsource;
-use App\Models\OutsourceStoreAssignment;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
@@ -33,6 +33,22 @@ class WorkLocation extends Model
         return $this->belongsToMany(Outsource::class, 'outsource_store_assignments', 'store_id', 'outsource_id')
             ->withPivot('status')
             ->withTimestamps();
+    }
+
+    /**
+     * @return HasMany<WorkLocationPin, $this>
+     */
+    public function pins(): HasMany
+    {
+        return $this->hasMany(WorkLocationPin::class);
+    }
+
+    /**
+     * @return HasMany<WorkLocationPin, $this>
+     */
+    public function activePins(): HasMany
+    {
+        return $this->pins()->where('status', 'active');
     }
 
     /**
