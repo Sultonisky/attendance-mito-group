@@ -103,7 +103,7 @@ class AttendanceEngine
         if ($subject instanceof Outsource) {
             $pin = $this->resolveOutsourcePin($subject, $data);
             $workLocation = $pin->workLocation;
-            $geofenceRadius = (float) config('attendance.outsource_geofence_radius_meters', 150);
+            $geofenceRadius = $pin->effectiveRadiusMeters();
             $geofenceResult = $this->evaluatePinGeofence($pin, $data->latitude, $data->longitude, $geofenceRadius);
         } else {
             $workLocation = $this->resolveWorkLocation($data->workLocationId);
@@ -200,7 +200,7 @@ class AttendanceEngine
         if ($subject instanceof Outsource) {
             $pin = $this->resolveOutsourcePin($subject, $data);
             $workLocation = $pin->workLocation;
-            $geofenceRadius = (float) config('attendance.outsource_geofence_radius_meters', 150);
+            $geofenceRadius = $pin->effectiveRadiusMeters();
             $geofenceResult = $this->evaluatePinGeofence($pin, $data->latitude, $data->longitude, $geofenceRadius);
         } else {
             $workLocation = $this->resolveWorkLocation($data->workLocationId);
