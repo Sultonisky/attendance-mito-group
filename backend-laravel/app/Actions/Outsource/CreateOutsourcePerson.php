@@ -23,11 +23,12 @@ class CreateOutsourcePerson implements Action
     {
         return DB::transaction(function () use ($input, $actor, $request): Outsource {
             $code = Outsource::generateNextCode();
+            $password = trim((string) ($input['password'] ?? ''));
 
             $person = Outsource::create([
                 'outsource_code' => $code,
                 'name'           => $input['name'],
-                'password'       => $input['password'] ?? null,
+                'password'       => $password !== '' ? $password : Outsource::DEFAULT_LOGIN_PIN,
                 'status'         => 'active',
             ]);
 
