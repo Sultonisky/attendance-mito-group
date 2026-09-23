@@ -18,7 +18,10 @@ class StoreOutsourcePersonRequest extends FormRequest
     {
         return [
             'name'       => ['required', 'string', 'max:255'],
+            'password'   => ['nullable', 'string', 'min:4', 'max:255'],
             'store_id'   => ['nullable', 'integer', 'exists:work_locations,id'],
+            'pin_ids'    => ['nullable', 'array'],
+            'pin_ids.*'  => ['integer', 'exists:work_location_pins,id'],
         ];
     }
 
