@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { usePortalAnchor } from '../composables/usePortalAnchor'
+import { isMaintenanceFlagActive } from '../services/maintenanceFlag'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -8,8 +9,7 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      redirect: { name: 'dashboard' },
-      meta: { requiresAuth: true },
+      redirect: { name: 'outsource' },
     },
     { path: '/reports', redirect: { name: 'reports' } },
     { path: '/reports/attendance', redirect: { name: 'reports.attendance' } },
@@ -74,6 +74,42 @@ const router = createRouter({
       component: () => import('../pages/attendance/OutsourcePage.vue'),
       meta: { requiresAuth: false, title: 'Presensi Outsource' },
     },
+    {
+      path: '/401',
+      name: 'error.unauthorized',
+      component: () => import('../pages/errors/UnauthorizedPage.vue'),
+      meta: { requiresAuth: false, title: '401 - Sesi Berakhir' },
+    },
+    {
+      path: '/403',
+      name: 'error.forbidden',
+      component: () => import('../pages/errors/ForbiddenPage.vue'),
+      meta: { requiresAuth: false, title: '403 - Akses Ditolak' },
+    },
+    {
+      path: '/500',
+      name: 'error.server',
+      component: () => import('../pages/errors/ServiceUnavailablePage.vue'),
+      meta: { requiresAuth: false, title: 'Sedang Dalam Pemeliharaan' },
+    },
+    {
+      path: '/503',
+      name: 'error.unavailable',
+      component: () => import('../pages/errors/ServiceUnavailablePage.vue'),
+      meta: { requiresAuth: false, title: 'Sedang Dalam Pemeliharaan' },
+    },
+    {
+      path: '/404',
+      name: 'error.not-found',
+      component: () => import('../pages/errors/NotFoundPage.vue'),
+      meta: { requiresAuth: false, title: '404 - Halaman Tidak Ditemukan' },
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'error.catch-all',
+      component: () => import('../pages/errors/NotFoundPage.vue'),
+      meta: { requiresAuth: false, title: '404 - Halaman Tidak Ditemukan' },
+    },
   ],
 })
 
@@ -106,6 +142,15 @@ router.afterEach((to) => {
  *   page rather than silently landing in the wrong portal.
  */
 router.beforeEach(async (to) => {
+  // Flag written by `php artisan mito:maintenance down` — works for Vite local
+  // and production SPA without waiting for an API call.
+  if (to.name !== 'error.unavailable' && to.name !== 'error.server') {
+    if (await isMaintenanceFlagActive()) {
+      return { name: 'error.unavailable' }
+    }
+  }
+
+  // Public routes (login, outsource, error pages) skip auth bootstrap.
   if (to.path === '/outsource' || to.meta.requiresAuth === false) {
     return true
   }
@@ -118,10 +163,13 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    // Not authenticated — send to the login page that matches this tab's
-    // portal anchor, falling back to route meta if no anchor exists yet.
+    // Portal anchor still set → session was expected (expired / logout elsewhere).
+    // Fresh tabs without an anchor go straight to the matching login page.
     const portal = getPortal()
-    if (portal === 'admin' || to.meta.adminOnly) {
+    if (portal !== null) {
+      return { name: 'error.unauthorized' }
+    }
+    if (to.meta.adminOnly) {
       return { name: 'login.admin' }
     }
     return { name: 'login.employee' }
@@ -132,15 +180,11 @@ router.beforeEach(async (to) => {
   // ── Cross-session takeover detection ──────────────────────────────────────
   // If this tab has a portal anchor but the server session now belongs to a
   // different role (another tab logged in and overwrote the cookie), we must
-  // NOT silently redirect to the other portal. Instead, clear the stale
-  // client state and send the user to THIS tab's correct login page.
+  // NOT silently redirect to the other portal. Surface a session-expired page.
   if (to.meta.requiresAuth && !isRoleConsistentWithPortal(isAdmin)) {
-    const stalledPortal = getPortal()
     clearPortal()
     auth.clearUser()
-    return stalledPortal === 'admin'
-      ? { name: 'login.admin' }
-      : { name: 'login.employee' }
+    return { name: 'error.unauthorized' }
   }
 
   if (to.meta.adminOnly && !isAdmin) {
@@ -177,12 +221,26 @@ router.beforeEach(async (to) => {
 })
 
 /**
- * Surface lazy-chunk load failures as router errors instead of an unhandled
- * rejection — Nuxt UI lazy pages pull heavy deps (Unovis, MapLibre) that may
- * fail on flaky networks. The caller logs via console only; no PII.
+ * Surface lazy-chunk load failures on a friendly 500 page instead of a blank
+ * screen — Nuxt UI lazy pages pull heavy deps (Unovis, MapLibre) that may fail
+ * on flaky networks. Log only; no PII.
  */
 router.onError((error) => {
   console.error('[router] navigation failed:', error)
+
+  const message = error instanceof Error ? error.message : String(error)
+  const isChunkLoadFailure =
+    message.includes('Failed to fetch dynamically imported module')
+    || message.includes('Importing a module script failed')
+    || /Loading chunk [\w-]+ failed/.test(message)
+
+  if (
+    isChunkLoadFailure
+    && router.currentRoute.value.name !== 'error.server'
+    && router.currentRoute.value.name !== 'error.unavailable'
+  ) {
+    void router.push({ name: 'error.unavailable' })
+  }
 })
 
 export default router

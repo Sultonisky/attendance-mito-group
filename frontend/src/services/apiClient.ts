@@ -21,6 +21,23 @@ const API_ORIGIN = new URL(API_BASE_URL).origin;
 let csrfCookiePromise: Promise<void> | null = null;
 
 /**
+ * Soft UX redirects for session expiry / maintenance.
+ * Never blocks the thrown ApiError — callers still handle locally.
+ */
+async function notifyGlobalHttpError(response: Response): Promise<void> {
+  if (response.status === 401) {
+    const { navigateOnSessionExpired } = await import("./httpErrorNavigation");
+    await navigateOnSessionExpired();
+    return;
+  }
+
+  if (response.status === 503) {
+    const { navigateOnMaintenance } = await import("./httpErrorNavigation");
+    await navigateOnMaintenance(response);
+  }
+}
+
+/**
  * Structured API error preserving the HTTP status and Laravel validation
  * errors. Never contains stack traces or framework internals.
  */
@@ -127,6 +144,7 @@ export async function apiFetch<T>(
       // Non-JSON error body; keep the generic message.
     }
 
+    await notifyGlobalHttpError(response);
     throw new ApiError(response.status, message, errors);
   }
 
@@ -187,6 +205,7 @@ export async function apiFetchFormData<T>(
       // Non-JSON error body; keep the generic message.
     }
 
+    await notifyGlobalHttpError(response);
     throw new ApiError(response.status, message, errors);
   }
 
