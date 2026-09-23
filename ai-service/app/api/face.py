@@ -14,7 +14,9 @@ Endpoints:
 import hashlib
 import json
 import logging
+import threading
 import uuid
+from collections import defaultdict
 
 import numpy as np
 
@@ -39,12 +41,22 @@ router = APIRouter(prefix="/face", tags=["face"])
 
 _storage: PostgreSQLBiometricStorage | None = None
 
+# Per-idempotency-key locks serialize concurrent enrollments that share a key
+# so only one writer inserts; losers re-read and return the winner's reference.
+_enroll_key_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+_enroll_key_locks_guard = threading.Lock()
+
 
 def _get_storage() -> PostgreSQLBiometricStorage:
     global _storage
     if _storage is None:
         _storage = create_storage(get_settings().biometric_database_url)
     return _storage
+
+
+def _enroll_lock_for(idempotency_key: str) -> threading.Lock:
+    with _enroll_key_locks_guard:
+        return _enroll_key_locks[idempotency_key]
 
 
 def _get_processor(settings: Settings) -> FaceProcessor:
@@ -196,7 +208,6 @@ async def enroll_face(
             detail="AI processing failed.",
         )
 
-    reference = generate_reference()
     vector_bytes = np.asarray(result.embedding, dtype=np.float32).tobytes()
 
     ai_facts = {
@@ -219,23 +230,10 @@ async def enroll_face(
     }
     ai_facts_json = json.dumps(ai_facts)
 
-    try:
-        storage.store(
-            reference=reference,
-            vector=vector_bytes,
-            dimension=result.embedding_dimension,
-            model_version=result.model_version,
-            idempotency_key=idempotency_key,
-            request_fingerprint=fingerprint,
-            ai_facts=ai_facts_json,
-        )
-    except Exception as exc:
-        existing = None
-        try:
-            existing = storage.get_by_idempotency_key(idempotency_key)
-        except Exception:
-            pass
-
+    # Serialize store for this idempotency key: re-check after AI work so a
+    # concurrent winner is returned instead of inserting a second reference.
+    with _enroll_lock_for(idempotency_key):
+        existing = storage.get_by_idempotency_key(idempotency_key)
         if existing is not None:
             if existing.request_fingerprint == fingerprint:
                 return _build_enroll_response_from_storage(existing, settings)
@@ -244,11 +242,37 @@ async def enroll_face(
                 detail="Idempotency key reused with a different request.",
             )
 
-        logger.exception("Embedding storage failed after successful AI inference.")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Embedding storage failed.",
-        ) from exc
+        reference = generate_reference()
+        try:
+            storage.store(
+                reference=reference,
+                vector=vector_bytes,
+                dimension=result.embedding_dimension,
+                model_version=result.model_version,
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
+                ai_facts=ai_facts_json,
+            )
+        except Exception as exc:
+            existing = None
+            try:
+                existing = storage.get_by_idempotency_key(idempotency_key)
+            except Exception:
+                pass
+
+            if existing is not None:
+                if existing.request_fingerprint == fingerprint:
+                    return _build_enroll_response_from_storage(existing, settings)
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Idempotency key reused with a different request.",
+                )
+
+            logger.exception("Embedding storage failed after successful AI inference.")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Embedding storage failed.",
+            ) from exc
 
     logger.info(
         "Face enrolled — ref=%s model=%s processing_time_ms=%.1f",
