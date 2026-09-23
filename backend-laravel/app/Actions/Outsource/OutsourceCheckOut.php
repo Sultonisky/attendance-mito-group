@@ -62,6 +62,7 @@ class OutsourceCheckOut
             workLocationId: $session->storeId,
             occurredAt: $occurredAt,
             eventType: AttendanceEventType::CheckOut,
+            pinId: isset($context['pin_id']) ? (int) $context['pin_id'] : null,
         );
 
         try {

@@ -52,11 +52,18 @@ class InitializeOutsourceAttendanceSession
             throw new InvalidArgumentException('Invalid selection.');
         }
 
-        $store = WorkLocation::where('id', $storeId)
-            ->where('city_id', $cityId)
+        $storeQuery = WorkLocation::where('id', $storeId)
             ->where('status', 'active')
-            ->withoutGlobalScopes()
-            ->first();
+            ->withoutGlobalScopes();
+
+        if ($cityId > 0) {
+            $storeQuery->where(function ($query) use ($cityId) {
+                $query->where('city_id', $cityId)
+                    ->orWhereNull('city_id');
+            });
+        }
+
+        $store = $storeQuery->first();
 
         if ($store === null) {
             throw new InvalidArgumentException('Invalid selection.');

@@ -13,10 +13,11 @@ class UpdateOutsourcePerson implements Action
 {
     public function __construct(
         private readonly RecordAuditAction $audit,
+        private readonly SyncOutsourceAssignmentPins $syncAssignmentPins,
     ) {}
 
     /**
-     * @param array{name?: string, status?: string, store_id?: int|null} $input
+     * @param array{name?: string, status?: string, store_id?: int|null, pin_ids?: list<int>|null} $input
      */
     public function execute(Outsource $person, array $input, ?User $actor, ?Request $request = null): Outsource
     {
@@ -26,11 +27,14 @@ class UpdateOutsourcePerson implements Action
             $fillable = array_filter([
                 'name'   => $input['name']   ?? null,
                 'status' => $input['status'] ?? null,
+                'password' => $input['password'] ?? null,
             ], fn ($v) => $v !== null);
 
             if (!empty($fillable)) {
                 $person->update($fillable);
             }
+
+            $activeStoreId = null;
 
             // Update store assignment if store_id is explicitly provided
             if (array_key_exists('store_id', $input)) {
@@ -48,7 +52,17 @@ class UpdateOutsourcePerson implements Action
                     } else {
                         $person->stores()->attach($input['store_id'], ['status' => 'active']);
                     }
+                    $activeStoreId = (int) $input['store_id'];
                 }
+            } else {
+                $activeStoreId = $person->stores()
+                    ->wherePivot('status', 'active')
+                    ->value('work_locations.id');
+                $activeStoreId = $activeStoreId !== null ? (int) $activeStoreId : null;
+            }
+
+            if (array_key_exists('pin_ids', $input) && $activeStoreId !== null) {
+                $this->syncAssignmentPins->execute($person, $activeStoreId, $input['pin_ids'] ?? []);
             }
 
             $person->refresh();

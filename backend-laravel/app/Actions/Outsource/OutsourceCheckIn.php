@@ -74,6 +74,7 @@ class OutsourceCheckIn
             workLocationId: $session->storeId,
             occurredAt: $occurredAt,
             eventType: AttendanceEventType::CheckIn,
+            pinId: isset($context['pin_id']) ? (int) $context['pin_id'] : null,
         );
 
         try {
@@ -129,9 +130,16 @@ class OutsourceCheckIn
             ];
         }
 
-        $result = DB::transaction(function () use ($domainResult, $session, $fingerprint) {
+        $result = DB::transaction(function () use ($domainResult, $session, $fingerprint, $context) {
+            $nextSession = $session;
             if ($session->deviceFingerprint === '') {
-                $this->sessions->put($session->withDeviceFingerprint($fingerprint));
+                $nextSession = $nextSession->withDeviceFingerprint($fingerprint);
+            }
+            if (isset($context['pin_id'])) {
+                $nextSession = $nextSession->withCheckInPinId((int) $context['pin_id']);
+            }
+            if ($nextSession !== $session) {
+                $this->sessions->put($nextSession);
             }
 
             $record = $domainResult->attendanceRecord;
@@ -148,6 +156,7 @@ class OutsourceCheckIn
                     'check_in_at' => $attendanceSession->check_in_at?->toIso8601String(),
                     'outsource_id' => $session->outsourceId,
                     'store_id' => $session->storeId,
+                    'pin_id' => $context['pin_id'] ?? null,
                     'device_fingerprint' => $fingerprint,
                 ],
                 null,
