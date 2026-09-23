@@ -142,8 +142,6 @@ jobs:
 
             echo "==> Verifying seed data files in image"
             docker compose exec -T attendance \
-              test -f /opt/seed-data/outsource_master.csv
-            docker compose exec -T attendance \
               test -f /opt/seed-data/stores.json
 
             echo "==> Running database migrations"
@@ -159,13 +157,9 @@ jobs:
             docker compose exec -T attendance \
               php artisan db:seed --force
 
-            echo "==> Importing outsource master data (idempotent)"
+            echo "==> Importing outsource cabang + pins from stores.json (idempotent)"
             docker compose exec -T attendance \
-              php artisan outsource:import /opt/seed-data/outsource_master.csv --require-min=1
-
-            echo "==> Importing outsource store coordinates (allow-partial)"
-            docker compose exec -T attendance \
-              php artisan outsource:locations:import /opt/seed-data/stores.json --allow-partial
+              php artisan outsource:import /opt/seed-data/stores.json --require-min=1 --allow-partial
 
             echo "==> Waiting for application HTTP health"
             for i in \$(seq 1 12); do
