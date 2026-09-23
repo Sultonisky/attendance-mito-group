@@ -106,8 +106,7 @@ COPY --from=frontend /build/frontend/dist/index.html ./public/spa.html
 COPY ai-service /opt/ai-service
 
 # Idempotent production bootstrap inputs (RBAC is seeded via artisan;
-# these files feed outsource:import / outsource:locations:import on deploy).
-COPY data/outsource_master_from_excel.csv /opt/seed-data/outsource_master.csv
+# stores.json feeds unified outsource:import on deploy).
 COPY data/stores.json /opt/seed-data/stores.json
 
 RUN python3 -m venv /opt/venv \
