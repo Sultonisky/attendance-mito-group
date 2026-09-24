@@ -20,7 +20,7 @@ coverage/
 *.local
 *.tsbuildinfo
 
-# Local maintenance flag (written by `php artisan mito:maintenance down`)
+# Local/runtime maintenance flag (mito:maintenance toggles enabled; never commit)
 public/maintenance.json
 
 # Editor directories and files

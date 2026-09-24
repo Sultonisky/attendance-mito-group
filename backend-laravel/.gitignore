@@ -27,6 +27,7 @@
 /.vscode
 /.zed
 /auth.json
+# Runtime maintenance flag (mito:maintenance; stub generated in Docker / Laravel fallback)
 public/maintenance.json
 
 _ide_helper.php

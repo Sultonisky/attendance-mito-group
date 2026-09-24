@@ -222,7 +222,7 @@ jobs:
 
             echo "==> Disabling maintenance mode"
             # Native up is authoritative. mito:maintenance up is best-effort after
-            # recreate (clears public/maintenance.json when the command exists).
+            # recreate (resets public/maintenance.json to enabled:false when present).
             docker compose exec -T attendance php artisan up
             docker compose exec -T attendance php artisan mito:maintenance up \
               > /dev/null 2>&1 || true
