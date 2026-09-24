@@ -183,7 +183,8 @@ jobs:
 
             echo "==> Seeding roles, permissions and initial dashboard users (idempotent)"
             # Full DatabaseSeeder: RBAC baseline + initial dashboard accounts
-            # (superadmin@ / admin@ / user@mito.co.id). Dummy demo data
+            # (hisar.hesti@ ADMIN, reginald.hirawan@ SUPER_ADMIN, plus demo
+            # superadmin@ / admin@ / user@mito.co.id). Dummy demo data
             # (DevelopmentDataSeeder) is skipped outside APP_ENV=local.
             # Set SEED_USER_PASSWORD in the container .env to override the
             # default seeded password.
