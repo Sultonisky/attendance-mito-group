@@ -119,12 +119,17 @@ jobs:
               /opt/attendance-src
 
             echo "==> Enabling maintenance mode"
-            # storage is a bind mount — down flag survives container recreate.
-            # mito:maintenance also writes public/maintenance.json for the Vue SPA.
+            # Use native artisan down/up for deploys — always present on every image.
+            # Do NOT call mito:maintenance here: that command only exists AFTER the
+            # new image is recreated (chicken-and-egg). storage is a bind mount, so
+            # storage/framework/down survives container recreate.
+            # IMPORTANT: nginx location = /health returns 200 even while Laravel is
+            # DOWN — never treat it as proof the app is serving traffic.
+            # If this script exits before "Disabling maintenance mode", prod stays
+            # DOWN on purpose (failed deploy). Bring it up manually:
+            #   docker compose exec -T attendance php artisan up
             cd /opt/attendance
-            docker compose exec -T attendance \
-              php artisan mito:maintenance down --retry=60 \
-              || docker compose exec -T attendance php artisan down --retry=60
+            docker compose exec -T attendance php artisan down --retry=60
 
             echo "==> Recreating attendance container"
             docker compose up -d \
@@ -145,6 +150,15 @@ jobs:
               fi
               sleep 5
             done
+
+            echo "==> Verifying mito:maintenance shipped in this image"
+            if docker compose exec -T attendance \
+              test -f /var/www/html/app/Console/Commands/MitoMaintenanceCommand.php \
+              && docker compose exec -T attendance php artisan list mito > /dev/null 2>&1; then
+              echo "mito:maintenance is registered."
+            else
+              echo "WARNING: mito:maintenance missing from image — deploy continues with native artisan up/down only."
+            fi
 
             echo "==> Verifying seed data files in image"
             docker compose exec -T attendance \
@@ -179,14 +193,14 @@ jobs:
               echo 'sample_pin=' . (\$p?->name ?? 'NULL') . PHP_EOL;
               if (!\$c || !\$p) { throw new RuntimeException('Post-import spot-check failed: missing cabang or pin'); }
             "
-            echo "==> Waiting for application HTTP health"
+            echo "==> Waiting for nginx container health (not Laravel readiness)"
             for i in \$(seq 1 12); do
               if curl --fail --silent http://127.0.0.1:8081/health > /dev/null; then
-                echo "Health check passed (attempt \$i)."
+                echo "Nginx health passed (attempt \$i)."
                 break
               fi
               if [ "\$i" -eq 12 ]; then
-                echo "Health check FAILED after 12 attempts."
+                echo "Nginx health FAILED after 12 attempts."
                 docker compose logs --tail=100 attendance
                 exit 1
               fi
@@ -194,8 +208,19 @@ jobs:
             done
 
             echo "==> Disabling maintenance mode"
+            # Native up is authoritative. mito:maintenance up is best-effort after
+            # recreate (clears public/maintenance.json when the command exists).
+            docker compose exec -T attendance php artisan up
             docker compose exec -T attendance php artisan mito:maintenance up \
-              || docker compose exec -T attendance php artisan up
+              > /dev/null 2>&1 || true
+
+            if docker compose exec -T attendance \
+              test -f /var/www/html/storage/framework/down; then
+              echo "ERROR: storage/framework/down still present after artisan up"
+              docker compose exec -T attendance php artisan up
+              docker compose exec -T attendance \
+                test ! -f /var/www/html/storage/framework/down
+            fi
 
             echo
             echo "==> Laravel API health"
