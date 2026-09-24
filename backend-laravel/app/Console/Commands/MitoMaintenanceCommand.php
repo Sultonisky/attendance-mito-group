@@ -19,7 +19,7 @@ use Throwable;
  * Local Vite reads frontend/public/maintenance.json.
  * Production reads public/maintenance.json (same origin as the SPA).
  */
-#[Signature('mito:maintenance {action : down|up|status} {--retry=60 : Retry-After seconds for API clients} {--secret= : Optional bypass secret for artisan down} {--message=Sedang Dalam Pemeliharaan}')]
+#[Signature('mito:maintenance {action : down|up|status} {--retry=60 : Retry-After seconds for API clients} {--secret= : Optional bypass secret for artisan down} {--message="Sedang Dalam Pemeliharaan" : Maintenance message shown to clients}')]
 #[Description('Enable/disable maintenance for Laravel and the Vue SPA together.')]
 class MitoMaintenanceCommand extends Command
 {
@@ -102,9 +102,12 @@ class MitoMaintenanceCommand extends Command
 
     private function disable(): int
     {
+        $upOk = false;
+
         try {
-            Artisan::call('up');
+            $exit = Artisan::call('up');
             $this->output->write(Artisan::output());
+            $upOk = $exit === self::SUCCESS;
         } catch (Throwable $e) {
             $this->warn('artisan up: '.$e->getMessage());
         }
@@ -112,6 +115,13 @@ class MitoMaintenanceCommand extends Command
         $removed = $this->removeFlagFiles();
 
         $this->newLine();
+        if (! $upOk) {
+            $this->error('Maintenance flag files cleaned, but artisan up did not succeed.');
+            $this->comment('Run: php artisan up');
+
+            return self::FAILURE;
+        }
+
         $this->info('Maintenance OFF.');
         $this->line(sprintf('  Removed %d flag file(s).', $removed));
         $this->comment('Local Vite: refresh once if the maintenance page is still open.');
