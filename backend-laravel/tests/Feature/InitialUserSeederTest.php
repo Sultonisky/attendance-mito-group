@@ -28,5 +28,14 @@ class InitialUserSeederTest extends TestCase
         $this->assertTrue($user->can('dashboard.view'));
         $this->assertTrue($user->can('employees.view'));
         $this->assertTrue($user->can('monthly_recap.export'));
+        $this->assertTrue($user->can('outsource_attendance.view'));
+        $this->assertTrue($user->can('outsource_attendance.create'));
+        $this->assertTrue($user->can('outsource_attendance.update'));
+        $this->assertTrue($user->can('outsource_attendance.void'));
+
+        $superAdmin = User::query()->where('email', 'superadmin@mito.co.id')->first();
+        $this->assertNotNull($superAdmin);
+        $this->assertTrue($superAdmin->hasRole('SUPER_ADMIN'));
+        $this->assertEquals(Permission::count(), $superAdmin->getAllPermissions()->count());
     }
 }
