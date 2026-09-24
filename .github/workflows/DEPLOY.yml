@@ -137,6 +137,19 @@ jobs:
               --force-recreate \
               attendance
 
+            echo "==> Verifying running container uses the tested image"
+            EXPECTED_IMAGE_ID="\$(docker image inspect -f '{{.Id}}' "hris-attendance:$TESTED_SHA")"
+            RUNNING_IMAGE_ID="\$(docker inspect -f '{{.Image}}' hris-attendance)"
+            echo "Expected: \$EXPECTED_IMAGE_ID"
+            echo "Running:  \$RUNNING_IMAGE_ID"
+            if [ "\$RUNNING_IMAGE_ID" != "\$EXPECTED_IMAGE_ID" ]; then
+              echo "ERROR: container is still on an old image after --force-recreate."
+              docker ps --filter name=hris-attendance
+              docker compose images attendance || true
+              exit 1
+            fi
+            echo "Container image matches tested commit $TESTED_SHA."
+
             echo "==> Waiting for artisan inside container"
             for i in \$(seq 1 24); do
               if docker compose exec -T attendance php artisan about > /dev/null 2>&1; then
