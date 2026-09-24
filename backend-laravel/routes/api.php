@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\PenaltyController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\AuditController;
+use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\SystemController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -109,6 +110,14 @@ Route::prefix('v1')->group(function () {
         Route::get('/systems/health', [SystemController::class, 'health'])
             ->middleware('role:SUPER_ADMIN')
             ->name('systems.health');
+
+        // Admin notification inbox — SUPER_ADMIN only
+        Route::prefix('notifications')->middleware('role:SUPER_ADMIN')->group(function () {
+            Route::get('/', [NotificationController::class, 'index'])->name('notifications.index');
+            Route::get('/unread-count', [NotificationController::class, 'unreadCount'])->name('notifications.unread-count');
+            Route::post('/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
+            Route::post('/{notification}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
+        });
 
         // Penalty (Phase 11)
         Route::prefix('penalties')->middleware('auth:sanctum')->group(function () {
