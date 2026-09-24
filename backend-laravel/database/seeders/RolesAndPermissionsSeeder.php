@@ -183,15 +183,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'outsource_work_location.create',
             'outsource_work_location.update',
             'outsource_work_location.delete',
-            'user.view',
-            'user.create',
-            'user.update',
-            'user.delete',
-            'permission.view',
-            'permission.create',
-            'permission.update',
-            'permission.delete',
-            'audit.view',
+            // Users / Permissions / Audit Logs / Systems stay SUPER_ADMIN-only.
+            // Systems is gated by role (superAdminOnly), not a permission.
         ],
         'USER' => [
             'dashboard.view',
