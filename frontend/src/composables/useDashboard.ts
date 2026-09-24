@@ -1,14 +1,16 @@
 import { ref, watch, onScopeDispose } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createSharedComposable } from '@vueuse/core'
+import { usePermission } from '../features/auth/composables/usePermission'
 
 const _useDashboard = () => {
   const route = useRoute()
   const router = useRouter()
+  const { hasRole } = usePermission()
 
   const isNotificationsSlideoverOpen = ref(false)
 
-  // Keyboard shortcuts — g+key navigate, n toggles notifications.
+  // Keyboard shortcuts — g+key navigate, n toggles notifications (SUPER_ADMIN).
   // Guarded so the shared composable never registers the listener twice
   // (AdminLayout + DashboardPage both consume it) and always cleans up,
   // otherwise a stale window listener can fire router.push() mid-unmount
@@ -47,7 +49,7 @@ const _useDashboard = () => {
         return
       }
 
-      if (e.key === 'n') {
+      if (e.key === 'n' && hasRole('SUPER_ADMIN')) {
         isNotificationsSlideoverOpen.value = !isNotificationsSlideoverOpen.value
       }
     }

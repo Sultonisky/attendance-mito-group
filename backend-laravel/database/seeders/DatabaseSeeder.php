@@ -18,12 +18,13 @@ class DatabaseSeeder extends Seeder
      * Always seeded (idempotent, every environment):
      *   1. RolesAndPermissionsSeeder — RBAC baseline.
      *   2. Initial dashboard login accounts (seedDashboardUsers) so a fresh
-     *      deployment always has working dashboard credentials. Override the
-     *      default password in production via SEED_USER_PASSWORD.
+     *      deployment always has working dashboard credentials — including
+     *      hisar.hesti@mito.co.id (ADMIN) and reginald.hirawan@mito.co.id
+     *      (SUPER_ADMIN). Override the default password via SEED_USER_PASSWORD.
      *
      * Local-only (dummy/demo data):
      *   DevelopmentDataSeeder — factory-driven cities, stores, schedules,
-     *   policies, employees, outsource workers, attendance history.
+     *   policies, employees, outsource attendance demo (pins / overnight).
      */
     public function run(): void
     {
@@ -42,10 +43,18 @@ class DatabaseSeeder extends Seeder
 
     /**
      * Initial dashboard login accounts — active in every environment.
+     *
+     * Named operator accounts (hisar / reginald) are the production-facing
+     * logins. Demo accounts (superadmin@ / admin@ / user@) remain for local
+     * and QA convenience and are still safe to seed in production.
      */
     protected function seedDashboardUsers(): void
     {
         $dashboardUsers = [
+            // Production-facing operators
+            ['name' => 'Hisar Hesti', 'email' => 'hisar.hesti@mito.co.id', 'role' => 'ADMIN'],
+            ['name' => 'Reginald Hirawan', 'email' => 'reginald.hirawan@mito.co.id', 'role' => 'SUPER_ADMIN'],
+            // Demo / bootstrap accounts
             ['name' => 'Super Admin', 'email' => 'superadmin@mito.co.id', 'role' => 'SUPER_ADMIN'],
             ['name' => 'Admin', 'email' => 'admin@mito.co.id', 'role' => 'ADMIN'],
             ['name' => 'User', 'email' => 'user@mito.co.id', 'role' => 'USER'],
@@ -62,10 +71,11 @@ class DatabaseSeeder extends Seeder
                 ]
             );
 
-            $user->assignRole($dashboardUser['role']);
+            $user->syncRoles([$dashboardUser['role']]);
 
             // Only SUPER_ADMIN may hold (or bypass) the full permission set.
-            // ADMIN must keep explicit, selectable permissions — never auto-grant all.
+            // ADMIN inherits role permissions (all modules except users,
+            // permissions, audit logs; systems is SUPER_ADMIN-only by role).
             if ($dashboardUser['role'] === 'SUPER_ADMIN') {
                 $user->syncPermissions(Permission::all());
             } elseif ($dashboardUser['role'] === 'ADMIN') {

@@ -37,6 +37,7 @@ const router = createRouter({
         { path: 'permissions', name: 'permissions', component: () => import('../pages/users/PermissionsPage.vue'), meta: { title: 'Permissions', permission: 'permission.view' } },
         { path: 'audit-logs', name: 'audit-logs', component: () => import('../pages/reports/AuditLogsPage.vue'), meta: { title: 'Audit Logs', permission: 'audit.view' } },
         { path: 'employees', name: 'employees', component: () => import('../pages/employees/EmployeeListPage.vue'), meta: { title: 'Employees', permission: 'employees.view' } },
+        { path: 'systems', name: 'systems', component: () => import('../pages/systems/SystemsPage.vue'), meta: { title: 'Systems', superAdminOnly: true } },
       ],
     },
     {
@@ -190,6 +191,10 @@ router.beforeEach(async (to) => {
   if (to.meta.adminOnly && !isAdmin) {
     // No anchor yet (e.g. direct URL navigation) — go to employee portal.
     return { name: 'employee-app' }
+  }
+
+  if (to.meta.superAdminOnly && !auth.roles.includes('SUPER_ADMIN')) {
+    return { name: 'error.forbidden' }
   }
 
   const requiredPermission = to.meta.permission

@@ -1,55 +1,77 @@
 <script setup lang="ts">
+import { watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useDashboard } from '../composables/useDashboard'
+import { useAdminNotifications } from '../composables/useAdminNotifications'
 
+const router = useRouter()
 const { isNotificationsSlideoverOpen } = useDashboard()
+const {
+  isSuperAdmin,
+  notifications,
+  loading,
+  error,
+  loadNotifications,
+  markRead,
+  markAllRead,
+} = useAdminNotifications()
 
-// Sample notifications — in production, replace with real API data
-const notifications = [
-  {
-    id: 1,
-    sender: { name: 'HR System', avatar: { icon: 'i-lucide-bell' } },
-    body: 'Monthly recap for August is ready for review.',
-    date: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-    unread: true,
-  },
-  {
-    id: 2,
-    sender: { name: 'Attendance Engine', avatar: { icon: 'i-lucide-calendar-check-2' } },
-    body: '3 employees have not checked in today.',
-    date: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    unread: true,
-  },
-  {
-    id: 3,
-    sender: { name: 'Leave Module', avatar: { icon: 'i-lucide-calendar-off' } },
-    body: 'New leave request from Budi Santoso pending approval.',
-    date: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-    unread: false,
-  },
-]
+watch(isNotificationsSlideoverOpen, (open) => {
+  if (open && isSuperAdmin.value) {
+    void loadNotifications()
+  }
+})
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
   if (mins < 60) return `${mins}m ago`
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `${hrs}h ago`
   return `${Math.floor(hrs / 24)}d ago`
 }
+
+async function onSelect(id: string, href: string | null): Promise<void> {
+  await markRead(id).catch(() => undefined)
+  isNotificationsSlideoverOpen.value = false
+  if (href) {
+    await router.push(href)
+  }
+}
+
+async function onMarkAllRead(): Promise<void> {
+  await markAllRead().catch(() => undefined)
+}
 </script>
 
 <template>
   <USlideover
+    v-if="isSuperAdmin"
     v-model:open="isNotificationsSlideoverOpen"
     title="Notifications"
-    description="Recent activity from MITO People Operations"
+    description="Operational alerts for SUPER_ADMIN"
   >
     <template #body>
-      <div class="space-y-1">
-        <div
+      <div v-if="loading" class="flex items-center justify-center py-10 text-sm text-[var(--ui-text-dimmed)]">
+        Loading…
+      </div>
+
+      <div v-else-if="error" class="rounded-lg bg-error/10 px-3 py-3 text-sm text-error">
+        {{ error }}
+      </div>
+
+      <div v-else-if="notifications.length === 0" class="py-10 text-center text-sm text-[var(--ui-text-dimmed)]">
+        No notifications yet.
+      </div>
+
+      <div v-else class="space-y-1">
+        <button
           v-for="n in notifications"
           :key="n.id"
-          class="relative -mx-3 flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-elevated/50 transition-colors cursor-default"
+          type="button"
+          class="relative -mx-3 flex w-[calc(100%+1.5rem)] items-start gap-3 rounded-lg px-3 py-3 text-left hover:bg-elevated/50 transition-colors"
+          @click="onSelect(n.id, n.href)"
         >
           <UChip color="error" :show="n.unread" inset>
             <UAvatar
@@ -67,7 +89,7 @@ function timeAgo(dateStr: string): string {
             </p>
             <p class="mt-0.5 text-[var(--ui-text-muted)]">{{ n.body }}</p>
           </div>
-        </div>
+        </button>
       </div>
     </template>
 
@@ -79,7 +101,8 @@ function timeAgo(dateStr: string): string {
           size="sm"
           label="Mark all as read"
           icon="i-lucide-check-check"
-          @click="isNotificationsSlideoverOpen = false"
+          :disabled="notifications.every((n) => !n.unread)"
+          @click="onMarkAllRead"
         />
       </div>
     </template>

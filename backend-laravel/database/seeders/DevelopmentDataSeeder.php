@@ -85,7 +85,8 @@ class DevelopmentDataSeeder extends Seeder
 
         $this->seedAttendanceHistory($context);
         $this->seedLeaveOvertimePenaltyAndRecaps($context);
-        $this->seedOutsourceAttendance($context);
+        // Local-only outsource attendance demo (pins, address, overnight).
+        $this->call(OutsourceAttendanceDemoSeeder::class);
     }
 
     /**
@@ -654,115 +655,4 @@ class DevelopmentDataSeeder extends Seeder
         unset($context);
     }
 
-    /**
-     * Seeds a small sample of outsource attendance history for dev/testing.
-     * Uses existing outsource records imported via OutsourceMasterDataImportService.
-     * Skips silently if no outsource data has been imported yet.
-     *
-     * @param array{hq: WorkLocation|null, stores: list<WorkLocation>} $context
-     */
-    protected function seedOutsourceAttendance(array $context): void
-    {
-        // Pick up to 3 outsource workers that have at least one active store assignment.
-        $outsources = Outsource::query()
-            ->whereHas('stores', fn ($q) => $q->where('outsource_store_assignments.status', 'active'))
-            ->where('status', 'active')
-            ->orderBy('id')
-            ->limit(3)
-            ->get();
-
-        if ($outsources->isEmpty()) {
-            // No imported outsource data yet — skip silently.
-            return;
-        }
-
-        $today = CarbonImmutable::today();
-
-        foreach ($outsources as $index => $outsource) {
-            // Use the outsource worker's actual first active store assignment,
-            // falling back to any imported active work location if none found.
-            /** @var WorkLocation|null $store */
-            $store = $outsource->stores()
-                ->wherePivot('status', 'active')
-                ->first();
-
-            $location = $store ?? $context['hq'];
-
-            for ($day = 7; $day >= 0; $day--) {
-                $date = $today->subDays($day);
-
-                if ($date->isWeekend()) {
-                    continue;
-                }
-
-                if (AttendanceRecord::query()
-                    ->where('outsource_id', $outsource->id)
-                    ->whereDate('attendance_date', $date->toDateString())
-                    ->exists()) {
-                    continue;
-                }
-
-                $isIncomplete = $day === 0 && $index === 1;
-                $checkInAt    = $date->setTime(8, 30);
-                $checkOutAt   = $isIncomplete ? null : $date->setTime(17, 0);
-
-                $record = AttendanceRecord::query()->create([
-                    'employee_id'    => null,
-                    'outsource_id'   => $outsource->id,
-                    'attendable_type' => 'outsource',
-                    'attendance_date' => $date->toDateString(),
-                    'status'          => $isIncomplete
-                        ? AttendanceStatus::Incomplete->value
-                        : AttendanceStatus::Present->value,
-                ]);
-
-                $session = AttendanceSession::factory()
-                    ->forRecord($record)
-                    ->state([
-                        'check_in_at'       => $checkInAt,
-                        'check_out_at'      => $checkOutAt,
-                        'duration_minutes'  => $isIncomplete ? null : 510,
-                        'status'            => $isIncomplete
-                            ? AttendanceSessionStatus::Open->value
-                            : AttendanceSessionStatus::Closed->value,
-                    ])
-                    ->create();
-
-                // Coordinates follow the assigned (real) store location when
-                // available; attendance_events.latitude/longitude are nullable.
-                $checkInState = [
-                    'attendance_id' => $record->id,
-                    'employee_id'   => null,
-                    'outsource_id'  => $outsource->id,
-                    'occurred_at'   => $checkInAt,
-                ];
-                $checkOutState = [
-                    'attendance_id' => $record->id,
-                    'employee_id'   => null,
-                    'outsource_id'  => $outsource->id,
-                    'occurred_at'   => $checkOutAt,
-                ];
-                if ($location !== null) {
-                    $checkInState['latitude'] = $location->latitude;
-                    $checkInState['longitude'] = $location->longitude;
-                    $checkOutState['latitude'] = $location->latitude;
-                    $checkOutState['longitude'] = $location->longitude;
-                }
-
-                AttendanceEvent::factory()
-                    ->checkIn()
-                    ->forSession($session)
-                    ->state($checkInState)
-                    ->create();
-
-                if (! $isIncomplete && $checkOutAt !== null) {
-                    AttendanceEvent::factory()
-                        ->checkOut()
-                        ->forSession($session)
-                        ->state($checkOutState)
-                        ->create();
-                }
-            }
-        }
-    }
 }

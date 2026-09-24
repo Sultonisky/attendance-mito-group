@@ -183,7 +183,8 @@ jobs:
 
             echo "==> Seeding roles, permissions and initial dashboard users (idempotent)"
             # Full DatabaseSeeder: RBAC baseline + initial dashboard accounts
-            # (superadmin@ / admin@ / user@mito.co.id). Dummy demo data
+            # (hisar.hesti@ ADMIN, reginald.hirawan@ SUPER_ADMIN, plus demo
+            # superadmin@ / admin@ / user@mito.co.id). Dummy demo data
             # (DevelopmentDataSeeder) is skipped outside APP_ENV=local.
             # Set SEED_USER_PASSWORD in the container .env to override the
             # default seeded password.
@@ -222,7 +223,7 @@ jobs:
 
             echo "==> Disabling maintenance mode"
             # Native up is authoritative. mito:maintenance up is best-effort after
-            # recreate (clears public/maintenance.json when the command exists).
+            # recreate (resets public/maintenance.json to enabled:false when present).
             docker compose exec -T attendance php artisan up
             docker compose exec -T attendance php artisan mito:maintenance up \
               > /dev/null 2>&1 || true

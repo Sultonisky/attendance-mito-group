@@ -7,6 +7,8 @@ use App\Actions\Outsource\ListOutsourceAttendanceHistory;
 use App\Actions\Outsource\LoginOutsourceAttendanceSession;
 use App\Actions\Outsource\OutsourceCheckIn;
 use App\Actions\Outsource\OutsourceCheckOut;
+use App\Actions\Outsource\CreateOutsourceAttendance;
+use App\Actions\Outsource\UpdateOutsourceAttendance;
 use App\Actions\Outsource\ResolveOutsourceOpenAttendance;
 use App\Actions\Outsource\ResolveOutsourceSession;
 use App\Exceptions\Domain\OutsourceDeviceBusyException;
@@ -14,6 +16,8 @@ use App\Http\Requests\Outsource\CheckInRequest;
 use App\Http\Requests\Outsource\CheckOutRequest;
 use App\Http\Requests\Outsource\OutsourceLoginRequest;
 use App\Http\Requests\Outsource\SessionInitRequest;
+use App\Http\Requests\Outsource\StoreOutsourceAttendanceRequest;
+use App\Http\Requests\Outsource\UpdateOutsourceAttendanceRequest;
 use App\Http\Resources\Outsource\OutsourceAttendanceResource;
 use App\Models\AttendanceRecord;
 use App\Models\City;
@@ -21,6 +25,7 @@ use App\Models\Outsource;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\WorkLocation;
 use App\Actions\Audit\RecordAuditAction;
+use App\Support\AttendanceDateTime;
 use App\Services\Outsource\Session\OutsourceSessionCookie;
 use App\Services\Outsource\Session\OutsourceSessionStoreUnavailableException;
 use App\Services\Outsource\ResolveOutsourceAllowedPins;
@@ -556,6 +561,45 @@ class OutsourceAttendanceController
     }
 
     /**
+     * Admin manual create of an outsource attendance record (no GPS/face).
+     */
+    public function store(
+        StoreOutsourceAttendanceRequest $request,
+        CreateOutsourceAttendance $action,
+    ): JsonResponse {
+        try {
+            $record = $action->execute($request->validated(), $request->user(), $request);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->adminAttendancePayload($record),
+        ], 201);
+    }
+
+    /**
+     * Admin manual update (clock in/out + pin). Outsource and date stay locked.
+     */
+    public function update(
+        UpdateOutsourceAttendanceRequest $request,
+        AttendanceRecord $record,
+        UpdateOutsourceAttendance $action,
+    ): JsonResponse {
+        try {
+            $updated = $action->execute($record, $request->validated(), $request->user(), $request);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->adminAttendancePayload($updated),
+        ]);
+    }
+
+    /**
      * Void (soft-delete) an outsource attendance record — admin only.
      * Deletes the record, all its sessions, and all its events within a transaction.
      */
@@ -591,6 +635,36 @@ class OutsourceAttendanceController
         });
 
         return response()->json(['success' => true], 200);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function adminAttendancePayload(AttendanceRecord $record): array
+    {
+        $session = $record->sessions()->orderBy('id')->first();
+        $checkInEvent = $record->events()
+            ->where('event_type', 'check_in')
+            ->orderBy('occurred_at')
+            ->first();
+        $pin = $checkInEvent?->workLocationPin;
+
+        return [
+            'attendance_id' => $record->id,
+            'outsource_id' => $record->outsource_id,
+            'attendance_date' => $record->attendance_date?->toDateString(),
+            'status' => $record->status,
+            'check_in_at' => AttendanceDateTime::toApi($session?->check_in_at),
+            'check_out_at' => AttendanceDateTime::toApi($session?->check_out_at),
+            'duration_minutes' => $session?->duration_minutes,
+            'pin' => $pin ? [
+                'id' => $pin->id,
+                'name' => $pin->name,
+                'address' => $pin->address,
+                'latitude' => $pin->latitude,
+                'longitude' => $pin->longitude,
+            ] : null,
+        ];
     }
 
     private function resolveOccurredAt(Request $request): CarbonImmutable

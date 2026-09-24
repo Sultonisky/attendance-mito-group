@@ -435,6 +435,50 @@ class OutsourceAttendanceReportTest extends TestCase
             ->assertJsonPath('data.0.city.name', 'Jakarta');
     }
 
+    public function test_report_includes_pin_address_and_coordinates(): void
+    {
+        $user = $this->makeUser('USER');
+        $user->givePermissionTo('outsource_attendance.view');
+
+        $city = City::factory()->create(['name' => 'Jakarta']);
+        $store = $this->makeStore('Store Jakarta', $city->id);
+        $outsource = Outsource::factory()->create();
+        $this->makeActiveAssignment($outsource, $store);
+
+        $pin = \App\Models\WorkLocationPin::factory()
+            ->forLocation($store)
+            ->atCoordinates(-6.200123, 106.816456, 150)
+            ->create([
+                'name' => 'Pin Lobby',
+                'address' => 'Jl. Sudirman No. 1',
+                'status' => 'active',
+            ]);
+
+        $record = $this->makeOutsourceRecord($outsource, '2026-09-10', 'present', 480);
+        $session = $record->sessions()->first();
+
+        \App\Models\AttendanceEvent::factory()->create([
+            'employee_id' => null,
+            'outsource_id' => $outsource->id,
+            'work_location_pin_id' => $pin->id,
+            'attendance_id' => $record->id,
+            'attendance_session_id' => $session?->id,
+            'event_type' => 'check_in',
+            'occurred_at' => $session?->check_in_at ?? '2026-09-10 08:00:00',
+            'latitude' => -6.200100,
+            'longitude' => 106.816400,
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/reports/outsource-attendance?from=2026-09-01&to=2026-09-30');
+
+        $response->assertOk()
+            ->assertJsonPath('data.0.pin.name', 'Pin Lobby')
+            ->assertJsonPath('data.0.pin.address', 'Jl. Sudirman No. 1')
+            ->assertJsonPath('data.0.pin.latitude', -6.200123)
+            ->assertJsonPath('data.0.pin.longitude', 106.816456);
+    }
+
     // ========================
     // Response Security
     // ========================

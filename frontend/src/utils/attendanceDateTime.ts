@@ -99,3 +99,21 @@ export function formatAttendanceShortDate(iso: string | null | undefined, empty 
   if (!d) return empty
   return shortDateFormatter.format(d)
 }
+
+/** `YYYY-MM-DDTHH:mm` in Asia/Jakarta for datetime-local inputs. */
+export function toAttendanceDatetimeLocal(iso: string | null | undefined): string {
+  const d = parseDate(iso)
+  if (!d) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: ATTENDANCE_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find(p => p.type === type)?.value ?? ''
+  const hour = get('hour') === '24' ? '00' : get('hour')
+  return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`
+}

@@ -7,19 +7,18 @@ import { useElementSize, useMediaQuery } from '@vueuse/core'
 import type { ColumnFiltersState, RowSelectionState, SortingState, VisibilityState } from '@tanstack/vue-table'
 import type { DropdownMenuItem, TableColumn } from '@nuxt/ui'
 import { useDashboard } from '../composables/useDashboard'
+import { useAdminNotifications } from '../composables/useAdminNotifications'
 import { ApiError } from '../services/apiClient'
 import {
   fetchDashboardAttendanceTrend,
   fetchDashboardKpis,
   fetchDashboardStaffToday,
-  fetchSystemHealth,
   type DashboardSource,
 } from '../services/dashboardApi'
 import type {
   DashboardKpiData,
   DashboardStaffRow,
   DashboardTrendPoint,
-  SystemHealthSnapshot,
 } from '../types/dashboard'
 import DashboardKpiCard from '../components/DashboardKpiCard.vue'
 import DataTableToolbar from '../components/DataTableToolbar.vue'
@@ -28,6 +27,7 @@ import { useDataTableDisplay } from '../composables/useDataTableDisplay'
 
 const router = useRouter()
 const { isNotificationsSlideoverOpen } = useDashboard()
+const { isSuperAdmin, hasUnread, refreshUnreadCount } = useAdminNotifications()
 
 type Period = 'daily' | 'weekly' | 'monthly'
 type Range = { start: Date; end: Date }
@@ -59,7 +59,6 @@ const error = ref('')
 const kpis = ref<DashboardKpiData | null>(null)
 const trendPoints = ref<DashboardTrendPoint[]>([])
 const tableRows = ref<DashboardStaffRow[]>([])
-const systemHealth = ref<SystemHealthSnapshot | null>(null)
 
 const attendanceRate = computed(() => {
   if (!kpis.value) return 0
@@ -73,24 +72,16 @@ const periodAverageRate = computed(() => {
   return Math.round(sum / chartData.value.length)
 })
 
-import { formatAttendanceTime } from '../utils/attendanceDateTime'
-
-function formatRefreshedAt(iso: string | undefined): string {
-  return formatAttendanceTime(iso)
-}
-
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [kpiResponse, staffResponse, health] = await Promise.all([
+    const [kpiResponse, staffResponse] = await Promise.all([
       fetchDashboardKpis(source.value),
       fetchDashboardStaffToday(source.value),
-      fetchSystemHealth(),
     ])
     kpis.value = kpiResponse.data
     tableRows.value = staffResponse.data
-    systemHealth.value = health
     rowSelection.value = {}
     // Trend is non-blocking — a failure here should not wipe KPI cards
     await loadTrend().catch(() => {
@@ -167,7 +158,12 @@ function rebuildChart(): void {
   })
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  if (isSuperAdmin.value) {
+    void refreshUnreadCount()
+  }
+})
 
 // Range change: only the trend chart needs reloading; KPI cards are always today.
 watch(range, () => {
@@ -331,12 +327,6 @@ function deleteSelectedRows(): void {
 function getTableRowId(row: DashboardStaffRow): string {
   return String(row.id)
 }
-
-const healthServices = computed(() => [
-  { label: 'Attendance API', ok: systemHealth.value?.app_ok ?? false },
-  { label: 'AI Face Service', ok: systemHealth.value?.ai_ok ?? false },
-  { label: 'Biometric storage', ok: systemHealth.value?.app_ok ?? false },
-])
 </script>
 
 <template>
@@ -350,8 +340,8 @@ const healthServices = computed(() => [
         </template>
 
         <template #right>
-          <!-- Notifications button -->
-          <UTooltip text="Notifications" :shortcuts="['N']">
+          <!-- Notifications — SUPER_ADMIN only (BE also enforces role) -->
+          <UTooltip v-if="isSuperAdmin" text="Notifications" :shortcuts="['N']">
             <UButton
               color="neutral"
               variant="ghost"
@@ -359,7 +349,7 @@ const healthServices = computed(() => [
               aria-label="Open notifications"
               @click="isNotificationsSlideoverOpen = true"
             >
-              <UChip color="error" inset>
+              <UChip color="error" inset :show="hasUnread">
                 <UIcon name="i-lucide-bell" class="size-5 shrink-0" />
               </UChip>
             </UButton>
@@ -549,7 +539,7 @@ const healthServices = computed(() => [
           </UCard>
 
           <!-- ── BOTTOM ROW ─────────────────────────────────────── -->
-          <div class="grid gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(16rem,0.55fr)]">
+          <div class="min-w-0">
 
             <!-- Staff table -->
             <UCard class="min-w-0" :ui="{ root: 'overflow-hidden', body: 'p-0!' }">
@@ -578,51 +568,6 @@ const healthServices = computed(() => [
                   class="shrink-0 min-w-[20rem] sm:min-w-0"
                   :ui="tableUi"
                 />
-              </div>
-            </UCard>
-
-            <!-- System status -->
-            <UCard class="min-w-0" :ui="{ body: 'p-4 sm:p-5 md:p-6' }">
-              <div class="flex items-center justify-between gap-3">
-                <p class="text-xs text-muted uppercase tracking-wide">System status</p>
-                <UBadge
-                  :color="systemHealth?.overall_ok ? 'success' : 'error'"
-                  variant="subtle"
-                  class="text-xs shrink-0"
-                >
-                  <template #leading>
-                    <span
-                      class="h-1.5 w-1.5 rounded-full"
-                      :class="systemHealth?.overall_ok ? 'bg-emerald-500' : 'bg-red-500'"
-                    />
-                  </template>
-                  {{ systemHealth?.overall_ok ? 'Operational' : 'Degraded' }}
-                </UBadge>
-              </div>
-
-              <h3 class="mt-2 text-base font-semibold text-highlighted">
-                {{ systemHealth?.overall_ok ? 'Everything is up' : 'Service issues detected' }}
-              </h3>
-
-              <ul class="mt-4 space-y-2.5">
-                <li
-                  v-for="svc in healthServices"
-                  :key="svc.label"
-                  class="flex items-center justify-between gap-3 text-sm"
-                >
-                  <span class="text-muted truncate">{{ svc.label }}</span>
-                  <span class="flex items-center gap-1.5 text-xs font-semibold shrink-0" :class="svc.ok ? 'text-success' : 'text-error'">
-                    <span class="h-1.5 w-1.5 rounded-full" :class="svc.ok ? 'bg-emerald-500' : 'bg-red-500'" />
-                    {{ svc.ok ? 'Online' : 'Degraded' }}
-                  </span>
-                </li>
-              </ul>
-
-              <div class="mt-5 flex items-center justify-between gap-3 border-t border-[var(--ui-border)] pt-4 text-xs">
-                <span class="text-muted">Last refreshed</span>
-                <strong class="font-semibold text-highlighted tabular-nums">
-                  {{ formatRefreshedAt(systemHealth?.refreshed_at) }}
-                </strong>
               </div>
             </UCard>
           </div>

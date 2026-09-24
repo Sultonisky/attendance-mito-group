@@ -188,10 +188,12 @@ Initial dashboard login accounts (seeded by `DatabaseSeeder` in every
 environment — idempotent; default password: `Mahakarya2026`, override via
 `SEED_USER_PASSWORD`):
 
-* superadmin@mito.co.id (SUPER_ADMIN)
-* admin@mito.co.id (ADMIN)
-* user@mito.co.id (USER — also receives an Employee record and the full
-  permission set)
+* hisar.hesti@mito.co.id (ADMIN — all modules except Users, Permissions,
+  Audit Logs, and Systems)
+* reginald.hirawan@mito.co.id (SUPER_ADMIN — full access, including Systems)
+* superadmin@mito.co.id (SUPER_ADMIN — demo)
+* admin@mito.co.id (ADMIN — demo)
+* user@mito.co.id (USER — also receives an Employee record)
 
 Dummy demo data (cities, stores, schedules, policies, employees, outsource
 workers, attendance history) is seeded ONLY when `APP_ENV=local`
@@ -609,7 +611,8 @@ After a successful CI run on `main`, [`.github/workflows/DEPLOY.yml`](.github/wo
 
 Production seeding: the deploy runs the full `php artisan db:seed --force`,
 which seeds roles & permissions **and** the initial dashboard accounts
-(superadmin@ / admin@ / user@mito.co.id). Dummy demo data
+(hisar.hesti@ ADMIN, reginald.hirawan@ SUPER_ADMIN, plus demo
+superadmin@ / admin@ / user@mito.co.id). Dummy demo data
 (`DevelopmentDataSeeder`) is skipped outside `APP_ENV=local`. Set a strong
 `SEED_USER_PASSWORD` in the deployment environment before the first seed,
 or rotate the seeded passwords immediately afterwards.

@@ -12,12 +12,15 @@ use Throwable;
 /**
  * Unified maintenance switch for Laravel API + Vue SPA.
  *
- * down  → artisan down (Blade for cold loads) + public/maintenance.json (Vue/Vite)
- * up    → artisan up + remove flag files
+ * down  → artisan down + write public/maintenance.json enabled:true
+ * up    → artisan up + write public/maintenance.json enabled:false
  * status → show whether maintenance is active
  *
- * Local Vite reads frontend/public/maintenance.json.
- * Production reads public/maintenance.json (same origin as the SPA).
+ * Flag files are gitignored. Defaults come from Dockerfile / Vite middleware /
+ * Laravel /maintenance.json fallback so the SPA never 404s on the probe.
+ *
+ * Local Vite: frontend/public/maintenance.json (or Vite fallback).
+ * Production: public/maintenance.json (same origin as the SPA).
  */
 #[Signature('mito:maintenance {action : down|up|status} {--retry=60 : Retry-After seconds for API clients} {--secret= : Optional bypass secret for artisan down} {--message="Sedang Dalam Pemeliharaan" : Maintenance message shown to clients}')]
 #[Description('Enable/disable maintenance for Laravel and the Vue SPA together.')]
@@ -81,7 +84,7 @@ class MitoMaintenanceCommand extends Command
             }
         } catch (Throwable $e) {
             $this->error('Laravel down failed: '.$e->getMessage());
-            $this->removeFlagFiles();
+            $this->writeDisabledFlagFiles();
 
             return self::FAILURE;
         }
@@ -112,18 +115,18 @@ class MitoMaintenanceCommand extends Command
             $this->warn('artisan up: '.$e->getMessage());
         }
 
-        $removed = $this->removeFlagFiles();
+        $written = $this->writeDisabledFlagFiles();
 
         $this->newLine();
         if (! $upOk) {
-            $this->error('Maintenance flag files cleaned, but artisan up did not succeed.');
+            $this->error('SPA flag set to disabled, but artisan up did not succeed.');
             $this->comment('Run: php artisan up');
 
             return self::FAILURE;
         }
 
         $this->info('Maintenance OFF.');
-        $this->line(sprintf('  Removed %d flag file(s).', $removed));
+        $this->line(sprintf('  Updated %d flag file(s) to enabled:false.', $written));
         $this->comment('Local Vite: refresh once if the maintenance page is still open.');
 
         return self::SUCCESS;
@@ -145,7 +148,7 @@ class MitoMaintenanceCommand extends Command
             if (is_file($path)) {
                 $json = json_decode((string) file_get_contents($path), true);
                 $active = is_array($json) && ($json['enabled'] ?? false) === true;
-                $detail = $path;
+                $detail = $active ? $path.' (enabled)' : $path.' (disabled)';
             }
 
             $rows[] = [$label, $active ? 'FLAG ON' : 'FLAG OFF', $detail];
@@ -164,7 +167,20 @@ class MitoMaintenanceCommand extends Command
     }
 
     /**
-     * @param  array{enabled: bool, retry_after: int, message: string, enabled_at: string}  $payload
+     * Always leave a JSON file present so the SPA probe never 404s.
+     */
+    private function writeDisabledFlagFiles(): int
+    {
+        return $this->writeFlagFiles([
+            'enabled' => false,
+            'retry_after' => 60,
+            'message' => '',
+            'disabled_at' => now()->toIso8601String(),
+        ]);
+    }
+
+    /**
+     * @param  array{enabled: bool, retry_after: int, message: string, enabled_at?: string, disabled_at?: string}  $payload
      */
     private function writeFlagFiles(array $payload): int
     {
@@ -179,21 +195,6 @@ class MitoMaintenanceCommand extends Command
 
             if (File::put($path, $json) !== false) {
                 $this->line('  Wrote '.$path);
-                $count++;
-            }
-        }
-
-        return $count;
-    }
-
-    private function removeFlagFiles(): int
-    {
-        $count = 0;
-
-        foreach ($this->flagPaths() as $path) {
-            if (is_file($path)) {
-                File::delete($path);
-                $this->line('  Removed '.$path);
                 $count++;
             }
         }

@@ -7,8 +7,8 @@ defineProps<{
 <template>
   <!-- Brand identity block shown in sidebar header -->
   <div
-    class="flex items-center gap-3 overflow-hidden px-1 py-2"
-    :class="collapsed ? 'justify-center' : 'justify-start'"
+    class="flex w-full items-center overflow-hidden"
+    :class="collapsed ? 'justify-center py-1' : 'justify-start gap-3 px-0.5 py-1'"
   >
     <!-- Logo mark: keep it clean without forcing a square box around the image -->
     <div class="flex h-12 w-12 shrink-0 items-center justify-center">

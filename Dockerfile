@@ -103,6 +103,16 @@ COPY --from=frontend /build/frontend/dist/images ./public/images
 COPY --from=frontend /build/frontend/dist/manifest.webmanifest ./public/manifest.webmanifest
 COPY --from=frontend /build/frontend/dist/index.html ./public/spa.html
 
+# Default SPA maintenance probe (gitignored runtime file). mito:maintenance
+# toggles enabled true/false; never bake enabled:true into the image.
+RUN printf '%s\n' \
+    '{' \
+    '  "enabled": false,' \
+    '  "retry_after": 60,' \
+    '  "message": ""' \
+    '}' \
+    > ./public/maintenance.json
+
 COPY ai-service /opt/ai-service
 
 # Idempotent production bootstrap inputs (RBAC is seeded via artisan;

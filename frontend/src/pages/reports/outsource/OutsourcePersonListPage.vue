@@ -103,6 +103,51 @@ const showDeleteModal  = ref(false)
 const deleteTarget     = ref<OutsourcePersonRow | null>(null)
 const deleteBusy       = ref(false)
 
+// ── Modal — view pins ─────────────────────────────────────────────────────────
+const showPinsModal = ref(false)
+const pinsTarget = ref<OutsourcePersonRow | null>(null)
+const pinsList = ref<WorkLocationPinRow[]>([])
+const pinsLoading = ref(false)
+const pinsError = ref('')
+const pinsScopeLabel = ref('')
+
+function formatPinRadius(meters: number | null | undefined): string {
+  if (meters == null) return '150 m'
+  if (meters >= 1000) return `${meters / 1000} km`
+  return `${meters} m`
+}
+
+async function openPins(person: OutsourcePersonRow): Promise<void> {
+  if (!person.store?.id) return
+
+  pinsTarget.value = person
+  pinsList.value = []
+  pinsError.value = ''
+  pinsScopeLabel.value = ''
+  showPinsModal.value = true
+  pinsLoading.value = true
+
+  try {
+    const allPins = await fetchWorkLocationPins(person.store.id)
+    const allowIds = person.pin_ids ?? []
+    if (allowIds.length === 0) {
+      pinsList.value = allPins.filter(p => p.status === 'active')
+      pinsScopeLabel.value = 'All active cabang pins'
+    }
+    else {
+      const allowed = new Set(allowIds)
+      pinsList.value = allPins.filter(p => allowed.has(p.id))
+      pinsScopeLabel.value = `${pinsList.value.length} allowed pin${pinsList.value.length === 1 ? '' : 's'}`
+    }
+  }
+  catch (e: unknown) {
+    pinsError.value = e instanceof Error ? e.message : 'Failed to load pins.'
+  }
+  finally {
+    pinsLoading.value = false
+  }
+}
+
 // ── Columns ───────────────────────────────────────────────────────────────────
 const columns = computed<TableColumn<OutsourcePersonRow>[]>(() => [
   {
@@ -134,17 +179,30 @@ const columns = computed<TableColumn<OutsourcePersonRow>[]>(() => [
     id: 'pins',
     header: 'Pins',
     cell: ({ row }) => {
-      const ids = row.original.pin_ids ?? []
-      if (!row.original.store) {
+      const person = row.original
+      if (!person.store) {
         return h('span', { class: 'text-[var(--ui-text-dimmed)] text-xs' }, '—')
       }
-      if (ids.length === 0) {
-        return createTruncatedText('All cabang pins', 'text-xs text-muted')
-      }
-      return h('span', {
-        class: 'inline-flex max-w-full items-center truncate rounded-full bg-primary/10 text-primary px-2 py-0.5 text-xs font-semibold',
-        title: `${ids.length} pin${ids.length === 1 ? '' : 's'}`,
-      }, `${ids.length} pin${ids.length === 1 ? '' : 's'}`)
+      const ids = person.pin_ids ?? []
+      const label = ids.length === 0
+        ? 'All'
+        : String(ids.length)
+      const title = ids.length === 0
+        ? 'View all cabang pins'
+        : `View ${ids.length} allowed pin${ids.length === 1 ? '' : 's'}`
+
+      return h(resolveComponent('UButton'), {
+        size: 'xs',
+        color: 'primary',
+        variant: 'soft',
+        icon: 'i-lucide-map-pin',
+        label,
+        title,
+        onClick: (e: Event) => {
+          e.stopPropagation()
+          openPins(person)
+        },
+      })
     },
   },
   {
@@ -656,6 +714,69 @@ onMounted(async () => {
         <UButton color="error" :loading="deleteBusy" @click="executeDelete">
           Delete
         </UButton>
+      </div>
+    </template>
+  </UModal>
+
+  <!-- ── View pins modal ────────────────────────────────────────────────────── -->
+  <UModal
+    v-model:open="showPinsModal"
+    :title="`Pins — ${pinsTarget?.name || 'outsource'}`"
+  >
+    <template #body>
+      <div class="space-y-3">
+        <p class="text-sm text-muted">
+          Allowed check-in locations for
+          <strong class="text-highlighted">{{ pinsTarget?.name }}</strong>
+          <template v-if="pinsTarget?.store?.name">
+            at <strong class="text-highlighted">{{ pinsTarget.store.name }}</strong>
+          </template>.
+          <span v-if="pinsScopeLabel" class="block mt-1 text-xs">{{ pinsScopeLabel }}</span>
+        </p>
+
+        <div v-if="pinsLoading" class="text-sm text-muted">Loading…</div>
+        <UAlert v-else-if="pinsError" color="error" variant="subtle" :description="pinsError" />
+        <div
+          v-else-if="pinsList.length === 0"
+          class="rounded-md border border-dashed border-default p-3 text-sm text-muted"
+        >
+          No pins available for this person.
+        </div>
+        <ul v-else class="divide-y divide-default rounded-md border border-default">
+          <li
+            v-for="pin in pinsList"
+            :key="pin.id"
+            class="flex items-start justify-between gap-3 px-3 py-2.5"
+          >
+            <div class="min-w-0">
+              <p class="truncate text-sm font-medium">{{ pin.name }}</p>
+              <p v-if="pin.address" class="truncate text-xs text-muted">{{ pin.address }}</p>
+              <p
+                v-if="pin.latitude != null && pin.longitude != null"
+                class="truncate font-mono text-[11px] text-muted"
+              >
+                {{ pin.latitude }}, {{ pin.longitude }}
+              </p>
+            </div>
+            <div class="flex shrink-0 flex-col items-end gap-1">
+              <UBadge size="sm" variant="subtle" color="neutral">
+                {{ formatPinRadius(pin.radius_meters) }}
+              </UBadge>
+              <UBadge
+                size="sm"
+                variant="subtle"
+                :color="pin.status === 'active' ? 'success' : 'error'"
+              >
+                {{ pin.status }}
+              </UBadge>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end">
+        <UButton color="neutral" variant="outline" @click="showPinsModal = false">Close</UButton>
       </div>
     </template>
   </UModal>
