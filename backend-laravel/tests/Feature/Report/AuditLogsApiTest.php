@@ -17,6 +17,14 @@ class AuditLogsApiTest extends TestCase
         $this->seed(RolesAndPermissionsSeeder::class);
     }
 
+    private function superAdmin(): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole('SUPER_ADMIN');
+
+        return $user;
+    }
+
     private function admin(): User
     {
         $user = User::factory()->create();
@@ -35,9 +43,16 @@ class AuditLogsApiTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_admin_can_list_audit_logs(): void
+    public function test_admin_cannot_list_audit_logs(): void
     {
         $this->actingAs($this->admin(), 'sanctum')
+            ->getJson('/api/v1/audit-logs?per_page=10')
+            ->assertForbidden();
+    }
+
+    public function test_super_admin_can_list_audit_logs(): void
+    {
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->getJson('/api/v1/audit-logs?per_page=10')
             ->assertOk()
             ->assertJson([
@@ -54,7 +69,7 @@ class AuditLogsApiTest extends TestCase
 
     public function test_filters_by_date_range(): void
     {
-        $this->actingAs($this->admin(), 'sanctum')
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->getJson('/api/v1/audit-logs?from=2026-01-01&to=2026-12-31&per_page=10')
             ->assertOk()
             ->assertJson(['success' => true]);
@@ -62,7 +77,7 @@ class AuditLogsApiTest extends TestCase
 
     public function test_filters_by_search(): void
     {
-        $this->actingAs($this->admin(), 'sanctum')
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->getJson('/api/v1/audit-logs?search=updated&per_page=10')
             ->assertOk()
             ->assertJson(['success' => true]);

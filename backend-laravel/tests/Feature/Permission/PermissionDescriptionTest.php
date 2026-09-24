@@ -20,7 +20,7 @@ class PermissionDescriptionTest extends TestCase
     public function test_permissions_have_descriptions(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('ADMIN');
+        $user->assignRole('SUPER_ADMIN');
 
         $response = $this->actingAs($user, 'sanctum')
             ->getJson('/api/v1/permissions')

@@ -19,6 +19,14 @@ class PermissionApiTest extends TestCase
         $this->seed(RolesAndPermissionsSeeder::class);
     }
 
+    private function superAdmin(): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole('SUPER_ADMIN');
+
+        return $user;
+    }
+
     private function admin(): User
     {
         $user = User::factory()->create();
@@ -33,13 +41,20 @@ class PermissionApiTest extends TestCase
 
     public function test_returns_permissions_list(): void
     {
-        $this->actingAs($this->admin(), 'sanctum')
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->getJson('/api/v1/permissions?per_page=100')
             ->assertOk()
             ->assertJson([
                 'success' => true,
             ])
             ->assertJsonCount(Permission::count(), 'data');
+    }
+
+    public function test_admin_cannot_view_permissions(): void
+    {
+        $this->actingAs($this->admin(), 'sanctum')
+            ->getJson('/api/v1/permissions')
+            ->assertForbidden();
     }
 
     public function test_requires_permission_view(): void
@@ -58,9 +73,9 @@ class PermissionApiTest extends TestCase
     // Store
     // ========================
 
-    public function test_admin_can_create_permission(): void
+    public function test_super_admin_can_create_permission(): void
     {
-        $this->actingAs($this->admin(), 'sanctum')
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->postJson('/api/v1/permissions', [
                 'name' => 'test.permission',
             ])
@@ -73,6 +88,15 @@ class PermissionApiTest extends TestCase
             ]);
 
         $this->assertDatabaseHas('permissions', ['name' => 'test.permission']);
+    }
+
+    public function test_admin_cannot_create_permission(): void
+    {
+        $this->actingAs($this->admin(), 'sanctum')
+            ->postJson('/api/v1/permissions', [
+                'name' => 'test.permission',
+            ])
+            ->assertForbidden();
     }
 
     public function test_requires_permission_create(): void
@@ -91,7 +115,7 @@ class PermissionApiTest extends TestCase
 
     public function test_validate_unique_name(): void
     {
-        $this->actingAs($this->admin(), 'sanctum')
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->postJson('/api/v1/permissions', [
                 'name' => 'dashboard.view',
             ])
@@ -107,7 +131,7 @@ class PermissionApiTest extends TestCase
     {
         $permission = Permission::first();
 
-        $this->actingAs($this->admin(), 'sanctum')
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->getJson("/api/v1/permissions/{$permission->id}")
             ->assertOk()
             ->assertJson([
@@ -123,11 +147,11 @@ class PermissionApiTest extends TestCase
     // Update
     // ========================
 
-    public function test_admin_can_update_permission(): void
+    public function test_super_admin_can_update_permission(): void
     {
         $permission = Permission::where('name', 'dashboard.view')->first();
 
-        $this->actingAs($this->admin(), 'sanctum')
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->putJson("/api/v1/permissions/{$permission->id}", [
                 'name' => 'dashboard.updated',
             ])
@@ -170,7 +194,7 @@ class PermissionApiTest extends TestCase
         $user = $this->admin();
         $user->syncPermissions([$permission->name]);
 
-        $this->actingAs($this->admin(), 'sanctum')
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->getJson("/api/v1/permissions/{$permission->id}/users")
             ->assertOk()
             ->assertJson([
@@ -190,7 +214,7 @@ class PermissionApiTest extends TestCase
         $user = User::factory()->create();
         $user->assignRole('ADMIN');
 
-        $this->actingAs($this->admin(), 'sanctum')
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->getJson("/api/v1/permissions/{$permission->id}/users")
             ->assertOk()
             ->assertJson([
@@ -221,11 +245,11 @@ class PermissionApiTest extends TestCase
     // Destroy
     // ========================
 
-    public function test_admin_can_delete_permission(): void
+    public function test_super_admin_can_delete_permission(): void
     {
         $permission = Permission::create(['name' => 'test.delete', 'guard_name' => 'web']);
 
-        $this->actingAs($this->admin(), 'sanctum')
+        $this->actingAs($this->superAdmin(), 'sanctum')
             ->deleteJson("/api/v1/permissions/{$permission->id}")
             ->assertOk()
             ->assertJson(['success' => true]);
