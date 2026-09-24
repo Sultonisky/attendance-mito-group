@@ -23,7 +23,7 @@ class DatabaseSeeder extends Seeder
      *
      * Local-only (dummy/demo data):
      *   DevelopmentDataSeeder — factory-driven cities, stores, schedules,
-     *   policies, employees, outsource workers, attendance history.
+     *   policies, employees, outsource attendance demo (pins / overnight).
      */
     public function run(): void
     {
