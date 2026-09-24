@@ -25,6 +25,13 @@ class OutsourceAttendanceReportResource extends JsonResource
                 'id' => (int) $this->store_id,
                 'name' => $this->store_name,
             ] : null,
+            'pin' => ($this->pin_id || $this->pin_name || $this->pin_address || $this->pin_latitude !== null || $this->pin_longitude !== null) ? [
+                'id' => $this->pin_id !== null ? (int) $this->pin_id : null,
+                'name' => $this->pin_name,
+                'address' => $this->pin_address,
+                'latitude' => $this->pin_latitude !== null ? (float) $this->pin_latitude : null,
+                'longitude' => $this->pin_longitude !== null ? (float) $this->pin_longitude : null,
+            ] : null,
             'attendance_date' => $this->attendance_date?->toDateString(),
             'status' => $this->status,
             'check_in_at' => AttendanceDateTime::toApi($this->first_check_in),
