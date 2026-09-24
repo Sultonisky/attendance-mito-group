@@ -68,4 +68,40 @@ class OutsourceModelTest extends TestCase
 
         $this->assertCount(1, $outsource->activeStores);
     }
+
+    public function test_generate_next_code_starts_dm2026_sequence(): void
+    {
+        $this->assertSame('DM20260001', Outsource::generateNextCode());
+    }
+
+    public function test_generate_next_code_continues_after_imported_codes(): void
+    {
+        Outsource::factory()->create(['outsource_code' => 'DM20260123']);
+        Outsource::factory()->create(['outsource_code' => '901']); // demo / legacy — ignored
+
+        $this->assertSame('DM20260124', Outsource::generateNextCode());
+    }
+
+    public function test_generate_next_code_skips_existing_and_trashed(): void
+    {
+        Outsource::factory()->create(['outsource_code' => 'DM20260001']);
+        $trashed = Outsource::factory()->create(['outsource_code' => 'DM20260002']);
+        $trashed->delete();
+
+        $this->assertSame('DM20260003', Outsource::generateNextCode());
+    }
+
+    public function test_manual_create_uses_dm2026_sequence_and_default_pin(): void
+    {
+        Outsource::factory()->create(['outsource_code' => 'DM20260123']);
+
+        $person = app(\App\Actions\Outsource\CreateOutsourcePerson::class)->execute(
+            ['name' => 'Manual Worker'],
+            null,
+            null,
+        );
+
+        $this->assertSame('DM20260124', $person->outsource_code);
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check(Outsource::DEFAULT_LOGIN_PIN, $person->password));
+    }
 }

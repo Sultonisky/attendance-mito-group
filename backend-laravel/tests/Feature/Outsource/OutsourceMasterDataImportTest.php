@@ -117,6 +117,33 @@ class OutsourceMasterDataImportTest extends TestCase
         $this->assertTrue($martinAssignment->pins->contains('id', $martinPin->id));
     }
 
+    public function test_json_import_uses_employee_id_and_password(): void
+    {
+        $path = $this->writeJson([
+            [
+                'city' => 'SAMARINDA',
+                'store' => 'MAMASUKA',
+                'employee' => 'Abel Saskia Putri',
+                'employee_id' => 'DM20260001',
+                'password' => '123456',
+                'pin_name' => 'MAMASUKA',
+                'address' => 'Jl. P Antasari No.38',
+                'lat' => -0.492476,
+                'lon' => 117.1273092,
+                'source' => 'excel_normalized',
+                'is_fallback' => false,
+            ],
+        ]);
+
+        $result = app(\App\Services\Import\OutsourceMasterDataImportService::class)->import($path);
+
+        $this->assertSame(1, $result['outsources']['created']);
+
+        $person = Outsource::where('outsource_code', 'DM20260001')->firstOrFail();
+        $this->assertSame('Abel Saskia Putri', $person->name);
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check('123456', $person->password));
+    }
+
     public function test_legacy_csv_creates_cabang_per_city_not_per_toko(): void
     {
         $path = $this->fixturePath('outsource_sample.csv');
