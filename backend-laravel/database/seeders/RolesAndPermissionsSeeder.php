@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
@@ -55,6 +56,8 @@ class RolesAndPermissionsSeeder extends Seeder
         'monthly_recap.export' => 'Export finalized monthly recaps.',
         'attendance.view' => 'View internal attendance records.',
         'outsource_attendance.view' => 'View outsource attendance reports.',
+        'outsource_attendance.create' => 'Create outsource attendance records (admin correction).',
+        'outsource_attendance.update' => 'Update outsource attendance records (admin correction).',
         'outsource_attendance.void' => 'Void outsource attendance records.',
         'outsource_person.view' => 'View outsource persons.',
         'outsource_person.create' => 'Create outsource persons.',
@@ -109,6 +112,8 @@ class RolesAndPermissionsSeeder extends Seeder
         'monthly_recap.export',
         'attendance.view',
         'outsource_attendance.view',
+        'outsource_attendance.create',
+        'outsource_attendance.update',
         'outsource_attendance.void',
         'outsource_person.view',
         'outsource_person.create',
@@ -167,6 +172,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'monthly_recap.export',
             'attendance.view',
             'outsource_attendance.view',
+            'outsource_attendance.create',
+            'outsource_attendance.update',
             'outsource_attendance.void',
             'outsource_person.view',
             'outsource_person.create',
@@ -220,8 +227,14 @@ class RolesAndPermissionsSeeder extends Seeder
         $adminRole->syncPermissions(self::ROLE_PERMISSIONS['ADMIN']);
         $userRole->syncPermissions(self::ROLE_PERMISSIONS['USER']);
 
-        // SUPER_ADMIN bypasses checks via Gate::before — no explicit grants needed.
+        // SUPER_ADMIN bypasses checks via Gate::before — role stays empty.
+        // Still refresh direct grants on SUPER_ADMIN users so /auth/me permission
+        // lists stay complete when new permissions are introduced.
         $superAdminRole->syncPermissions([]);
+        $allPermissions = Permission::query()->get();
+        User::role('SUPER_ADMIN')->each(function (User $user) use ($allPermissions): void {
+            $user->syncPermissions($allPermissions);
+        });
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
