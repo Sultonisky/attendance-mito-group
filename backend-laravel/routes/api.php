@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\PenaltyController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\AuditController;
+use App\Http\Controllers\Api\V1\SystemController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -103,6 +104,11 @@ Route::prefix('v1')->group(function () {
         Route::get('/dashboard/attendance-trend', [DashboardController::class, 'attendanceTrend'])
             ->middleware('can:dashboard.view')
             ->name('dashboard.attendance-trend');
+
+        // Systems diagnostics — SUPER_ADMIN only
+        Route::get('/systems/health', [SystemController::class, 'health'])
+            ->middleware('role:SUPER_ADMIN')
+            ->name('systems.health');
 
         // Penalty (Phase 11)
         Route::prefix('penalties')->middleware('auth:sanctum')->group(function () {
@@ -243,7 +249,13 @@ Route::prefix('v1')->group(function () {
                 ->middleware('can:outsource_work_location.delete');
         });
 
-        // ── Outsource attendance void (admin) ───────────────────────────────────
+        // ── Outsource attendance admin CRUD ─────────────────────────────────────
+        Route::post('/outsource-attendance', [OutsourceAttendanceController::class, 'store'])
+            ->middleware('can:outsource_attendance.create')
+            ->name('outsource-attendance.store');
+        Route::put('/outsource-attendance/{record}', [OutsourceAttendanceController::class, 'update'])
+            ->middleware('can:outsource_attendance.update')
+            ->name('outsource-attendance.update');
         Route::delete('/outsource-attendance/{record}/void', [OutsourceAttendanceController::class, 'voidRecord'])
             ->middleware('can:outsource_attendance.void')
             ->name('outsource-attendance.void');
