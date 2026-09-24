@@ -7,6 +7,7 @@ import { useElementSize, useMediaQuery } from '@vueuse/core'
 import type { ColumnFiltersState, RowSelectionState, SortingState, VisibilityState } from '@tanstack/vue-table'
 import type { DropdownMenuItem, TableColumn } from '@nuxt/ui'
 import { useDashboard } from '../composables/useDashboard'
+import { useAdminNotifications } from '../composables/useAdminNotifications'
 import { ApiError } from '../services/apiClient'
 import {
   fetchDashboardAttendanceTrend,
@@ -26,6 +27,7 @@ import { useDataTableDisplay } from '../composables/useDataTableDisplay'
 
 const router = useRouter()
 const { isNotificationsSlideoverOpen } = useDashboard()
+const { isSuperAdmin, hasUnread, refreshUnreadCount } = useAdminNotifications()
 
 type Period = 'daily' | 'weekly' | 'monthly'
 type Range = { start: Date; end: Date }
@@ -156,7 +158,12 @@ function rebuildChart(): void {
   })
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  if (isSuperAdmin.value) {
+    void refreshUnreadCount()
+  }
+})
 
 // Range change: only the trend chart needs reloading; KPI cards are always today.
 watch(range, () => {
@@ -333,8 +340,8 @@ function getTableRowId(row: DashboardStaffRow): string {
         </template>
 
         <template #right>
-          <!-- Notifications button -->
-          <UTooltip text="Notifications" :shortcuts="['N']">
+          <!-- Notifications — SUPER_ADMIN only (BE also enforces role) -->
+          <UTooltip v-if="isSuperAdmin" text="Notifications" :shortcuts="['N']">
             <UButton
               color="neutral"
               variant="ghost"
@@ -342,7 +349,7 @@ function getTableRowId(row: DashboardStaffRow): string {
               aria-label="Open notifications"
               @click="isNotificationsSlideoverOpen = true"
             >
-              <UChip color="error" inset>
+              <UChip color="error" inset :show="hasUnread">
                 <UIcon name="i-lucide-bell" class="size-5 shrink-0" />
               </UChip>
             </UButton>
