@@ -1,13 +1,61 @@
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import ui from "@nuxt/ui/vite";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type { Plugin } from "vite";
 import { defineConfig } from "vite";
+
+const frontendRoot = path.dirname(fileURLToPath(import.meta.url));
+
+const DISABLED_MAINTENANCE_JSON =
+  JSON.stringify(
+    {
+      enabled: false,
+      retry_after: 60,
+      message: "",
+    },
+    null,
+    2,
+  ) + "\n";
+
+/**
+ * Serve /maintenance.json without 404 when the gitignored flag file is absent.
+ * If `php artisan mito:maintenance down` wrote the file, serve that instead.
+ */
+function maintenanceFlagPlugin(): Plugin {
+  const flagPath = path.join(frontendRoot, "public", "maintenance.json");
+
+  return {
+    name: "mito-maintenance-flag",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url?.split("?")[0] ?? "";
+        if (url !== "/maintenance.json") {
+          next();
+          return;
+        }
+
+        const body = fs.existsSync(flagPath)
+          ? fs.readFileSync(flagPath, "utf8")
+          : DISABLED_MAINTENANCE_JSON;
+
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(body);
+      });
+    },
+  };
+}
 
 // Asset URLs stay at site root (/assets/..., /images/...).
 // Vue routes also stay root (/outsource, /dashboard) — no /frontend/ prefix.
 export default defineConfig({
   base: "/",
   plugins: [
+    maintenanceFlagPlugin(),
     vue(),
     tailwindcss(),
     ui({
