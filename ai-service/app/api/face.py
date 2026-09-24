@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/face", tags=["face"])
 
 _storage: PostgreSQLBiometricStorage | None = None
+_storage_init_lock = threading.Lock()
 
 # Per-idempotency-key locks serialize concurrent enrollments that share a key
 # so only one writer inserts; losers re-read and return the winner's reference.
@@ -48,11 +49,17 @@ _enroll_key_locks_guard = threading.Lock()
 
 
 def _get_storage() -> PostgreSQLBiometricStorage:
+    """Return the process-wide biometric store (thread-safe lazy init).
+
+    Concurrent first callers must not each call ``create_storage()`` — that
+    would create separate in-memory backends and break same-key idempotency.
+    """
     global _storage
     if _storage is None:
-        _storage = create_storage(get_settings().biometric_database_url)
+        with _storage_init_lock:
+            if _storage is None:
+                _storage = create_storage(get_settings().biometric_database_url)
     return _storage
-
 
 def _enroll_lock_for(idempotency_key: str) -> threading.Lock:
     with _enroll_key_locks_guard:
