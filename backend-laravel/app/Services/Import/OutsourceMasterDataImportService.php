@@ -160,7 +160,11 @@ class OutsourceMasterDataImportService
             foreach ($validRows as $row) {
                 $city = $this->resolveCity($row['city_name']);
                 $cabang = $this->resolveCabang($city);
-                $outsource = $this->resolveOutsource($row['outsource_name']);
+                $outsource = $this->resolveOutsource(
+                    $row['outsource_name'],
+                    $row['employee_id'],
+                    $row['password'],
+                );
                 $assignment = $this->resolveAssignment($outsource->id, $cabang->id);
 
                 $cityKey = $this->makeKey('city', $city->name);
@@ -323,6 +327,8 @@ class OutsourceMasterDataImportService
             'city' => $row['LIST CABANG'] ?? null,
             'store' => $row['NAMA TOKO'] ?? null,
             'employee' => $row['NAMA SPG'] ?? $row['NAMA KARYAWAN'] ?? null,
+            'employee_id' => $row['EMPLOYEE ID'] ?? $row['employee_id'] ?? $row['outsource_code'] ?? null,
+            'password' => $row['PIN'] ?? $row['password'] ?? null,
             'pin_name' => $row['NAMA TOKO'] ?? null,
             'address' => $row['Alamat'] ?? $row['address'] ?? null,
             'lat' => $row['lat'] ?? $row['LATITUDE'] ?? null,
@@ -357,6 +363,8 @@ class OutsourceMasterDataImportService
         $store = $this->normalizeString($row['store'] ?? $row['NAMA TOKO'] ?? null);
         $pinName = $this->normalizeString($row['pin_name'] ?? null) ?? $store ?? $city;
         $address = $this->normalizeString($row['address'] ?? $row['Alamat'] ?? null);
+        $employeeId = $this->normalizeString($row['employee_id'] ?? $row['outsource_code'] ?? $row['EMPLOYEE ID'] ?? null);
+        $password = $this->normalizeCredentialPassword($row['password'] ?? $row['PIN'] ?? $row['pin'] ?? null);
 
         if ($city === null || $employee === null) {
             return [
@@ -399,6 +407,8 @@ class OutsourceMasterDataImportService
             'data' => [
                 'city_name' => $this->normalizeName($city),
                 'outsource_name' => $this->normalizeName($employee),
+                'employee_id' => $employeeId,
+                'password' => $password,
                 'store_meta' => $store !== null ? $this->normalizeName($store) : null,
                 'pin_name' => $this->normalizeName((string) $pinName),
                 'address' => $address,
@@ -499,16 +509,31 @@ class OutsourceMasterDataImportService
         return $cabang->refresh();
     }
 
-    protected function resolveOutsource(string $name): Outsource
+    protected function resolveOutsource(string $name, ?string $employeeId = null, ?string $password = null): Outsource
     {
-        $outsource = Outsource::withTrashed()->firstOrCreate(
-            ['name' => $name],
-            [
-                'outsource_code' => Outsource::generateNextCode(),
-                'status' => 'active',
-                'password' => Outsource::DEFAULT_LOGIN_PIN,
-            ],
-        );
+        $loginPassword = $password !== null && $password !== ''
+            ? $password
+            : Outsource::DEFAULT_LOGIN_PIN;
+
+        if ($employeeId !== null && $employeeId !== '') {
+            $outsource = Outsource::withTrashed()->firstOrCreate(
+                ['outsource_code' => $employeeId],
+                [
+                    'name' => $name,
+                    'status' => 'active',
+                    'password' => $loginPassword,
+                ],
+            );
+        } else {
+            $outsource = Outsource::withTrashed()->firstOrCreate(
+                ['name' => $name],
+                [
+                    'outsource_code' => Outsource::generateNextCode(),
+                    'status' => 'active',
+                    'password' => $loginPassword,
+                ],
+            );
+        }
 
         if ($outsource->trashed()) {
             $outsource->restore();
@@ -516,14 +541,19 @@ class OutsourceMasterDataImportService
 
         $dirty = false;
 
+        if ($outsource->name !== $name) {
+            $outsource->name = $name;
+            $dirty = true;
+        }
+
         if ($outsource->status !== 'active') {
             $outsource->status = 'active';
             $dirty = true;
         }
 
-        // Existing rows may have been imported before password existed.
+        // Prefer Excel/JSON password only when the row still has no login PIN.
         if (! filled($outsource->getRawOriginal('password'))) {
-            $outsource->password = Outsource::DEFAULT_LOGIN_PIN;
+            $outsource->password = $loginPassword;
             $dirty = true;
         }
 
@@ -532,6 +562,29 @@ class OutsourceMasterDataImportService
         }
 
         return $outsource->refresh();
+    }
+
+    protected function normalizeCredentialPassword(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            // Excel PIN cells often arrive as floats (123456.0).
+            return (string) (int) $value;
+        }
+
+        $string = trim((string) $value);
+        if ($string === '') {
+            return null;
+        }
+
+        if (preg_match('/^\d+\.0$/', $string) === 1) {
+            return substr($string, 0, -2);
+        }
+
+        return $string;
     }
 
     protected function resolveAssignment(int $outsourceId, int $cabangId): OutsourceStoreAssignment

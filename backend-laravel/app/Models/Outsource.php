@@ -24,6 +24,9 @@ class Outsource extends Model implements AttendanceSubject
     /** Default numeric login PIN when none is provided (create / import / backfill). */
     public const DEFAULT_LOGIN_PIN = '123456';
 
+    /** Business employee-code prefix used by import + manual create. */
+    public const CODE_PREFIX = 'DM2026';
+
     /**
      * @var list<string>
      */
@@ -76,21 +79,33 @@ class Outsource extends Model implements AttendanceSubject
     }
 
     /**
-     * Next outsource login code: sequential 3-digit numeric (001, 002, …).
-     * Pads to at least 3 digits; grows past 999 as 1000, 1001, …
+     * Next outsource login code in the DM2026#### sequence.
+     * Continues after the highest existing DM2026 code (including soft-deleted).
+     * Example: …DM20260123 imported → next manual create is DM20260124.
      */
     public static function generateNextCode(): string
     {
+        $prefix = self::CODE_PREFIX;
+        $prefixLength = strlen($prefix);
+
         $max = static::withTrashed()
             ->pluck('outsource_code')
-            ->filter(fn (mixed $code): bool => is_string($code) && ctype_digit($code))
-            ->map(fn (string $code): int => (int) $code)
+            ->filter(static function (mixed $code) use ($prefix, $prefixLength): bool {
+                if (! is_string($code) || ! str_starts_with($code, $prefix)) {
+                    return false;
+                }
+
+                $suffix = substr($code, $prefixLength);
+
+                return $suffix !== '' && ctype_digit($suffix);
+            })
+            ->map(static fn (string $code): int => (int) substr($code, $prefixLength))
             ->max();
 
         $next = ((int) ($max ?? 0)) + 1;
 
         do {
-            $code = str_pad((string) $next, 3, '0', STR_PAD_LEFT);
+            $code = sprintf('%s%04d', $prefix, $next);
             $exists = static::withTrashed()->where('outsource_code', $code)->exists();
             $next++;
         } while ($exists);
