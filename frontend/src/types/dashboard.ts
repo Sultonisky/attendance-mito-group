@@ -44,3 +44,33 @@ export type SystemHealthSnapshot = {
   overall_ok: boolean
   refreshed_at: string
 }
+
+export type SystemServiceStatus = 'ok' | 'warn' | 'fail'
+
+export type SystemServiceRow = {
+  key: string
+  label: string
+  status: SystemServiceStatus
+  detail: string
+}
+
+export type SystemRuntimeInfo = {
+  environment: string
+  debug: boolean
+  laravel_version: string
+  php_version: string
+  timezone: string
+  maintenance: boolean
+}
+
+export type SystemsHealthData = {
+  overall_status: 'ok' | 'degraded' | 'fail'
+  refreshed_at: string
+  services: SystemServiceRow[]
+  runtime: SystemRuntimeInfo
+}
+
+export type SystemHealthResponse = {
+  success: boolean
+  data: SystemsHealthData
+}

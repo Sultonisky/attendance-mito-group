@@ -1,14 +1,15 @@
 /**
  * SPA maintenance flag probe.
  *
- * Written by `php artisan mito:maintenance down` to:
- *   - backend-laravel/public/maintenance.json  (prod / artisan serve)
- *   - frontend/public/maintenance.json         (local Vite)
+ * Runtime file is gitignored. Sources (priority):
+ *   - Written by `php artisan mito:maintenance down|up` under public/
+ *   - Dockerfile default enabled:false (production image)
+ *   - Vite middleware fallback (local) / Laravel route fallback (prod if missing)
  *
- * Static file — works even while Laravel is in artisan-down mode.
+ * Probe treats enabled === true only; missing/disabled ⇒ not in maintenance.
  */
 
-type MaintenanceFlag = {
+export type MaintenanceFlag = {
   enabled?: boolean
   retry_after?: number
   message?: string
@@ -18,11 +19,11 @@ type MaintenanceFlag = {
 const FLAG_URL = '/maintenance.json'
 const CACHE_MS = 4_000
 
-let cache: { at: number; active: boolean } | null = null
+let cache: { at: number; active: boolean; flag: MaintenanceFlag | null } | null = null
 
-export async function isMaintenanceFlagActive(force = false): Promise<boolean> {
+export async function fetchMaintenanceFlag(force = false): Promise<MaintenanceFlag | null> {
   if (!force && cache && Date.now() - cache.at < CACHE_MS) {
-    return cache.active
+    return cache.flag
   }
 
   try {
@@ -33,19 +34,24 @@ export async function isMaintenanceFlagActive(force = false): Promise<boolean> {
     })
 
     if (!response.ok) {
-      cache = { at: Date.now(), active: false }
-      return false
+      cache = { at: Date.now(), active: false, flag: null }
+      return null
     }
 
     const body = (await response.json()) as MaintenanceFlag
     const active = body.enabled === true
-    cache = { at: Date.now(), active }
-    return active
+    cache = { at: Date.now(), active, flag: body }
+    return body
   } catch {
     // Missing file / network blip → treat as not in flag-based maintenance.
-    cache = { at: Date.now(), active: false }
-    return false
+    cache = { at: Date.now(), active: false, flag: null }
+    return null
   }
+}
+
+export async function isMaintenanceFlagActive(force = false): Promise<boolean> {
+  const flag = await fetchMaintenanceFlag(force)
+  return flag?.enabled === true
 }
 
 export function clearMaintenanceFlagCache(): void {

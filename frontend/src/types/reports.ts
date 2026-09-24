@@ -96,6 +96,13 @@ export type OutsourceAttendanceReportRow = {
     id: number
     name: string
   } | null
+  pin: {
+    id: number | null
+    name: string | null
+    address: string | null
+    latitude: number | null
+    longitude: number | null
+  } | null
   attendance_date: string
   status: string
   check_in_at: string | null
