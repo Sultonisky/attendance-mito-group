@@ -156,10 +156,18 @@ export type OutsourceAttendanceReportFilters = {
 export type AuditLogRow = {
   id: number
   action: string
-  actor: { id: number; name: string; email: string } | null
+  actor: {
+    id: number | null
+    name: string
+    email: string | null
+    kind?: 'user' | 'outsource'
+  } | null
   auditable_type: string | null
   auditable_id: number | null
+  old_values: Record<string, unknown> | unknown[] | null
+  new_values: Record<string, unknown> | unknown[] | null
   ip_address: string | null
+  user_agent: string | null
   metadata: Record<string, unknown> | null
   created_at: string
 }
