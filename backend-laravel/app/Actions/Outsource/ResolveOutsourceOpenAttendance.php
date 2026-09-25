@@ -82,14 +82,7 @@ class ResolveOutsourceOpenAttendance
         $pins = [];
         try {
             $resolved = $this->resolveAllowedPins->execute($outsource);
-            $pins = $resolved['pins']->map(fn ($pin) => [
-                'id' => $pin->id,
-                'name' => $pin->name,
-                'address' => $pin->address,
-                'latitude' => $pin->latitude,
-                'longitude' => $pin->longitude,
-                'radius_meters' => $pin->effectiveRadiusMeters(),
-            ])->values()->all();
+            $pins = $this->resolveAllowedPins->mapPinsForApi($resolved['pins']);
         } catch (\InvalidArgumentException) {
             $pins = [];
         }
