@@ -17,6 +17,9 @@ export type AttendanceReportRow = {
   employee_name: string
   attendance_date: string
   status: string
+  check_in_at: string | null
+  check_out_at: string | null
+  duration_minutes: number | null
   created_at: string
 }
 
