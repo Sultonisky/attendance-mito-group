@@ -6,7 +6,7 @@ import type {
   SystemHealthSnapshot,
 } from '../types/dashboard'
 
-export type DashboardSource = 'employee' | 'outsource' | 'all'
+export type DashboardSource = 'employee' | 'outsource'
 
 export async function fetchDashboardKpis(source: DashboardSource = 'employee'): Promise<DashboardKpiResponse> {
   const params = new URLSearchParams({ source })
