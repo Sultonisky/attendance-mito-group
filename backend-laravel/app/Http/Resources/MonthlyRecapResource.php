@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\MonthlyRecapStatus;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -25,7 +26,7 @@ class MonthlyRecapResource extends JsonResource
                     : ($this->employee?->full_name ?? $this->employee?->name),
             ),
             'period' => $this->period,
-            'status' => $this->status,
+            'status' => MonthlyRecapStatus::normalize($this->status),
             'summary' => [
                 'scheduled_days' => (int) ($summary['scheduled_days'] ?? 0),
                 'present_days' => (int) ($summary['present_days'] ?? 0),

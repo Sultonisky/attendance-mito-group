@@ -20,12 +20,14 @@
     "redis": {
       "type": "local",
       "command": [
-        "npx",
-        "-y",
-        "mcp-server-redis",
-        "--url",
-        "redis://localhost:6379"
-      ]
+        "C:\\Users\\LENOVO E14 GEN2\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\mcp-server-redis.exe"
+      ],
+      "environment": {
+        "REDIS_HOST": "localhost",
+        "REDIS_PORT": "6379",
+        "REDIS_DB": "0",
+        "REDIS_PASSWORD": " "
+      }
     },
     "puppeteer": {
       "type": "local",
@@ -34,9 +36,7 @@
     "sqlite": {
       "type": "local",
       "command": [
-        "npx",
-        "-y",
-        "mcp-server-sqlite",
+        "C:\\Users\\LENOVO E14 GEN2\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\mcp-server-sqlite.exe",
         "--db-path",
         "./database/database.sqlite"
       ]
