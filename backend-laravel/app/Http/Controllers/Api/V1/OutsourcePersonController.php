@@ -22,7 +22,7 @@ class OutsourcePersonController extends Controller
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'search'    => ['nullable', 'string', 'max:100'],
+            'search'    => ['nullable', 'string', 'max:255'],
             'city_id'   => ['nullable', 'integer', 'min:1'],
             'store_id'  => ['nullable', 'integer', 'min:1'],
             'status'    => ['nullable', 'string', 'in:active,inactive,all'],
@@ -98,6 +98,7 @@ class OutsourcePersonController extends Controller
             ->leftJoin('cities as c', 'c.id', '=', 'wl.city_id')
             ->whereIn('osa.outsource_id', $outsourceIds)
             ->where('osa.status', 'active')->whereNull('osa.deleted_at')
+            ->orderBy('osa.id')
             ->select([
                 'osa.id as assignment_id',
                 'osa.outsource_id',
@@ -106,9 +107,10 @@ class OutsourcePersonController extends Controller
                 'c.id as city_id',
                 'c.name as city_name',
             ])
-            ->get()->keyBy('outsource_id');
+            ->get()
+            ->groupBy('outsource_id');
 
-        $assignmentIds = $assignments->pluck('assignment_id')->filter()->all();
+        $assignmentIds = $assignments->flatten(1)->pluck('assignment_id')->filter()->all();
         $pinsByAssignment = $assignmentIds === []
             ? collect()
             : DB::table('outsource_assignment_pins')
@@ -117,15 +119,33 @@ class OutsourcePersonController extends Controller
                 ->groupBy('assignment_id');
 
         $enriched = collect($paginated->items())->map(function ($row) use ($assignments, $pinsByAssignment) {
-            $asgn = $assignments->get($row->id);
-            $row->store_id   = $asgn?->store_id;
-            $row->store_name = $asgn?->store_name;
-            $row->city_id    = $asgn?->city_id;
-            $row->city_name  = $asgn?->city_name;
+            $asgnRows = $assignments->get($row->id, collect());
+            $storesPayload = $asgnRows->map(function ($asgn) use ($pinsByAssignment) {
+                return [
+                    'assignment_id' => (int) $asgn->assignment_id,
+                    'store_id' => (int) $asgn->store_id,
+                    'store_name' => $asgn->store_name,
+                    'city_id' => $asgn->city_id !== null ? (int) $asgn->city_id : null,
+                    'city_name' => $asgn->city_name,
+                    'pin_ids' => $pinsByAssignment
+                        ->get($asgn->assignment_id, collect())
+                        ->pluck('pin_id')
+                        ->map(fn ($id) => (int) $id)
+                        ->values()
+                        ->all(),
+                ];
+            })->values()->all();
+
+            $primary = $storesPayload[0] ?? null;
+            $row->store_id   = $primary['store_id'] ?? null;
+            $row->store_name = $primary['store_name'] ?? null;
+            $row->city_id    = $primary['city_id'] ?? null;
+            $row->city_name  = $primary['city_name'] ?? null;
             $row->has_password = (bool) ($row->has_password ?? false);
-            $row->pin_ids = $asgn
-                ? $pinsByAssignment->get($asgn->assignment_id, collect())->pluck('pin_id')->map(fn ($id) => (int) $id)->values()->all()
-                : [];
+            $row->stores_payload = $storesPayload;
+            $row->pin_ids = array_values(array_unique(array_merge(
+                ...array_map(static fn (array $s) => $s['pin_ids'], $storesPayload ?: [[]]),
+            )));
 
             return $row;
         });
@@ -212,11 +232,12 @@ class OutsourcePersonController extends Controller
 
     private function hydratePersonAssignment(Outsource $person): void
     {
-        $asgn = DB::table('outsource_store_assignments as osa')
+        $asgnRows = DB::table('outsource_store_assignments as osa')
             ->join('work_locations as wl', 'wl.id', '=', 'osa.store_id')
             ->leftJoin('cities as c', 'c.id', '=', 'wl.city_id')
             ->where('osa.outsource_id', $person->id)
             ->where('osa.status', 'active')->whereNull('osa.deleted_at')
+            ->orderBy('osa.id')
             ->select([
                 'osa.id as assignment_id',
                 'wl.id as store_id',
@@ -224,20 +245,41 @@ class OutsourcePersonController extends Controller
                 'c.id as city_id',
                 'c.name as city_name',
             ])
-            ->first();
+            ->get();
 
-        $person->store_id   = $asgn?->store_id;
-        $person->store_name = $asgn?->store_name;
-        $person->city_id    = $asgn?->city_id;
-        $person->city_name  = $asgn?->city_name;
+        $assignmentIds = $asgnRows->pluck('assignment_id')->all();
+        $pinsByAssignment = $assignmentIds === []
+            ? collect()
+            : DB::table('outsource_assignment_pins')
+                ->whereIn('assignment_id', $assignmentIds)
+                ->get(['assignment_id', 'pin_id'])
+                ->groupBy('assignment_id');
+
+        $storesPayload = $asgnRows->map(function ($asgn) use ($pinsByAssignment) {
+            return [
+                'assignment_id' => (int) $asgn->assignment_id,
+                'store_id' => (int) $asgn->store_id,
+                'store_name' => $asgn->store_name,
+                'city_id' => $asgn->city_id !== null ? (int) $asgn->city_id : null,
+                'city_name' => $asgn->city_name,
+                'pin_ids' => $pinsByAssignment
+                    ->get($asgn->assignment_id, collect())
+                    ->pluck('pin_id')
+                    ->map(fn ($id) => (int) $id)
+                    ->values()
+                    ->all(),
+            ];
+        })->values()->all();
+
+        $primary = $storesPayload[0] ?? null;
+        $person->store_id   = $primary['store_id'] ?? null;
+        $person->store_name = $primary['store_name'] ?? null;
+        $person->city_id    = $primary['city_id'] ?? null;
+        $person->city_name  = $primary['city_name'] ?? null;
         $person->has_password = filled($person->password);
-        $person->pin_ids = $asgn
-            ? DB::table('outsource_assignment_pins')
-                ->where('assignment_id', $asgn->assignment_id)
-                ->pluck('pin_id')
-                ->map(fn ($id) => (int) $id)
-                ->values()
-                ->all()
-            : [];
+        $person->stores_payload = $storesPayload;
+        $person->pin_ids = array_values(array_unique(array_merge(
+            ...array_map(static fn (array $s) => $s['pin_ids'], $storesPayload ?: [[]]),
+        )));
     }
 }

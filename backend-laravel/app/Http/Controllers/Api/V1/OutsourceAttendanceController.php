@@ -315,26 +315,18 @@ class OutsourceAttendanceController
             ], 422);
         }
 
-        if ((int) $resolved['assignment']->store_id !== (int) $session->storeId) {
+        $sessionStoreIds = $resolved['assignments']->pluck('store_id')->map(fn ($id) => (int) $id)->all();
+        if (! in_array((int) $session->storeId, $sessionStoreIds, true)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Session cabang does not match active assignment.',
+                'message' => 'Session cabang is not in the active assignment set.',
                 'code' => 'INVALID_ASSIGNMENT',
             ], 422);
         }
 
-        $pins = $resolved['pins']->map(fn ($pin) => [
-            'id' => $pin->id,
-            'name' => $pin->name,
-            'address' => $pin->address,
-            'latitude' => $pin->latitude,
-            'longitude' => $pin->longitude,
-            'radius_meters' => $pin->effectiveRadiusMeters(),
-        ])->values();
-
         return response()->json([
             'success' => true,
-            'data' => $pins,
+            'data' => $this->resolveAllowedPins->mapPinsForApi($resolved['pins']),
         ]);
     }
 
@@ -422,26 +414,23 @@ class OutsourceAttendanceController
             ->withoutGlobalScopes()
             ->find($session->storeId);
 
-        if ($store === null || $store->status !== 'active' || $store->trashed()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Store is inactive.',
-                'code' => 'INACTIVE_STORE',
-            ], 422);
-        }
-
-        $assignment = OutsourceStoreAssignment::query()
+        // Primary session store is optional display context; pin allowlist enforces access.
+        $hasAssignment = OutsourceStoreAssignment::query()
             ->where('outsource_id', $outsource->id)
-            ->where('store_id', $store->id)
             ->where('status', 'active')
-            ->first();
+            ->whereNull('deleted_at')
+            ->exists();
 
-        if ($assignment === null) {
+        if (! $hasAssignment) {
             return response()->json([
                 'success' => false,
                 'message' => 'Assignment is no longer valid.',
                 'code' => 'INVALID_ASSIGNMENT',
             ], 422);
+        }
+
+        if ($store !== null && ($store->status !== 'active' || $store->trashed())) {
+            // Keep going — cross-cabang pin may still be valid on another assigned store.
         }
 
         $occurredAt = $this->resolveOccurredAt($request);
@@ -504,25 +493,13 @@ class OutsourceAttendanceController
             ], 422);
         }
 
-        $store = WorkLocation::query()
-            ->withoutGlobalScopes()
-            ->find($session->storeId);
-
-        if ($store === null || $store->status !== 'active' || $store->trashed()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Store is inactive.',
-                'code' => 'INACTIVE_STORE',
-            ], 422);
-        }
-
-        $assignment = OutsourceStoreAssignment::query()
+        $hasAssignment = OutsourceStoreAssignment::query()
             ->where('outsource_id', $outsource->id)
-            ->where('store_id', $store->id)
             ->where('status', 'active')
-            ->first();
+            ->whereNull('deleted_at')
+            ->exists();
 
-        if ($assignment === null) {
+        if (! $hasAssignment) {
             return response()->json([
                 'success' => false,
                 'message' => 'Assignment is no longer valid.',
