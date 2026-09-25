@@ -8,6 +8,7 @@ import { useDataTableSort } from '../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
 import { usePermission } from '../../features/auth/composables/usePermission'
 import { useAppToast } from '../../composables/useAppToast'
+import { firstValidationMessage } from '../../services/apiClient'
 import { fetchMonthlyRecaps } from '../../services/reports/monthlyRecapApi'
 import {
   exportMonthlyRecap,
@@ -31,6 +32,8 @@ const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportP
 const data = ref<MonthlyRecapRow[]>([])
 const actionBusyId = ref<number | null>(null)
 const generating = ref(false)
+/** Soft action/generate message — keeps the table visible (unlike hard `error`). */
+const actionError = ref('')
 const columnFilters = ref<ColumnFiltersState>([])
 const columnVisibility = ref<VisibilityState>()
 const statusFilter = ref('all')
@@ -53,8 +56,7 @@ const { sorting } = useDataTableSort(sortState, () => {
 const statusOptions = [
   { label: 'All', value: 'all' },
   { label: 'Draft', value: 'draft' },
-  { label: 'Generated', value: 'generated' },
-  { label: 'Reviewed', value: 'reviewed' },
+  { label: 'Review', value: 'review' },
   { label: 'Finalized', value: 'finalized' },
   { label: 'Exported', value: 'exported' },
 ]
@@ -76,21 +78,20 @@ const allRecapActions: AdminRowAction[] = [
 ]
 
 /**
- * State machine for monthly recap actions.
+ * State machine aligned with BE lifecycle:
+ * draft → review → finalized → exported
  *
  * draft      → review
- * generated  → review, finalize
- * reviewed   → finalize, reopen
+ * review     → finalize
  * finalized  → export, reopen
- * exported   → export (re-export), reopen
+ * exported   → (locked; reopen not supported by API yet)
  */
 function recapActionsFor(status: string): AdminRowAction[] {
   const keys: Record<string, string[]> = {
     draft:     ['review'],
-    generated: ['review', 'finalize'],
-    reviewed:  ['finalize', 'reopen'],
+    review:    ['finalize'],
     finalized: ['export', 'reopen'],
-    exported:  ['export', 'reopen'],
+    exported:  [],
   }
   const allowed = keys[status] ?? []
   return allRecapActions.filter(a => allowed.includes(a.key))
@@ -98,8 +99,7 @@ function recapActionsFor(status: string): AdminRowAction[] {
 
 const statusColor: Record<string, 'success' | 'warning' | 'info' | 'neutral' | 'error'> = {
   finalized: 'success',
-  reviewed: 'info',
-  generated: 'warning',
+  review: 'info',
   draft: 'neutral',
   exported: 'success',
 }
@@ -165,6 +165,7 @@ const ready = ref(false)
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
+  actionError.value = ''
   try {
     const params: Record<string, string | number | null | undefined> = {
       page: meta.current_page,
@@ -198,11 +199,12 @@ async function load(): Promise<void> {
 
 async function generate(): Promise<void> {
   if (!employeeId.value) {
-    error.value = 'Employee ID is required to generate a recap.'
+    actionError.value = 'Employee ID is required to generate a recap.'
+    toast.error('Generate gagal', actionError.value)
     return
   }
   generating.value = true
-  error.value = ''
+  actionError.value = ''
   try {
     await generateMonthlyRecap({
       employee_id: Number(employeeId.value),
@@ -212,9 +214,11 @@ async function generate(): Promise<void> {
     toast.success('Monthly recap generated')
     await load()
   }
-  catch {
-    error.value = 'Unable to generate the monthly recap. Please try again.'
-    toast.error('Generate failed', 'Unable to generate the monthly recap. Please try again.')
+  catch (e: unknown) {
+    const msg = firstValidationMessage(e)
+      ?? (e instanceof Error && e.message ? e.message : 'Unable to generate the monthly recap. Please try again.')
+    actionError.value = msg
+    toast.fromError(e, msg)
   }
   finally {
     generating.value = false
@@ -223,7 +227,7 @@ async function generate(): Promise<void> {
 
 async function handleRowAction(action: string, id: number): Promise<void> {
   actionBusyId.value = id
-  error.value = ''
+  actionError.value = ''
   try {
     if (action === 'review') {
       await reviewMonthlyRecap(id)
@@ -243,8 +247,11 @@ async function handleRowAction(action: string, id: number): Promise<void> {
     }
     await load()
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : 'Unable to update this monthly recap. Please try again.'
-    toast.fromError(e, 'Unable to update this monthly recap.')
+    // Keep table visible — same soft UX as work-location search 422.
+    const msg = firstValidationMessage(e)
+      ?? (e instanceof Error && e.message ? e.message : 'Unable to update this monthly recap. Please try again.')
+    actionError.value = msg
+    toast.fromError(e, msg)
   } finally {
     actionBusyId.value = null
   }
@@ -290,6 +297,19 @@ onMounted(async () => {
         </UAlert>
 
         <template v-else>
+          <UAlert
+            v-if="actionError"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            title="Action tidak valid"
+            :description="actionError"
+            class="mb-0"
+          >
+            <template #actions>
+              <UButton color="neutral" variant="ghost" size="xs" @click="actionError = ''">Dismiss</UButton>
+            </template>
+          </UAlert>
           <ReportDataToolbar :total="meta.total" :rows="data" filename="monthly-recaps" :loading="loading" />
           <DataTableToolbar
             v-model:search="search"
