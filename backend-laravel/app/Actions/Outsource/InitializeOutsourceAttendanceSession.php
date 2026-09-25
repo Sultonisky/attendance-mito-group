@@ -118,19 +118,19 @@ class InitializeOutsourceAttendanceSession
             );
         }
 
-        $this->audit->execute(
-            null,
-            'outsource.session.init',
-            $outsource,
-            null,
-            [
+        $this->audit->execute(RecordAuditAction::forOutsource(
+            outsource: $outsource,
+            action: 'outsource.session.init',
+            subject: $outsource,
+            newValues: [
                 'outsource_id' => $outsource->id,
                 'store_id' => $store->id,
                 'device_fingerprint' => $fingerprint,
             ],
-            null,
-            ['session_id' => $session->id]
-        );
+            ipAddress: $ipAddress,
+            userAgent: $userAgent,
+            metadata: ['session_id' => $session->id],
+        ));
 
         return [
             'session' => $session,

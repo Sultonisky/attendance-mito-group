@@ -4,6 +4,7 @@ namespace App\Actions\Audit;
 
 use App\DTOs\Audit\AuditRecordData;
 use App\Models\AuditLog;
+use App\Models\Outsource;
 use App\Models\User;
 use Illuminate\Http\Request;
 
@@ -88,6 +89,44 @@ class RecordAuditAction
             ipAddress: request()?->ip(),
             userAgent: request()?->userAgent(),
             metadata: [],
+        );
+    }
+
+    /**
+     * Audit context for public outsource attendance actors.
+     *
+     * Outsource personnel are not users, so actor_id stays null. Identity is
+     * carried in metadata for the audit API/UI to display instead of "System".
+     *
+     * @param  array<string, mixed>  $oldValues
+     * @param  array<string, mixed>  $newValues
+     * @param  array<string, mixed>  $metadata
+     */
+    public static function forOutsource(
+        Outsource $outsource,
+        string $action,
+        ?object $subject = null,
+        array $oldValues = [],
+        array $newValues = [],
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+        array $metadata = [],
+    ): AuditRecordData {
+        return new AuditRecordData(
+            actorId: null,
+            action: $action,
+            auditableType: $subject !== null ? $subject::class : null,
+            auditableId: $subject?->getKey(),
+            oldValues: $oldValues,
+            newValues: $newValues,
+            ipAddress: $ipAddress ?? request()?->ip(),
+            userAgent: $userAgent ?? request()?->userAgent(),
+            metadata: array_merge([
+                'actor_kind' => 'outsource',
+                'outsource_id' => $outsource->getKey(),
+                'outsource_name' => $outsource->name,
+                'outsource_code' => $outsource->outsource_code,
+            ], $metadata),
         );
     }
 }
