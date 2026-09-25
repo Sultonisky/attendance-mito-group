@@ -80,11 +80,36 @@ export async function voidPenalty(id: number, reason: string): Promise<ApiEnvelo
 }
 
 export async function generateMonthlyRecap(payload: {
-  employee_id: number
+  source?: 'employee' | 'outsource'
+  employee_id?: number
+  outsource_id?: number
   year: number
   month: number
 }): Promise<ApiEnvelope<unknown>> {
   return apiFetch<ApiEnvelope<unknown>>('/monthly-recaps/generate', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export type MonthlyRecapBulkResult = {
+  period: string
+  source: string
+  generated: number
+  skipped: number
+  failed: number
+  failures: Array<{ id: number; message: string }>
+}
+
+export async function generateMonthlyRecapBulk(payload: {
+  source: 'employee' | 'outsource'
+  year: number
+  month: number
+  force?: boolean
+  employee_id?: number
+  outsource_id?: number
+}): Promise<ApiEnvelope<MonthlyRecapBulkResult>> {
+  return apiFetch<ApiEnvelope<MonthlyRecapBulkResult>>('/monthly-recaps/generate-bulk', {
     method: 'POST',
     body: JSON.stringify(payload),
   })

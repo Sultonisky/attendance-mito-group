@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'employee_id',
+    'outsource_id',
+    'source',
     'period',
     'status',
     'summary',
@@ -18,28 +20,25 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class MonthlyRecap extends Model
 {
-    /** @use HasFactory<MonthlyRecapFactory> */
+    /** @use HasFactory<\Database\Factories\MonthlyRecapFactory> */
     use HasFactory;
 
-    /**
-     * The employee this recap belongs to.
-     */
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
     }
 
-    /**
-     * Per-type snapshot line items.
-     */
+    public function outsource(): BelongsTo
+    {
+        return $this->belongsTo(Outsource::class);
+    }
+
     public function details(): HasMany
     {
         return $this->hasMany(MonthlyRecapDetail::class);
     }
 
     /**
-     * The attributes that should be cast.
-     *
      * @return array<string, string>
      */
     protected function casts(): array

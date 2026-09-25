@@ -68,12 +68,25 @@ export type PenaltyReportRow = {
   created_at: string
 }
 
+export type MonthlyRecapSummary = {
+  scheduled_days: number
+  present_days: number
+  late_days: number
+  incomplete_days: number
+  absent_days: number
+}
+
 export type MonthlyRecapRow = {
   id: number
-  employee_id: number
+  source: 'employee' | 'outsource'
+  employee_id: number | null
+  outsource_id: number | null
+  employee_code?: string | null
+  outsource_code?: string | null
+  subject_name?: string | null
   period: string
   status: string
-  summary: Record<string, unknown> | null
+  summary: MonthlyRecapSummary | null
   details: unknown[]
   finalized_at: string | null
   exported_at: string | null

@@ -2,28 +2,20 @@
 
 namespace Tests\Unit\Domain\MonthlyRecap;
 
-use App\Domain\Leave\Engines\LeaveEngine;
 use App\Domain\MonthlyRecap\DTOs\MonthlyRecapData;
 use App\Domain\MonthlyRecap\Engines\MonthlyRecapEngine;
 use App\Domain\MonthlyRecap\Exceptions\ScheduleEngineException;
 use App\Domain\Schedule\DTOs\ScheduleResolutionData;
 use App\Domain\Schedule\Engines\ScheduleEngine;
-use App\Enums\ApprovalStatus;
-use App\Enums\PenaltyStatus;
-use App\Enums\PermissionRequestType;
 use App\Models\AttendanceRecord;
-use App\Models\AttendanceSession;
 use App\Models\Employee;
-use App\Models\LeaveRequest;
-use App\Models\LeaveType;
-use App\Models\OvertimeRecord;
-use App\Models\PenaltyRecord;
-use App\Models\PenaltyRule;
-use App\Models\PermissionRequest;
+use App\Models\Outsource;
+use App\Models\OutsourceStoreAssignment;
 use App\Models\Policy;
 use App\Models\PolicyAssignment;
 use App\Models\ScheduleAssignment;
 use App\Models\Shift;
+use App\Models\WorkLocation;
 use App\Models\WorkSchedule;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -64,7 +56,7 @@ class MonthlyRecapEngineTest extends TestCase
 
     private function engine(): MonthlyRecapEngine
     {
-        return new MonthlyRecapEngine(app(LeaveEngine::class), app(ScheduleEngine::class));
+        return new MonthlyRecapEngine(app(ScheduleEngine::class));
     }
 
     public function test_empty_month_returns_zero_counts(): void
@@ -77,16 +69,13 @@ class MonthlyRecapEngineTest extends TestCase
         $data = $this->engine()->generate($employee, $start, $end);
 
         $this->assertInstanceOf(MonthlyRecapData::class, $data);
+        $this->assertSame('employee', $data->source);
         $this->assertSame($employee->id, $data->employeeId);
         $this->assertSame(30, $data->scheduledDays);
         $this->assertSame(0, $data->presentDays);
         $this->assertSame(0, $data->lateDays);
         $this->assertSame(0, $data->incompleteDays);
         $this->assertSame(30, $data->absentDays);
-        $this->assertSame(0, $data->leaveDays);
-        $this->assertSame(0, $data->overtimeApprovedMinutes);
-        $this->assertSame(0, $data->penaltyCount);
-        $this->assertSame(0.0, $data->penaltyPoints);
     }
 
     public function test_month_boundary_leap_year_february(): void
@@ -136,14 +125,15 @@ class MonthlyRecapEngineTest extends TestCase
         $this->assertSame(1, $data->absentDays);
     }
 
-    public function test_leave_aggregation(): void
+    public function test_attendance_only_ignores_leave_and_counts_as_absent_without_record(): void
     {
         $employee = $this->makeEmployee();
         $this->makeScheduleAndPolicy($employee);
 
-        LeaveRequest::create([
+        // Leave exists but attendance-only recap does not consume LeaveEngine.
+        \App\Models\LeaveRequest::create([
             'employee_id' => $employee->id,
-            'leave_type_id' => LeaveType::factory()->create()->id,
+            'leave_type_id' => \App\Models\LeaveType::factory()->create()->id,
             'start_date' => '2026-09-01',
             'end_date' => '2026-09-05',
             'status' => 'approved',
@@ -155,108 +145,32 @@ class MonthlyRecapEngineTest extends TestCase
         $end = CarbonImmutable::create(2026, 9, 6);
         $data = $this->engine()->generate($employee, $start, $end);
 
-        $this->assertSame(5, $data->leaveDays);
         $this->assertSame(1, $data->presentDays);
+        $this->assertSame(5, $data->absentDays);
+        $this->assertCount(5, $data->details);
     }
 
-    public function test_overtime_aggregation(): void
+    public function test_outsource_calendar_aggregation(): void
     {
-        $employee = $this->makeEmployee();
-        $this->makeScheduleAndPolicy($employee);
-
-        $record = AttendanceRecord::create([
-            'employee_id' => $employee->id,
-            'attendance_date' => '2026-09-01',
-            'status' => 'present',
-        ]);
-        AttendanceSession::create([
-            'attendance_record_id' => $record->id,
-            'check_in_at' => '2026-09-01 08:00:00',
-            'check_out_at' => '2026-09-01 19:00:00',
-            'duration_minutes' => 660,
-            'status' => 'closed',
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $store = WorkLocation::factory()->create(['status' => 'active']);
+        OutsourceStoreAssignment::factory()->forOutsource($outsource)->forStore($store)->create([
+            'status' => 'active',
         ]);
 
-        OvertimeRecord::create([
-            'employee_id' => $employee->id,
-            'attendance_id' => $record->id,
-            'date' => '2026-09-01',
-            'potential_minutes' => 120,
-            'requested_minutes' => 120,
-            'approved_minutes' => 120,
-            'actual_minutes' => 120,
-            'status' => 'approved',
-        ]);
+        AttendanceRecord::factory()->forOutsource($outsource)->onDate('2026-09-01')->status('present')->create();
+        AttendanceRecord::factory()->forOutsource($outsource)->onDate('2026-09-02')->status('incomplete')->create();
 
         $start = CarbonImmutable::create(2026, 9, 1);
-        $end = CarbonImmutable::create(2026, 9, 1);
-        $data = $this->engine()->generate($employee, $start, $end);
+        $end = CarbonImmutable::create(2026, 9, 3);
+        $data = $this->engine()->generateForOutsource($outsource, $start, $end);
 
-        $this->assertSame(120, $data->overtimeApprovedMinutes);
-        $this->assertSame(120, $data->overtimePotentialMinutes);
-    }
-
-    public function test_penalty_aggregation_excludes_voided(): void
-    {
-        $employee = $this->makeEmployee();
-        $this->makeScheduleAndPolicy($employee);
-
-        $rule = PenaltyRule::create([
-            'code' => 'late_arrival',
-            'name' => 'Late Arrival',
-            'points' => 2,
-        ]);
-
-        PenaltyRecord::create([
-            'employee_id' => $employee->id,
-            'penalty_rule_id' => $rule->id,
-            'original_points' => 2,
-            'final_points' => 2,
-            'status' => PenaltyStatus::Applied->value,
-            'occurred_at' => '2026-09-01 09:00:00',
-        ]);
-
-        PenaltyRecord::create([
-            'employee_id' => $employee->id,
-            'penalty_rule_id' => $rule->id,
-            'original_points' => 1,
-            'final_points' => 0,
-            'status' => PenaltyStatus::Voided->value,
-            'occurred_at' => '2026-09-02 09:00:00',
-        ]);
-
-        $start = CarbonImmutable::create(2026, 9, 1);
-        $end = CarbonImmutable::create(2026, 9, 2);
-        $data = $this->engine()->generate($employee, $start, $end);
-
-        $this->assertSame(2.0, $data->penaltyPoints);
-        $this->assertSame(1, $data->penaltyCount);
-    }
-
-    public function test_business_trip_excluded_from_absent(): void
-    {
-        $employee = $this->makeEmployee();
-        $this->makeScheduleAndPolicy($employee);
-
-        PermissionRequest::create([
-            'employee_id' => $employee->id,
-            'permission_type' => PermissionRequestType::Business->value,
-            'status' => ApprovalStatus::Approved->value,
-            'start_at' => '2026-09-01 00:00:00',
-            'end_at' => '2026-09-01 23:59:59',
-            'reason' => 'Client visit',
-        ]);
-
-        $this->makeAttendance($employee, '2026-09-02', 'present');
-
-        $start = CarbonImmutable::create(2026, 9, 1);
-        $end = CarbonImmutable::create(2026, 9, 2);
-        $data = $this->engine()->generate($employee, $start, $end);
-
-        $this->assertSame(2, $data->scheduledDays);
-        $this->assertSame(1, $data->businessTripDays);
+        $this->assertSame('outsource', $data->source);
+        $this->assertSame($outsource->id, $data->outsourceId);
+        $this->assertSame(3, $data->scheduledDays);
         $this->assertSame(1, $data->presentDays);
-        $this->assertSame(0, $data->absentDays);
+        $this->assertSame(1, $data->incompleteDays);
+        $this->assertSame(1, $data->absentDays);
     }
 
     public function test_invalid_period_throws_exception(): void
