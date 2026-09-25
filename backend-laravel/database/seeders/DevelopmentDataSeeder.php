@@ -634,7 +634,7 @@ class DevelopmentDataSeeder extends Seeder
                 [
                     'status' => match ($index % 4) {
                         0 => 'draft',
-                        1 => 'reviewed',
+                        1 => 'review',
                         2 => 'finalized',
                         default => 'exported',
                     },
