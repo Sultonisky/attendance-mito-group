@@ -465,4 +465,71 @@ class OutsourceAttendanceTest extends TestCase
 
         $engine->checkIn($outsource, $this->makeOperationData(-6.2011, 106.8011, $store->id, null, $blocked->id));
     }
+
+    public function test_outsource_can_check_in_cabang_a_and_out_cabang_b(): void
+    {
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $storeA = $this->makeStore(-6.2, 106.8, 150);
+        $storeB = $this->makeStore(-6.3, 106.9, 150);
+        $this->makeActiveAssignment($outsource, $storeA);
+        $this->makeActiveAssignment($outsource, $storeB);
+
+        $pinA = $this->defaultPin($storeA);
+        $pinB = $this->defaultPin($storeB);
+
+        $engine = $this->makeEngine();
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 8, 0, 0, 'Asia/Jakarta');
+        $checkOutAt = CarbonImmutable::create(2026, 9, 12, 17, 0, 0, 'Asia/Jakarta');
+
+        $engine->checkIn($outsource, $this->makeOperationData(-6.2001, 106.8001, $storeA->id, $checkInAt, $pinA->id));
+        $out = $engine->checkOut($outsource, $this->makeOperationData(
+            -6.3001,
+            106.9001,
+            $storeA->id, // session primary store may still be A
+            $checkOutAt,
+            $pinB->id,
+            AttendanceEventType::CheckOut,
+        ));
+
+        $this->assertSame('present', $out->attendanceRecord->status);
+        $this->assertDatabaseHas('attendance_events', [
+            'outsource_id' => $outsource->id,
+            'work_location_pin_id' => $pinA->id,
+            'event_type' => AttendanceEventType::CheckIn->value,
+        ]);
+        $this->assertDatabaseHas('attendance_events', [
+            'outsource_id' => $outsource->id,
+            'work_location_pin_id' => $pinB->id,
+            'event_type' => AttendanceEventType::CheckOut->value,
+        ]);
+    }
+
+    public function test_outsource_cannot_check_out_on_unassigned_cabang_pin(): void
+    {
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $storeA = $this->makeStore(-6.2, 106.8, 150);
+        $storeB = $this->makeStore(-6.3, 106.9, 150);
+        $this->makeActiveAssignment($outsource, $storeA);
+        // storeB intentionally not assigned
+
+        $pinA = $this->defaultPin($storeA);
+        $pinB = $this->defaultPin($storeB);
+
+        $engine = $this->makeEngine();
+        $checkInAt = CarbonImmutable::create(2026, 9, 12, 8, 0, 0, 'Asia/Jakarta');
+        $checkOutAt = CarbonImmutable::create(2026, 9, 12, 17, 0, 0, 'Asia/Jakarta');
+
+        $engine->checkIn($outsource, $this->makeOperationData(-6.2001, 106.8001, $storeA->id, $checkInAt, $pinA->id));
+
+        $this->expectException(\App\Domain\Attendance\Exceptions\InvalidLocationException::class);
+
+        $engine->checkOut($outsource, $this->makeOperationData(
+            -6.3001,
+            106.9001,
+            $storeA->id,
+            $checkOutAt,
+            $pinB->id,
+            AttendanceEventType::CheckOut,
+        ));
+    }
 }

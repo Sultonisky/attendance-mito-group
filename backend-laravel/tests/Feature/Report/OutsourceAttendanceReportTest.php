@@ -445,12 +445,21 @@ class OutsourceAttendanceReportTest extends TestCase
         $outsource = Outsource::factory()->create();
         $this->makeActiveAssignment($outsource, $store);
 
-        $pin = \App\Models\WorkLocationPin::factory()
+        $checkInPin = \App\Models\WorkLocationPin::factory()
             ->forLocation($store)
             ->atCoordinates(-6.200123, 106.816456, 150)
             ->create([
                 'name' => 'Pin Lobby',
                 'address' => 'Jl. Sudirman No. 1',
+                'status' => 'active',
+            ]);
+
+        $checkOutPin = \App\Models\WorkLocationPin::factory()
+            ->forLocation($store)
+            ->atCoordinates(-6.210500, 106.820900, 120)
+            ->create([
+                'name' => 'Pin Gate',
+                'address' => 'Jl. Thamrin No. 5',
                 'status' => 'active',
             ]);
 
@@ -460,13 +469,27 @@ class OutsourceAttendanceReportTest extends TestCase
         \App\Models\AttendanceEvent::factory()->create([
             'employee_id' => null,
             'outsource_id' => $outsource->id,
-            'work_location_pin_id' => $pin->id,
+            'work_location_pin_id' => $checkInPin->id,
             'attendance_id' => $record->id,
             'attendance_session_id' => $session?->id,
             'event_type' => 'check_in',
             'occurred_at' => $session?->check_in_at ?? '2026-09-10 08:00:00',
             'latitude' => -6.200100,
             'longitude' => 106.816400,
+            'accuracy_meters' => 8.5,
+        ]);
+
+        \App\Models\AttendanceEvent::factory()->create([
+            'employee_id' => null,
+            'outsource_id' => $outsource->id,
+            'work_location_pin_id' => $checkOutPin->id,
+            'attendance_id' => $record->id,
+            'attendance_session_id' => $session?->id,
+            'event_type' => 'check_out',
+            'occurred_at' => $session?->check_out_at ?? '2026-09-10 16:00:00',
+            'latitude' => -6.210450,
+            'longitude' => 106.820850,
+            'accuracy_meters' => 11.0,
         ]);
 
         $response = $this->actingAs($user, 'sanctum')
@@ -476,7 +499,21 @@ class OutsourceAttendanceReportTest extends TestCase
             ->assertJsonPath('data.0.pin.name', 'Pin Lobby')
             ->assertJsonPath('data.0.pin.address', 'Jl. Sudirman No. 1')
             ->assertJsonPath('data.0.pin.latitude', -6.200123)
-            ->assertJsonPath('data.0.pin.longitude', 106.816456);
+            ->assertJsonPath('data.0.pin.longitude', 106.816456)
+            ->assertJsonPath('data.0.check_in_location.pin.name', 'Pin Lobby')
+            ->assertJsonPath('data.0.check_in_location.pin.address', 'Jl. Sudirman No. 1')
+            ->assertJsonPath('data.0.check_in_location.pin.latitude', -6.200123)
+            ->assertJsonPath('data.0.check_in_location.pin.longitude', 106.816456)
+            ->assertJsonPath('data.0.check_in_location.gps.latitude', -6.2001)
+            ->assertJsonPath('data.0.check_in_location.gps.longitude', 106.8164)
+            ->assertJsonPath('data.0.check_in_location.gps.accuracy_meters', 8.5)
+            ->assertJsonPath('data.0.check_out_location.pin.name', 'Pin Gate')
+            ->assertJsonPath('data.0.check_out_location.pin.address', 'Jl. Thamrin No. 5')
+            ->assertJsonPath('data.0.check_out_location.pin.latitude', -6.2105)
+            ->assertJsonPath('data.0.check_out_location.pin.longitude', 106.8209)
+            ->assertJsonPath('data.0.check_out_location.gps.latitude', -6.21045)
+            ->assertJsonPath('data.0.check_out_location.gps.longitude', 106.82085)
+            ->assertJsonPath('data.0.check_out_location.gps.accuracy_meters', 11);
     }
 
     // ========================
