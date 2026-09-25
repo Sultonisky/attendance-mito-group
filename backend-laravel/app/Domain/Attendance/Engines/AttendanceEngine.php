@@ -345,7 +345,6 @@ class AttendanceEngine
             $pin = $this->resolveOutsourceAllowedPins->assertPinAllowed(
                 $outsource,
                 $data->pinId,
-                $data->workLocationId,
             );
         } catch (\InvalidArgumentException $e) {
             throw new InvalidLocationException($e->getMessage(), previous: $e);

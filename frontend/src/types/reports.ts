@@ -81,6 +81,25 @@ export type MonthlyRecapRow = {
   updated_at: string | null
 }
 
+export type OutsourceAttendanceLocationPin = {
+  id: number | null
+  name: string | null
+  address: string | null
+  latitude: number | null
+  longitude: number | null
+}
+
+export type OutsourceAttendanceLocationGps = {
+  latitude: number | null
+  longitude: number | null
+  accuracy_meters: number | null
+}
+
+export type OutsourceAttendanceEventLocation = {
+  pin: OutsourceAttendanceLocationPin | null
+  gps: OutsourceAttendanceLocationGps | null
+}
+
 export type OutsourceAttendanceReportRow = {
   attendance_id: number
   outsource: {
@@ -96,13 +115,9 @@ export type OutsourceAttendanceReportRow = {
     id: number
     name: string
   } | null
-  pin: {
-    id: number | null
-    name: string | null
-    address: string | null
-    latitude: number | null
-    longitude: number | null
-  } | null
+  pin: OutsourceAttendanceLocationPin | null
+  check_in_location: OutsourceAttendanceEventLocation | null
+  check_out_location: OutsourceAttendanceEventLocation | null
   attendance_date: string
   status: string
   check_in_at: string | null

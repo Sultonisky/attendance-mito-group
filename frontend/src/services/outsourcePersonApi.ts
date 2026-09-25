@@ -1,5 +1,12 @@
 import { apiFetch } from './apiClient'
 
+export type OutsourcePersonStoreAssignment = {
+  id: number
+  name: string
+  city: { id: number; name: string } | null
+  pin_ids: number[]
+}
+
 export type OutsourcePersonRow = {
   id: number
   outsource_code: string
@@ -8,6 +15,8 @@ export type OutsourcePersonRow = {
   has_password?: boolean
   city: { id: number; name: string } | null
   store: { id: number; name: string } | null
+  stores?: OutsourcePersonStoreAssignment[]
+  store_ids?: number[]
   pin_ids?: number[]
   created_at: string | null
 }
@@ -42,6 +51,7 @@ export type OutsourcePersonPayload = {
   name: string
   password?: string | null
   store_id?: number | null
+  store_ids?: number[] | null
   pin_ids?: number[] | null
 }
 
@@ -50,6 +60,7 @@ export type UpdateOutsourcePersonPayload = {
   password?: string | null
   status?: 'active' | 'inactive'
   store_id?: number | null
+  store_ids?: number[] | null
   pin_ids?: number[] | null
 }
 

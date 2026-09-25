@@ -491,9 +491,11 @@ class DashboardKpiTest extends TestCase
                     'absent',
                     'late',
                     'on_leave',
+                    'incomplete',
                 ],
             ])
-            ->assertJsonPath('data.date', '2026-09-15');
+            ->assertJsonPath('data.date', '2026-09-15')
+            ->assertJsonPath('data.incomplete', 0);
     }
 
     public function test_dashboard_kpis_returns_integer_counts(): void
@@ -506,7 +508,7 @@ class DashboardKpiTest extends TestCase
             ->getJson('/api/v1/dashboard/kpis')
             ->assertOk();
 
-        foreach (['present', 'absent', 'late', 'on_leave'] as $field) {
+        foreach (['present', 'absent', 'late', 'on_leave', 'incomplete'] as $field) {
             $this->assertIsInt($response->json("data.{$field}"));
         }
     }
@@ -607,5 +609,48 @@ class DashboardKpiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.on_leave', 1)
             ->assertJsonPath('data.absent', 0);
+    }
+
+    public function test_outsource_kpis_split_present_incomplete_absent(): void
+    {
+        $this->freezeToday('2026-09-15');
+        $admin = $this->makeUser('ADMIN');
+
+        $store = \App\Models\WorkLocation::factory()->create(['status' => 'active']);
+
+        $presentPerson = \App\Models\Outsource::factory()->create(['status' => 'active']);
+        $incompletePerson = \App\Models\Outsource::factory()->create(['status' => 'active']);
+        $absentPerson = \App\Models\Outsource::factory()->create(['status' => 'active']);
+
+        foreach ([$presentPerson, $incompletePerson, $absentPerson] as $person) {
+            \App\Models\OutsourceStoreAssignment::factory()
+                ->forOutsource($person)
+                ->forStore($store)
+                ->create(['status' => 'active']);
+        }
+
+        AttendanceRecord::factory()->create([
+            'employee_id' => null,
+            'outsource_id' => $presentPerson->id,
+            'attendable_type' => 'outsource',
+            'attendance_date' => '2026-09-15',
+            'status' => 'present',
+        ]);
+        AttendanceRecord::factory()->create([
+            'employee_id' => null,
+            'outsource_id' => $incompletePerson->id,
+            'attendable_type' => 'outsource',
+            'attendance_date' => '2026-09-15',
+            'status' => 'incomplete',
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/v1/dashboard/kpis?source=outsource')
+            ->assertOk()
+            ->assertJsonPath('data.present', 1)
+            ->assertJsonPath('data.incomplete', 1)
+            ->assertJsonPath('data.absent', 1)
+            ->assertJsonPath('data.late', 0)
+            ->assertJsonPath('data.on_leave', 0);
     }
 }

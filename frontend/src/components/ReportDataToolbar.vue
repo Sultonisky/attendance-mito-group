@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useAppToast } from '../composables/useAppToast'
 
 export type ReportCsvColumn = {
   header: string
@@ -17,6 +18,7 @@ const props = defineProps<{
   fetchRows?: () => Promise<unknown[]> | unknown[]
 }>()
 
+const toast = useAppToast()
 const exporting = ref(false)
 
 function csvValue(value: unknown): string {
@@ -51,7 +53,11 @@ function downloadCsv(csv: string): void {
   const a = document.createElement('a')
   a.href = url
   a.download = `${props.filename}.csv`
+  a.rel = 'noopener'
+  a.style.display = 'none'
+  document.body.appendChild(a)
   a.click()
+  document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
 
@@ -60,10 +66,20 @@ async function exportCsv(): Promise<void> {
   exporting.value = true
   try {
     const source = props.fetchRows ? await props.fetchRows() : props.rows
-    if (!source.length) return
+    if (!Array.isArray(source) || !source.length) {
+      toast.error('No records to export for the current filters.')
+      return
+    }
     const csv = buildCsv(source, props.columns)
-    if (!csv) return
+    if (!csv) {
+      toast.error('Unable to build CSV from the current data.')
+      return
+    }
     downloadCsv(csv)
+    toast.success(`Exported ${source.length.toLocaleString()} records.`)
+  }
+  catch (err) {
+    toast.fromError(err, 'Unable to export CSV. Please try again.')
   }
   finally {
     exporting.value = false

@@ -45,7 +45,6 @@ const periodOptions = [
 const sourceOptions = [
   { label: 'Employee',  value: 'employee'  as DashboardSource },
   { label: 'Outsource', value: 'outsource' as DashboardSource },
-  { label: 'All',       value: 'all'       as DashboardSource },
 ]
 
 const addItems: DropdownMenuItem[][] = [[
@@ -62,9 +61,21 @@ const tableRows = ref<DashboardStaffRow[]>([])
 
 const attendanceRate = computed(() => {
   if (!kpis.value) return 0
+  if (source.value === 'outsource') {
+    const total = kpis.value.present + kpis.value.incomplete + kpis.value.absent
+    return total === 0 ? 0 : Math.round((kpis.value.present / total) * 100)
+  }
   const total = kpis.value.present + kpis.value.absent + kpis.value.late + kpis.value.on_leave
   return total === 0 ? 0 : Math.round(((kpis.value.present + kpis.value.late) / total) * 100)
 })
+
+const isOutsourceSource = computed(() => source.value === 'outsource')
+
+const kpiLoadingLabels = computed(() =>
+  isOutsourceSource.value
+    ? ['Present', 'Incomplete', 'Absent']
+    : ['Present', 'Absent', 'Late', 'On leave'],
+)
 
 const periodAverageRate = computed(() => {
   if (!chartData.value.length) return attendanceRate.value
@@ -177,6 +188,7 @@ watch(period, rebuildChart)
 
 // Source change: full reload — KPI, staff table, and trend all change.
 watch(source, () => {
+  tableStatusFilter.value = 'all'
   void load().catch(() => {})
 })
 
@@ -197,8 +209,10 @@ const xTicks = (i: number): string => {
     : format(d, 'd MMM')
 }
 
-const crosshairTemplate = (d: ChartPoint): string =>
-  `${format(d.date, period.value === 'monthly' ? 'MMM yyyy' : 'd MMM')}: ${d.value}%`
+const crosshairTemplate = (d: ChartPoint | undefined | null): string => {
+  if (!d?.date) return ''
+  return `${format(d.date, period.value === 'monthly' ? 'MMM yyyy' : 'd MMM')}: ${d.value}%`
+}
 
 const tableStatusFilter = ref('all')
 const tableSearch = ref('')
@@ -212,22 +226,32 @@ const isCompactViewport = useMediaQuery('(max-width: 767px)')
 watch(isCompactViewport, (compact) => {
   columnVisibility.value = {
     ...columnVisibility.value,
-    id: !compact,
+    code: !compact,
     email: !compact,
     location: !compact,
   }
 }, { immediate: true })
 
-const tableFilterOptions = [
-  { label: 'All', value: 'all' },
-  { label: 'Present', value: 'Present' },
-  { label: 'Late', value: 'Late' },
-  { label: 'On leave', value: 'On leave' },
-  { label: 'Absent', value: 'Absent' },
-]
+const tableFilterOptions = computed(() => {
+  if (isOutsourceSource.value) {
+    return [
+      { label: 'All', value: 'all' },
+      { label: 'Present', value: 'Present' },
+      { label: 'Incomplete', value: 'Incomplete' },
+      { label: 'Absent', value: 'Absent' },
+    ]
+  }
+  return [
+    { label: 'All', value: 'all' },
+    { label: 'Present', value: 'Present' },
+    { label: 'Late', value: 'Late' },
+    { label: 'On leave', value: 'On leave' },
+    { label: 'Absent', value: 'Absent' },
+  ]
+})
 
 const hideableColumns = [
-  { id: 'id', label: 'ID' },
+  { id: 'code', label: 'Code' },
   { id: 'name', label: 'Name' },
   { id: 'email', label: 'Email' },
   { id: 'location', label: 'Location' },
@@ -251,12 +275,13 @@ const tableUi = computed(() => ({
 
 function getStatusColor(status: DashboardStaffRow['status']): 'success' | 'warning' | 'neutral' | 'error' {
   if (status === 'Present') return 'success'
+  if (status === 'Incomplete') return 'warning'
   if (status === 'Late') return 'warning'
   if (status === 'Absent') return 'error'
   return 'neutral'
 }
 
-const tableColumns: TableColumn<DashboardStaffRow>[] = [
+const tableColumns = computed<TableColumn<DashboardStaffRow>[]>(() => [
   {
     id: 'select',
     header: ({ table: tableApi }) => h(UCheckbox, {
@@ -275,8 +300,15 @@ const tableColumns: TableColumn<DashboardStaffRow>[] = [
     enableHiding: false,
   },
   {
-    accessorKey: 'id',
-    header: ({ column }) => createSortableHeader(column, 'ID'),
+    accessorKey: 'code',
+    header: ({ column }) => createSortableHeader(
+      column,
+      isOutsourceSource.value ? 'Outsource code' : 'Employee code',
+    ),
+    cell: ({ row }) => createTruncatedText(
+      row.getValue<string>('code') || null,
+      'font-mono text-xs text-[var(--ui-text-muted)] tracking-tight',
+    ),
   },
   {
     accessorKey: 'name',
@@ -302,13 +334,19 @@ const tableColumns: TableColumn<DashboardStaffRow>[] = [
       return createStatusBadge(status, getStatusColor(status))
     },
   },
-]
+])
 
 const selectedCount = computed(() => Object.values(rowSelection.value).filter(Boolean).length)
 
-watch([tableSearch, tableStatusFilter], () => {
+watch([tableSearch, tableStatusFilter, source], () => {
   const next: ColumnFiltersState = []
-  if (tableSearch.value.trim()) next.push({ id: 'email', value: tableSearch.value.trim() })
+  const q = tableSearch.value.trim()
+  if (q) {
+    next.push({
+      id: source.value === 'outsource' ? 'name' : 'email',
+      value: q,
+    })
+  }
   if (tableStatusFilter.value !== 'all') next.push({ id: 'status', value: tableStatusFilter.value })
   columnFilters.value = next
 })
@@ -455,15 +493,43 @@ function getTableRowId(row: DashboardStaffRow): string {
         <template v-else>
 
           <!-- ── KPI STATS ────────────────────────────────────────── -->
-          <UPageGrid class="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-px">
+          <UPageGrid
+            class="gap-3 sm:gap-4 lg:gap-px"
+            :class="isOutsourceSource
+              ? 'grid-cols-1 sm:grid-cols-3'
+              : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'"
+          >
             <template v-if="loading">
               <DashboardKpiCard
-                v-for="lbl in ['Present', 'Absent', 'Late', 'On leave']"
+                v-for="lbl in kpiLoadingLabels"
                 :key="lbl"
                 :label="lbl"
                 :value="0"
                 loading
                 class="rounded-xl lg:rounded-none lg:first:rounded-l-xl lg:last:rounded-r-xl"
+              />
+            </template>
+            <template v-else-if="kpis && isOutsourceSource">
+              <DashboardKpiCard
+                label="Present"
+                :value="kpis.present"
+                icon="i-lucide-circle-check-big"
+                caption="Clock in & out complete"
+                class="rounded-xl lg:rounded-none lg:first:rounded-l-xl lg:last:rounded-r-xl hover:z-1"
+              />
+              <DashboardKpiCard
+                label="Incomplete"
+                :value="kpis.incomplete"
+                icon="i-lucide-clock"
+                caption="Open session (IN without OUT)"
+                class="rounded-xl lg:rounded-none lg:first:rounded-l-xl lg:last:rounded-r-xl hover:z-1"
+              />
+              <DashboardKpiCard
+                label="Absent"
+                :value="kpis.absent"
+                icon="i-lucide-triangle-alert"
+                caption="No attendance today"
+                class="rounded-xl lg:rounded-none lg:first:rounded-l-xl lg:last:rounded-r-xl hover:z-1"
               />
             </template>
             <template v-else-if="kpis">
@@ -532,7 +598,13 @@ function getTableRowId(row: DashboardStaffRow): string {
                 <VisLine  :x="chartX" :y="chartY" color="var(--ui-primary)" />
                 <VisArea  :x="chartX" :y="chartY" color="var(--ui-primary)" :opacity="0.1" />
                 <VisAxis  type="x" :x="chartX" :tick-format="xTicks" />
-                <VisCrosshair :x="chartX" :y="chartY" color="var(--ui-primary)" :template="crosshairTemplate" />
+                <VisCrosshair
+                  v-if="chartData.length"
+                  :x="chartX"
+                  :y="chartY"
+                  color="var(--ui-primary)"
+                  :template="crosshairTemplate"
+                />
                 <VisTooltip />
               </VisXYContainer>
             </div>
@@ -545,9 +617,10 @@ function getTableRowId(row: DashboardStaffRow): string {
             <UCard class="min-w-0" :ui="{ root: 'overflow-hidden', body: 'p-0!' }">
               <div class="border-b border-[var(--ui-border)] px-3 py-3 sm:px-5">
                 <DataTableToolbar
+                  :key="`staff-toolbar-${source}`"
                   v-model:search="tableSearch"
                   v-model:status="tableStatusFilter"
-                  search-placeholder="Filter emails..."
+                  :search-placeholder="isOutsourceSource ? 'Filter names…' : 'Filter emails…'"
                   :status-options="tableFilterOptions"
                   :display-items="displayItems"
                   :selected-count="selectedCount"

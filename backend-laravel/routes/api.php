@@ -236,6 +236,7 @@ Route::prefix('v1')->group(function () {
         // ── Outsource work locations (admin CRUD) ───────────────────────────────
         Route::prefix('outsource-work-locations')->group(function () {
             Route::get('/cities',                           [OutsourceWorkLocationController::class, 'cities'])       ->middleware('can:outsource_work_location.view');
+            Route::post('/cities',                          [OutsourceWorkLocationController::class, 'storeCity'])    ->middleware('can:outsource_work_location.create');
             Route::get('/',                                 [OutsourceWorkLocationController::class, 'index'])        ->middleware('can:outsource_work_location.view');
             Route::post('/',                                [OutsourceWorkLocationController::class, 'store'])        ->middleware('can:outsource_work_location.create');
             Route::get('/{outsourceWorkLocation}',          [OutsourceWorkLocationController::class, 'show'])         ->middleware('can:outsource_work_location.view');

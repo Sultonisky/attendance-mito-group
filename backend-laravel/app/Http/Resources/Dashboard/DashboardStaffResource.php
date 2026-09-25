@@ -15,6 +15,7 @@ class DashboardStaffResource extends JsonResource
     {
         return [
             'id' => $this->resource['id'],
+            'code' => $this->resource['code'] ?? '',
             'name' => $this->resource['name'],
             'email' => $this->resource['email'],
             'location' => $this->resource['location'],
