@@ -3,14 +3,18 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\MonthlyRecap\ExportMonthlyRecap;
+use App\Actions\MonthlyRecap\ExportMonthlyRecapsBulk;
 use App\Actions\MonthlyRecap\FinalizeMonthlyRecap;
 use App\Actions\MonthlyRecap\GenerateMonthlyRecap;
 use App\Actions\MonthlyRecap\GenerateMonthlyRecapsForPeriod;
 use App\Actions\MonthlyRecap\ReopenMonthlyRecap;
 use App\Actions\MonthlyRecap\ReviewMonthlyRecap;
+use App\Actions\MonthlyRecap\TransitionMonthlyRecapsBulk;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\GenerateMonthlyRecapBulkRequest;
-use App\Http\Requests\GenerateMonthlyRecapRequest;
+use App\Http\Requests\MonthlyRecap\ExportMonthlyRecapBulkRequest;
+use App\Http\Requests\MonthlyRecap\GenerateMonthlyRecapBulkRequest;
+use App\Http\Requests\MonthlyRecap\GenerateMonthlyRecapRequest;
+use App\Http\Requests\MonthlyRecap\TransitionMonthlyRecapBulkRequest;
 use App\Http\Resources\MonthlyRecapResource;
 use App\Models\Employee;
 use App\Models\MonthlyRecap;
@@ -28,6 +32,8 @@ class MonthlyRecapController extends Controller
         protected ReviewMonthlyRecap $reviewAction,
         protected FinalizeMonthlyRecap $finalizeAction,
         protected ExportMonthlyRecap $exportAction,
+        protected ExportMonthlyRecapsBulk $exportBulkAction,
+        protected TransitionMonthlyRecapsBulk $transitionBulkAction,
         protected ReopenMonthlyRecap $reopenAction,
     ) {}
 
@@ -219,6 +225,34 @@ class MonthlyRecapController extends Controller
         $recap->load(['details', 'employee:id,employee_code,full_name', 'outsource:id,outsource_code,name']);
 
         return (new MonthlyRecapResource($recap))->response();
+    }
+
+    public function exportBulk(ExportMonthlyRecapBulkRequest $request): JsonResponse
+    {
+        $ids = array_map('intval', $request->validated('ids'));
+        $result = $this->exportBulkAction->execute($ids, $request->user(), $request);
+
+        return response()->json([
+            'success' => true,
+            'data' => $result,
+        ]);
+    }
+
+    public function transitionBulk(TransitionMonthlyRecapBulkRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+        $ids = array_map('intval', $data['ids']);
+        $result = $this->transitionBulkAction->execute(
+            $ids,
+            (string) $data['action'],
+            $request->user(),
+            $request,
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => $result,
+        ]);
     }
 
     public function reopen(Request $request, MonthlyRecap $monthlyRecap): JsonResponse
