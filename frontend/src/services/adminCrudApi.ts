@@ -127,6 +127,43 @@ export async function exportMonthlyRecap(id: number): Promise<ApiEnvelope<unknow
   return apiFetch<ApiEnvelope<unknown>>(`/monthly-recaps/${id}/export`, { method: 'POST' })
 }
 
+export type MonthlyRecapExportBulkResult = {
+  exported: number
+  skipped: number
+  failed: number
+  failures: Array<{ id: number; message: string }>
+}
+
+export async function exportMonthlyRecapBulk(
+  ids: number[],
+): Promise<ApiEnvelope<MonthlyRecapExportBulkResult>> {
+  return apiFetch<ApiEnvelope<MonthlyRecapExportBulkResult>>('/monthly-recaps/export-bulk', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export type MonthlyRecapTransitionAction = 'review' | 'finalize' | 'export' | 'reopen'
+
+export type MonthlyRecapTransitionBulkResult = {
+  action: MonthlyRecapTransitionAction
+  from_status: string
+  updated: number
+  skipped: number
+  failed: number
+  failures: Array<{ id: number; message: string }>
+}
+
+export async function transitionMonthlyRecapBulk(
+  ids: number[],
+  action: MonthlyRecapTransitionAction,
+): Promise<ApiEnvelope<MonthlyRecapTransitionBulkResult>> {
+  return apiFetch<ApiEnvelope<MonthlyRecapTransitionBulkResult>>('/monthly-recaps/transition-bulk', {
+    method: 'POST',
+    body: JSON.stringify({ ids, action }),
+  })
+}
+
 export async function reopenMonthlyRecap(id: number): Promise<ApiEnvelope<unknown>> {
   return apiFetch<ApiEnvelope<unknown>>(`/monthly-recaps/${id}/reopen`, { method: 'POST' })
 }
