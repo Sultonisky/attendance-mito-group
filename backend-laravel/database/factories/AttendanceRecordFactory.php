@@ -27,6 +27,17 @@ class AttendanceRecordFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'employee_id' => $employee->id,
+            'outsource_id' => null,
+            'attendable_type' => 'employee',
+        ]);
+    }
+
+    public function forOutsource(\App\Models\Outsource $outsource): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'employee_id' => null,
+            'outsource_id' => $outsource->id,
+            'attendable_type' => 'outsource',
         ]);
     }
 
