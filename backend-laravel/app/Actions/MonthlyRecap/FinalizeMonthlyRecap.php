@@ -4,6 +4,7 @@ namespace App\Actions\MonthlyRecap;
 
 use App\Actions\Audit\RecordAuditAction;
 use App\Domain\MonthlyRecap\Exceptions\MonthlyRecapException;
+use App\Enums\MonthlyRecapStatus;
 use App\Models\MonthlyRecap;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -18,26 +19,30 @@ class FinalizeMonthlyRecap
 
     public function execute(MonthlyRecap $recap, User $actor, ?Request $request = null): MonthlyRecap
     {
-        if ($recap->status === 'finalized') {
+        $status = MonthlyRecapStatus::normalize($recap->status);
+
+        if ($status === MonthlyRecapStatus::Finalized->value) {
             return $recap->fresh() ?? $recap;
         }
-        if ($recap->status !== 'review') {
+        if ($status !== MonthlyRecapStatus::Review->value) {
             throw new MonthlyRecapException('Only review monthly recaps can be finalized.');
         }
 
         return DB::transaction(function () use ($recap, $actor, $request): MonthlyRecap {
             $locked = MonthlyRecap::whereKey($recap->id)->lockForUpdate()->firstOrFail();
-            if ($locked->status === 'finalized') {
+            $lockedStatus = MonthlyRecapStatus::normalize($locked->status);
+
+            if ($lockedStatus === MonthlyRecapStatus::Finalized->value) {
                 return $locked;
             }
-            if ($locked->status !== 'review') {
+            if ($lockedStatus !== MonthlyRecapStatus::Review->value) {
                 throw new MonthlyRecapException('Only review monthly recaps can be finalized.');
             }
 
             $now = CarbonImmutable::now();
             $old = ['status' => $locked->status];
             $locked->update([
-                'status' => 'finalized',
+                'status' => MonthlyRecapStatus::Finalized->value,
                 'finalized_at' => $now,
             ]);
 
@@ -46,9 +51,9 @@ class FinalizeMonthlyRecap
                 'monthly_recap.finalized',
                 $locked,
                 $old,
-                ['status' => 'finalized', 'finalized_at' => $now->toDateTimeString()],
+                ['status' => MonthlyRecapStatus::Finalized->value, 'finalized_at' => $now->toDateTimeString()],
                 $request,
-                ['employee_id' => $locked->employee_id]
+                ['employee_id' => $locked->employee_id, 'outsource_id' => $locked->outsource_id]
             );
 
             return $locked->fresh() ?? $locked;
