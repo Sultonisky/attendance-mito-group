@@ -99,7 +99,9 @@ function formatCoordinate(value: number | null | undefined): string {
   return value.toFixed(6)
 }
 
-function formatPinCoordinates(pin: OutsourceAttendanceEventLocation['pin']): string {
+function formatPinCoordinates(
+  pin: OutsourceAttendanceEventLocation['pin'] | undefined,
+): string {
   if (!pin || pin.latitude == null || pin.longitude == null) return ''
   return `${formatCoordinate(pin.latitude)}, ${formatCoordinate(pin.longitude)}`
 }
