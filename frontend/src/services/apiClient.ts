@@ -57,6 +57,17 @@ export class ApiError extends Error {
   }
 }
 
+/** First Laravel validation message, if any (422 body.errors). */
+export function firstValidationMessage(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  for (const messages of Object.values(err.errors)) {
+    if (Array.isArray(messages) && typeof messages[0] === "string" && messages[0]) {
+      return messages[0];
+    }
+  }
+  return null;
+}
+
 /**
  * Read the XSRF-TOKEN cookie set by Laravel Sanctum so mutating requests can
  * send the X-XSRF-TOKEN header. The token is never persisted anywhere; it is
