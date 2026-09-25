@@ -11,6 +11,7 @@ import { useAppToast } from '../../../composables/useAppToast'
 import {
   fetchOutsourceWorkLocations,
   fetchWorkLocationCities,
+  createWorkLocationCity,
   createWorkLocation,
   createWorkLocationPin,
   updateWorkLocationPin,
@@ -24,13 +25,18 @@ import { fetchOutsourceStores } from '../../../services/outsourceService'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
 import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../../utils/dataTable'
+import { ApiError } from '../../../services/apiClient'
 
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
 const { can } = usePermission()
 const toast = useAppToast()
 
+/** Soft filter/validation message — keeps the table visible (unlike hard `error`). */
+const filterError = ref('')
+
+const SEARCH_MAX = 255
 const data = ref<OutsourceWorkLocationRow[]>([])
-const cities = ref<{ id: number; name: string }[]>([])
+const cities = ref<{ id: number; name: string; code?: string | null }[]>([])
 const columnVisibility = ref<VisibilityState>()
 const statusTab = ref('active')
 const searchInput = ref('')
@@ -89,6 +95,13 @@ const form = reactive({
 })
 
 const formCabangs = ref<{ id: number; name: string }[]>([])
+
+const showCityModal = ref(false)
+const cityBusy = ref(false)
+const cityError = ref('')
+const cityForm = reactive({
+  name: '',
+})
 
 const showDeleteModal = ref(false)
 const deleteTarget = ref<OutsourceWorkLocationRow | null>(null)
@@ -242,6 +255,61 @@ async function loadCities(): Promise<void> {
   try { cities.value = await fetchWorkLocationCities() } catch { /* non-blocking */ }
 }
 
+function upsertCityInList(city: { id: number; name: string; code?: string | null }): void {
+  const existingIdx = cities.value.findIndex(c => c.id === city.id)
+  if (existingIdx >= 0) {
+    cities.value[existingIdx] = { id: city.id, name: city.name, code: city.code ?? null }
+  } else {
+    cities.value.push({ id: city.id, name: city.name, code: city.code ?? null })
+  }
+  cities.value.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function selectCityForForm(cityId: number): void {
+  form.city_id = String(cityId)
+  void loadFormCabangs(form.city_id)
+}
+
+function openCityModal(): void {
+  cityForm.name = ''
+  cityError.value = ''
+  showCityModal.value = true
+}
+
+async function submitCity(): Promise<void> {
+  const name = cityForm.name.trim()
+  if (!name) {
+    cityError.value = 'City name is required.'
+    return
+  }
+
+  cityBusy.value = true
+  cityError.value = ''
+  try {
+    const res = await createWorkLocationCity({ name })
+    upsertCityInList(res.data)
+    showCityModal.value = false
+    toast.success(`City “${res.data.name}” added.`)
+
+    if (!showFormModal.value) {
+      formMode.value = 'create'
+      resetForm()
+      showFormModal.value = true
+    }
+    selectCityForForm(res.data.id)
+  }
+  catch (err) {
+    if (err instanceof ApiError && err.errors?.name?.[0]) {
+      cityError.value = err.errors.name[0]
+    } else {
+      cityError.value = err instanceof Error ? err.message : 'Unable to add city.'
+    }
+  }
+  finally {
+    cityBusy.value = false
+  }
+}
+
 async function loadFormCabangs(cityId: string): Promise<void> {
   formCabangs.value = []
   form.work_location_id = ''
@@ -249,12 +317,52 @@ async function loadFormCabangs(cityId: string): Promise<void> {
   try {
     const stores = await fetchOutsourceStores(Number(cityId))
     formCabangs.value = stores.map(s => ({ id: s.id, name: s.name }))
-    if (formCabangs.value.length === 1) {
+    // OS model: one cabang per city (name matches city). Prefer that match.
+    const city = cities.value.find(c => String(c.id) === cityId)
+    const match = city
+      ? formCabangs.value.find(s => s.name.toUpperCase() === city.name.toUpperCase())
+      : null
+    if (match) {
+      form.work_location_id = String(match.id)
+    } else if (formCabangs.value.length === 1) {
       form.work_location_id = String(formCabangs.value[0].id)
     }
   } catch {
     formCabangs.value = []
   }
+}
+
+const resolvedCabangHint = computed(() => {
+  if (!form.city_id) return '—'
+  const city = cities.value.find(c => String(c.id) === form.city_id)
+  if (form.work_location_id) {
+    const cabang = formCabangs.value.find(s => String(s.id) === form.work_location_id)
+    if (cabang) return cabang.name
+  }
+  return city ? `${city.name} (akan dibuat otomatis)` : 'Auto dari kota'
+})
+
+async function resolveCabangId(): Promise<number | null> {
+  if (!form.city_id) return null
+
+  const city = cities.value.find(c => String(c.id) === form.city_id)
+  if (!city) return null
+
+  // Prefer existing city-named cabang; never invent a second cabang for the same city name.
+  const existing = formCabangs.value.find(c => c.name.toUpperCase() === city.name.toUpperCase())
+    ?? (formCabangs.value.length === 1 ? formCabangs.value[0] : null)
+  if (existing) {
+    form.work_location_id = String(existing.id)
+    return existing.id
+  }
+
+  const created = await createWorkLocation({
+    name: city.name,
+    city_id: Number(form.city_id),
+  })
+  form.work_location_id = String(created.data.id)
+  formCabangs.value = [{ id: created.data.id, name: city.name }]
+  return created.data.id
 }
 
 watch(statusTab, (value) => {
@@ -265,7 +373,18 @@ watch(statusTab, (value) => {
 })
 
 watchDebounced(searchInput, (value) => {
-  filters.search = value
+  let next = value
+  if (next.length > SEARCH_MAX) {
+    next = next.slice(0, SEARCH_MAX)
+    if (searchInput.value !== next) {
+      searchInput.value = next
+      toast.error(
+        'Search terlalu panjang',
+        `Maksimal ${SEARCH_MAX} karakter. Teks dipotong otomatis — sesuaikan lalu cari lagi.`,
+      )
+    }
+  }
+  filters.search = next
   if (!ready.value) return
   meta.current_page = 1
   load()
@@ -285,6 +404,7 @@ const ready = ref(false)
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
+  filterError.value = ''
   try {
     const res = await fetchOutsourceWorkLocations({
       search: filters.search || undefined,
@@ -298,7 +418,13 @@ async function load(): Promise<void> {
     data.value = res.data
     applyMeta(res.meta)
   } catch (err) {
-    await handleApiError(err, 'Unable to load work locations. Please try again.')
+    const kind = await handleApiError(err, 'Unable to load work locations. Please try again.')
+    if (kind === 'validation') {
+      // Keep previous rows; show toast + soft banner instead of blank "Failed to load".
+      filterError.value = error.value
+      error.value = ''
+      toast.error('Search tidak valid', filterError.value)
+    }
   } finally {
     loading.value = false
   }
@@ -313,6 +439,7 @@ function resetFilters(): void {
   filters.direction = 'asc'
   statusTab.value = 'active'
   searchInput.value = ''
+  filterError.value = ''
   meta.current_page = 1
   load()
 }
@@ -357,24 +484,6 @@ async function openEdit(row: OutsourceWorkLocationRow): Promise<void> {
     } catch { /* keep current */ }
   }
   showFormModal.value = true
-}
-
-async function resolveCabangId(): Promise<number | null> {
-  if (form.work_location_id) return Number(form.work_location_id)
-  if (!form.city_id) return null
-
-  const city = cities.value.find(c => String(c.id) === form.city_id)
-  if (!city) return null
-
-  const existing = formCabangs.value.find(c => c.name.toUpperCase() === city.name.toUpperCase())
-    ?? formCabangs.value[0]
-  if (existing) return existing.id
-
-  const created = await createWorkLocation({
-    name: city.name,
-    city_id: Number(form.city_id),
-  })
-  return created.data.id
 }
 
 async function submitForm(): Promise<void> {
@@ -506,6 +615,16 @@ onMounted(async () => {
         <template #right>
           <UButton
             v-if="can('outsource_work_location.create')"
+            color="neutral"
+            variant="outline"
+            size="sm"
+            icon="i-lucide-map-pinned"
+            @click="openCityModal"
+          >
+            Add city
+          </UButton>
+          <UButton
+            v-if="can('outsource_work_location.create')"
             color="primary"
             size="sm"
             icon="i-lucide-plus"
@@ -528,6 +647,16 @@ onMounted(async () => {
         </UAlert>
 
         <template v-else>
+          <UAlert
+            v-if="filterError"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            title="Filter / search tidak valid"
+            :description="filterError"
+            class="mb-2"
+          />
+
           <div class="flex items-center gap-2 text-sm text-muted">
             <UIcon name="i-lucide-map-pin" class="size-4 shrink-0" />
             <span>
@@ -542,6 +671,7 @@ onMounted(async () => {
             v-model:status="statusTab"
             v-model:per-page="filters.per_page"
             search-placeholder="Search cabang, address, or pin…"
+            :search-maxlength="SEARCH_MAX"
             :status-options="statusOptions"
             :display-items="displayItems"
             show-per-page
@@ -549,9 +679,9 @@ onMounted(async () => {
             <template #filters>
               <USelect
                 :model-value="toSelectId(filters.city_id)"
-                :items="[{ label: 'All cities', value: ALL }, ...cities.map(c => ({ label: c.name, value: String(c.id) }))]"
+                :items="[{ label: 'All cities/cabangs', value: ALL }, ...cities.map(c => ({ label: c.name, value: String(c.id) }))]"
                 value-key="value"
-                class="w-36"
+                class="w-44"
                 @update:model-value="(v: unknown) => { filters.city_id = fromSelectId(v) }"
               />
             </template>
@@ -581,30 +711,34 @@ onMounted(async () => {
     <template #body>
       <div class="space-y-4">
         <p class="text-sm text-muted">
-          Each row is one address/pin under a cabang (city). Default radius is 150 m.
+          Each row is one address/pin. Cabang is auto-managed as one per city
+          (same name as the city) — you only pick the city, then add the pin.
         </p>
 
         <UFormField v-if="formMode === 'create'" label="City" required>
-          <USelect
-            :model-value="toSelectId(form.city_id)"
-            :items="[{ label: 'Select city', value: ALL }, ...cities.map(c => ({ label: c.name, value: String(c.id) }))]"
-            value-key="value"
-            class="w-full"
-            @update:model-value="(v: unknown) => { form.city_id = fromSelectId(v); loadFormCabangs(form.city_id) }"
-          />
-        </UFormField>
-
-        <UFormField v-if="formMode === 'create' && form.city_id" label="Cabang">
-          <USelect
-            :model-value="toSelectId(form.work_location_id)"
-            :items="[
-              { label: formCabangs.length ? 'Auto / select cabang' : 'Will create cabang from city', value: ALL },
-              ...formCabangs.map(s => ({ label: s.name, value: String(s.id) })),
-            ]"
-            value-key="value"
-            class="w-full"
-            @update:model-value="(v: unknown) => { form.work_location_id = fromSelectId(v) }"
-          />
+          <div class="flex gap-2">
+            <USelect
+              :model-value="toSelectId(form.city_id)"
+              :items="[{ label: 'Select city', value: ALL }, ...cities.map(c => ({ label: c.name, value: String(c.id) }))]"
+              value-key="value"
+              class="min-w-0 flex-1"
+              @update:model-value="(v: unknown) => { form.city_id = fromSelectId(v); loadFormCabangs(form.city_id) }"
+            />
+            <UButton
+              v-if="can('outsource_work_location.create')"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-plus"
+              :disabled="formBusy"
+              @click="openCityModal"
+            >
+              Add
+            </UButton>
+          </div>
+          <p v-if="form.city_id" class="mt-1 text-xs text-muted">
+            Cabang:
+            <span class="text-highlighted">{{ resolvedCabangHint }}</span>
+          </p>
         </UFormField>
 
         <UFormField label="Pin name" required>
@@ -650,6 +784,32 @@ onMounted(async () => {
         <UButton color="primary" :loading="formBusy" @click="submitForm">
           {{ formMode === 'create' ? 'Add location' : 'Save changes' }}
         </UButton>
+      </div>
+    </template>
+  </UModal>
+
+  <UModal v-model:open="showCityModal" title="Add city">
+    <template #body>
+      <div class="space-y-4">
+        <p class="text-sm text-muted">
+          Create a city so it can be selected when adding a work location.
+        </p>
+        <UFormField label="City name" required>
+          <UInput
+            v-model="cityForm.name"
+            placeholder="e.g. Jakarta"
+            class="w-full"
+            :disabled="cityBusy"
+            @keyup.enter="submitCity"
+          />
+        </UFormField>
+        <UAlert v-if="cityError" color="error" variant="subtle" :description="cityError" />
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="cityBusy" @click="showCityModal = false">Cancel</UButton>
+        <UButton color="primary" :loading="cityBusy" @click="submitCity">Save city</UButton>
       </div>
     </template>
   </UModal>
