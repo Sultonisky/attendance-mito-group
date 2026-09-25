@@ -12,12 +12,13 @@ const links = computed<NavigationMenuItem[][]>(() => [
   // Primary nav
   [
     { label: 'Overview', icon: 'i-lucide-layout-grid', to: '/dashboard', exact: true },
-    canAny(['employees.view', 'attendance.view', 'leave.view', 'overtime.view', 'penalty.view']) && {
+    canAny(['employees.view', 'attendance.view', 'attendance.correction.view', 'leave.view', 'overtime.view', 'penalty.view']) && {
       label: 'Employees',
       icon: 'i-lucide-contact',
       children: [
         can('employees.view') && { label: 'Person list', icon: 'i-lucide-users', to: '/dashboard/employees', exact: true },
         can('attendance.view') && { label: 'Attendance', icon: 'i-lucide-calendar-check-2', to: '/dashboard/reports/attendance', exact: true },
+        can('attendance.correction.view') && { label: 'Corrections', icon: 'i-lucide-file-text', to: '/dashboard/reports/attendance-corrections', exact: true },
         can('leave.view') && { label: 'Leave', icon: 'i-lucide-calendar-off', to: '/dashboard/reports/leave', exact: true },
         can('overtime.view') && { label: 'Overtime', icon: 'i-lucide-clock-arrow-up', to: '/dashboard/reports/overtime', exact: true },
         can('penalty.view') && { label: 'Penalties', icon: 'i-lucide-triangle-alert', to: '/dashboard/reports/penalties', exact: true },
