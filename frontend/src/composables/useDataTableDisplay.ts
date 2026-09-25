@@ -1,4 +1,4 @@
-import { computed, type Ref } from 'vue'
+import { computed, toValue, type MaybeRefOrGetter, type Ref } from 'vue'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import type { DataTableDisplayColumn } from '../utils/dataTable'
 
@@ -6,11 +6,11 @@ import type { DataTableDisplayColumn } from '../utils/dataTable'
  * Builds the Nuxt UI "Display" dropdown checklist for column visibility.
  */
 export function useDataTableDisplay(
-  columns: DataTableDisplayColumn[],
+  columns: MaybeRefOrGetter<DataTableDisplayColumn[]>,
   columnVisibility: Ref<Record<string, boolean> | undefined>,
 ) {
   const displayItems = computed<DropdownMenuItem[]>(() =>
-    columns.map(column => ({
+    toValue(columns).map(column => ({
       label: column.label,
       type: 'checkbox' as const,
       checked: columnVisibility.value?.[column.id] !== false,
