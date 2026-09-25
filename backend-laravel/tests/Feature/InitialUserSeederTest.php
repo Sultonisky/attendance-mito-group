@@ -67,4 +67,34 @@ class InitialUserSeederTest extends TestCase
         $this->assertTrue($reginald->can('permission.view'));
         $this->assertTrue($reginald->can('audit.view'));
     }
+
+    public function test_seed_does_not_link_dashboard_users_to_employees(): void
+    {
+        // Pre-existing employee with same email/code must stay unlinked by seed.
+        \App\Models\Employee::query()->create([
+            'employee_code' => 'EMP-USER',
+            'full_name' => 'Legacy User',
+            'email' => 'user@mito.co.id',
+            'employment_status' => 'permanent',
+            'join_date' => now()->subYears(2)->toDateString(),
+            'user_id' => null,
+        ]);
+
+        $this->seed(DatabaseSeeder::class);
+        $this->seed(DatabaseSeeder::class);
+
+        $user = User::query()->where('email', 'user@mito.co.id')->first();
+        $this->assertNotNull($user);
+        $this->assertTrue($user->hasRole('USER'));
+
+        $employee = \App\Models\Employee::query()->where('employee_code', 'EMP-USER')->first();
+        $this->assertNotNull($employee);
+        $this->assertNull($employee->user_id);
+        $this->assertSame('Legacy User', $employee->full_name);
+
+        $this->assertSame(
+            0,
+            \App\Models\Employee::query()->where('user_id', $user->id)->count(),
+        );
+    }
 }

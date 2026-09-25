@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\Employee;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -44,6 +43,11 @@ class DatabaseSeeder extends Seeder
     /**
      * Initial dashboard login accounts — active in every environment.
      *
+     * These are auth/RBAC users only. They must NOT create or link
+     * `employees` rows (USER stays a plain user; ADMIN / SUPER_ADMIN are
+     * operators). Real employee↔user links belong to HR employee management
+     * or DevelopmentDataSeeder (local demo only).
+     *
      * Named operator accounts (hisar / reginald) are the production-facing
      * logins. Demo accounts (superadmin@ / admin@ / user@) remain for local
      * and QA convenience and are still safe to seed in production.
@@ -80,19 +84,6 @@ class DatabaseSeeder extends Seeder
                 $user->syncPermissions(Permission::all());
             } elseif ($dashboardUser['role'] === 'ADMIN') {
                 $user->syncPermissions([]);
-            }
-
-            if (! in_array($dashboardUser['role'], ['ADMIN', 'SUPER_ADMIN'], true)) {
-                Employee::updateOrCreate(
-                    ['user_id' => $user->id],
-                    [
-                        'employee_code' => 'EMP-'.strtoupper(strtok($dashboardUser['email'], '@')),
-                        'full_name' => $dashboardUser['name'],
-                        'email' => $dashboardUser['email'],
-                        'employment_status' => 'permanent',
-                        'join_date' => now()->subYear()->toDateString(),
-                    ],
-                );
             }
         }
     }
