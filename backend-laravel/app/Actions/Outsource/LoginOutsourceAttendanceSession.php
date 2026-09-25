@@ -2,6 +2,7 @@
 
 namespace App\Actions\Outsource;
 
+use App\Exceptions\Domain\InactiveSubjectException;
 use App\Exceptions\Domain\OutsourceDeviceBusyException;
 use App\Models\Outsource;
 use App\Models\OutsourceStoreAssignment;
@@ -43,15 +44,20 @@ class LoginOutsourceAttendanceSession
         $outsource = Outsource::query()
             ->withoutGlobalScopes()
             ->where('outsource_code', $code)
-            ->where('status', 'active')
+            ->whereNull('deleted_at')
             ->first();
 
-        if ($outsource === null || ! $outsource->isAttendanceActive()) {
+        if ($outsource === null) {
             throw new InvalidArgumentException('Invalid credentials.');
         }
 
         if ($outsource->password === null || ! Hash::check($password, $outsource->password)) {
             throw new InvalidArgumentException('Invalid credentials.');
+        }
+
+        // Only after valid credentials: tell the user the account is deactivated.
+        if (! $outsource->isAttendanceActive()) {
+            throw new InactiveSubjectException('Outsource is inactive. Contact your administrator.');
         }
 
         $assignment = OutsourceStoreAssignment::query()

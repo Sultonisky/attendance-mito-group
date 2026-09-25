@@ -11,6 +11,7 @@ use App\Actions\Outsource\CreateOutsourceAttendance;
 use App\Actions\Outsource\UpdateOutsourceAttendance;
 use App\Actions\Outsource\ResolveOutsourceOpenAttendance;
 use App\Actions\Outsource\ResolveOutsourceSession;
+use App\Exceptions\Domain\InactiveSubjectException;
 use App\Exceptions\Domain\OutsourceDeviceBusyException;
 use App\Http\Requests\Outsource\CheckInRequest;
 use App\Http\Requests\Outsource\CheckOutRequest;
@@ -130,6 +131,12 @@ class OutsourceAttendanceController
                 'message' => $e->getMessage(),
                 'code' => 'DEVICE_BUSY',
             ], 409);
+        } catch (InactiveSubjectException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => 'INACTIVE_OUTSOURCE',
+            ], 422);
         } catch (OutsourceSessionStoreUnavailableException $e) {
             return response()->json([
                 'success' => false,

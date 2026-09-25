@@ -77,6 +77,52 @@ class OutsourceLoginAndPinApiTest extends TestCase
         $response->assertJsonPath('code', 'INVALID_CREDENTIALS');
     }
 
+    public function test_login_rejects_inactive_outsource_with_specific_code(): void
+    {
+        $store = WorkLocation::factory()->create(['status' => 'active']);
+        WorkLocationPin::factory()->forLocation($store)->create(['status' => 'active']);
+        $outsource = Outsource::factory()->create([
+            'status' => 'inactive',
+            'password' => '123456',
+        ]);
+        OutsourceStoreAssignment::factory()
+            ->forOutsource($outsource)
+            ->forStore($store)
+            ->create(['status' => 'active']);
+
+        $response = $this->postJson('/api/v1/outsource/login', [
+            'outsource_code' => $outsource->outsource_code,
+            'password' => '123456',
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('code', 'INACTIVE_OUTSOURCE');
+        $response->assertJsonPath('message', 'Outsource is inactive. Contact your administrator.');
+    }
+
+    public function test_login_inactive_with_wrong_password_stays_generic(): void
+    {
+        $store = WorkLocation::factory()->create(['status' => 'active']);
+        $outsource = Outsource::factory()->create([
+            'status' => 'inactive',
+            'password' => '123456',
+        ]);
+        OutsourceStoreAssignment::factory()
+            ->forOutsource($outsource)
+            ->forStore($store)
+            ->create(['status' => 'active']);
+
+        $response = $this->postJson('/api/v1/outsource/login', [
+            'outsource_code' => $outsource->outsource_code,
+            'password' => '999999',
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('code', 'INVALID_CREDENTIALS');
+    }
+
     public function test_attendance_history_returns_own_records(): void
     {
         $city = \App\Models\City::factory()->create([
