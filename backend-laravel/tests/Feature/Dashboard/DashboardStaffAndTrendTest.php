@@ -90,6 +90,7 @@ class DashboardStaffAndTrendTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonFragment([
                 'id' => $employee->id,
+                'code' => $employee->employee_code,
                 'name' => $employee->full_name,
                 'location' => 'Jakarta',
                 'status' => 'Present',
