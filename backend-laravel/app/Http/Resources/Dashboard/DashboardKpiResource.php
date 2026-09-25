@@ -19,6 +19,7 @@ class DashboardKpiResource extends JsonResource
             'absent' => $this->resource['absent'],
             'late' => $this->resource['late'],
             'on_leave' => $this->resource['on_leave'],
+            'incomplete' => (int) ($this->resource['incomplete'] ?? 0),
         ];
     }
 }
