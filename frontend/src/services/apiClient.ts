@@ -44,16 +44,20 @@ async function notifyGlobalHttpError(response: Response): Promise<void> {
 export class ApiError extends Error {
   status: number;
   errors: Record<string, string[]>;
+  /** Machine-readable API error code when the backend provides `code`. */
+  code: string | null;
 
   constructor(
     status: number,
     message: string,
     errors: Record<string, string[]> = {},
+    code: string | null = null,
   ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.errors = errors;
+    this.code = code;
   }
 }
 
@@ -142,6 +146,7 @@ export async function apiFetch<T>(
   if (!response.ok) {
     let message = `API request failed: ${response.status}`;
     let errors: Record<string, string[]> = {};
+    let code: string | null = null;
 
     try {
       const body = await response.json();
@@ -151,12 +156,15 @@ export async function apiFetch<T>(
       if (body?.errors && typeof body.errors === "object") {
         errors = body.errors;
       }
+      if (typeof body?.code === "string" && body.code) {
+        code = body.code;
+      }
     } catch {
       // Non-JSON error body; keep the generic message.
     }
 
     await notifyGlobalHttpError(response);
-    throw new ApiError(response.status, message, errors);
+    throw new ApiError(response.status, message, errors, code);
   }
 
   if (response.status === 204) {
@@ -203,6 +211,7 @@ export async function apiFetchFormData<T>(
   if (!response.ok) {
     let message = `API request failed: ${response.status}`;
     let errors: Record<string, string[]> = {};
+    let code: string | null = null;
 
     try {
       const body = await response.json();
@@ -212,12 +221,15 @@ export async function apiFetchFormData<T>(
       if (body?.errors && typeof body.errors === "object") {
         errors = body.errors;
       }
+      if (typeof body?.code === "string" && body.code) {
+        code = body.code;
+      }
     } catch {
       // Non-JSON error body; keep the generic message.
     }
 
     await notifyGlobalHttpError(response);
-    throw new ApiError(response.status, message, errors);
+    throw new ApiError(response.status, message, errors, code);
   }
 
   if (response.status === 204) {

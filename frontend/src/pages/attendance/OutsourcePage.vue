@@ -1600,6 +1600,8 @@ async function submitLogin(): Promise<void> {
         error.value =
           err.message ||
           "Perangkat ini masih dipakai absensi personel lain. Clock-out dulu sebelum ganti orang.";
+      } else if (err.code === "INACTIVE_OUTSOURCE") {
+        error.value = "Akun nonaktif. Hubungi admin.";
       } else if (err.status === 422) {
         error.value = err.message || "Kode atau password tidak valid.";
       } else if (err.status === 429) {
@@ -2107,7 +2109,7 @@ onUnmounted(() => {
                 type="text"
                 name="outsource-code"
                 autocomplete="username"
-                placeholder="Contoh: 001"
+                placeholder="Cth: DM2026XXXX"
                 :disabled="isSubmitting"
               />
             </span>
