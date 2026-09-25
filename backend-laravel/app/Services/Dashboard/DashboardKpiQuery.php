@@ -4,6 +4,7 @@ namespace App\Services\Dashboard;
 
 use App\Models\Employee;
 use App\Models\User;
+use App\Support\AttendanceDateTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -30,7 +31,7 @@ class DashboardKpiQuery
     /**
      * Staff rows for the dashboard table (today, eligible scheduled employees).
      *
-     * @return list<array{id: int, code: string, name: string, email: string|null, location: string, status: string}>
+     * @return list<array{id: int, code: string, name: string, email: string|null, location: string, status: string, check_in_at: string|null, check_out_at: string|null}>
      */
     public function staffToday(User $user, string $source = 'employee'): array
     {
@@ -284,7 +285,7 @@ class DashboardKpiQuery
     // ──────────────────────────────────────────────────────────────────────────
 
     /**
-     * @return list<array{id: int, code: string, name: string, email: string|null, location: string, status: string}>
+     * @return list<array{id: int, code: string, name: string, email: string|null, location: string, status: string, check_in_at: string|null, check_out_at: string|null}>
      */
     private function employeeStaffToday(string $today, User $user): array
     {
@@ -311,21 +312,45 @@ class DashboardKpiQuery
             $query->where('e.id', $employeeId);
         }
 
-        return $query->get()
-            ->map(static fn ($row): array => [
-                'id'       => (int) $row->id,
-                'code'     => (string) ($row->employee_code ?? ''),
-                'name'     => (string) $row->name,
-                'email'    => $row->email,
-                'location' => (string) $row->location,
-                'status'   => (string) $row->status,
-            ])
+        $rows = $query->get();
+        $employeeIds = $rows->pluck('id')->map(static fn ($id) => (int) $id)->all();
+
+        $clockMap = collect();
+        if ($employeeIds !== []) {
+            $clockMap = DB::table('attendance_records')
+                ->select([
+                    'employee_id',
+                    DB::raw('(SELECT MIN(check_in_at) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as first_check_in'),
+                    DB::raw('(SELECT MAX(check_out_at) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as last_check_out'),
+                ])
+                ->whereIn('employee_id', $employeeIds)
+                ->whereNotNull('employee_id')
+                ->whereDate('attendance_date', '=', $today)
+                ->get()
+                ->keyBy('employee_id');
+        }
+
+        return $rows
+            ->map(static function ($row) use ($clockMap): array {
+                $clock = $clockMap->get($row->id);
+
+                return [
+                    'id' => (int) $row->id,
+                    'code' => (string) ($row->employee_code ?? ''),
+                    'name' => (string) $row->name,
+                    'email' => $row->email,
+                    'location' => (string) $row->location,
+                    'status' => (string) $row->status,
+                    'check_in_at' => AttendanceDateTime::toApi($clock?->first_check_in),
+                    'check_out_at' => AttendanceDateTime::toApi($clock?->last_check_out),
+                ];
+            })
             ->values()
             ->all();
     }
 
     /**
-     * @return list<array{id: int, code: string, name: string, email: string|null, location: string, status: string}>
+     * @return list<array{id: int, code: string, name: string, email: string|null, location: string, status: string, check_in_at: string|null, check_out_at: string|null}>
      */
     private function outsourceStaffToday(string $today): array
     {
@@ -336,7 +361,12 @@ class DashboardKpiQuery
         }
 
         $attendanceMap = DB::table('attendance_records')
-            ->select(['outsource_id', 'status'])
+            ->select([
+                'outsource_id',
+                'status',
+                DB::raw('(SELECT MIN(check_in_at) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as first_check_in'),
+                DB::raw('(SELECT MAX(check_out_at) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as last_check_out'),
+            ])
             ->whereIn('outsource_id', $eligibleIds)
             ->whereNotNull('outsource_id')
             ->where('attendable_type', 'outsource')
@@ -351,7 +381,7 @@ class DashboardKpiQuery
             ->get()
             ->map(static function ($row) use ($attendanceMap): array {
                 $attendance = $attendanceMap->get($row->id);
-                $status     = 'Absent';
+                $status = 'Absent';
 
                 if ($attendance) {
                     if ($attendance->status === 'incomplete') {
@@ -362,12 +392,14 @@ class DashboardKpiQuery
                 }
 
                 return [
-                    'id'       => (int) $row->id,
-                    'code'     => (string) ($row->outsource_code ?? ''),
-                    'name'     => (string) $row->name,
-                    'email'    => null,
+                    'id' => (int) $row->id,
+                    'code' => (string) ($row->outsource_code ?? ''),
+                    'name' => (string) $row->name,
+                    'email' => null,
                     'location' => 'Outsource',
-                    'status'   => $status,
+                    'status' => $status,
+                    'check_in_at' => AttendanceDateTime::toApi($attendance?->first_check_in),
+                    'check_out_at' => AttendanceDateTime::toApi($attendance?->last_check_out),
                 ];
             })
             ->values()
