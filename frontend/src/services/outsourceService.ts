@@ -29,6 +29,33 @@ export interface OutsourcePin {
   latitude?: number | null
   longitude?: number | null
   radius_meters?: number | null
+  work_location_id?: number | null
+  cabang_name?: string | null
+  city_id?: number | null
+  city_name?: string | null
+}
+
+export function formatOutsourcePinLabel(pin: OutsourcePin): string {
+  const place = formatCityCabangLabel(pin.city_name, pin.cabang_name)
+  if (place) return `${place} — ${pin.name}`
+  return pin.address ? `${pin.name} — ${pin.address}` : pin.name
+}
+
+/** Join kota + cabang, but show once when names are the same (OS import: 1 cabang per kota). */
+export function formatCityCabangLabel(
+  cityName?: string | null,
+  cabangName?: string | null,
+  separator = ' / ',
+): string {
+  const city = (cityName ?? '').trim()
+  const cabang = (cabangName ?? '').trim()
+  if (city && cabang) {
+    if (city.toLocaleLowerCase('id') === cabang.toLocaleLowerCase('id')) {
+      return city
+    }
+    return `${city}${separator}${cabang}`
+  }
+  return city || cabang
 }
 
 export interface OutsourceAttendanceSnapshot {
