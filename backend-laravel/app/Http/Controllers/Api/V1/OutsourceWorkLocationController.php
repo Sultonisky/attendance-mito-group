@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Actions\Outsource\CreateCity;
 use App\Actions\Outsource\CreateWorkLocation;
 use App\Actions\Outsource\DeleteWorkLocation;
 use App\Actions\Outsource\ToggleWorkLocationStatus;
 use App\Actions\Outsource\UpdateWorkLocation;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Outsource\StoreCityRequest;
 use App\Http\Requests\Outsource\StoreWorkLocationRequest;
 use App\Http\Requests\Outsource\UpdateWorkLocationRequest;
 use App\Http\Resources\Outsource\OutsourceWorkLocationPinListResource;
@@ -24,12 +26,14 @@ class OutsourceWorkLocationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'search'    => ['nullable', 'string', 'max:100'],
+            'search'    => ['nullable', 'string', 'max:255'],
             'city_id'   => ['nullable', 'integer', 'min:1'],
             'status'    => ['nullable', 'string', 'in:active,inactive,all'],
             'per_page'  => ['nullable', 'integer', 'in:10,25,50,100'],
             'sort'      => ['nullable', 'string', 'in:cabang,address,outsource_count,status,pin_name,created_at'],
             'direction' => ['nullable', 'string', 'in:asc,desc'],
+        ], [
+            'search.max' => 'Search may not exceed 255 characters. Shorten your query and try again.',
         ]);
 
         $sortDir = ($validated['direction'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
@@ -221,6 +225,20 @@ class OutsourceWorkLocationController extends Controller
             ->get(['id', 'name', 'code']);
 
         return response()->json(['success' => true, 'data' => $cities]);
+    }
+
+    public function storeCity(StoreCityRequest $request, CreateCity $action): JsonResponse
+    {
+        $city = $action->execute($request->validated(), $request->user(), $request);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $city->id,
+                'name' => $city->name,
+                'code' => $city->code,
+            ],
+        ], 201);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

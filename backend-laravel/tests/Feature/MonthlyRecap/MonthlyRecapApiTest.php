@@ -52,6 +52,7 @@ class MonthlyRecapApiTest extends TestCase
 
         MonthlyRecap::create([
             'employee_id' => $employee->id,
+            'source' => 'employee',
             'period' => '2026-09',
             'status' => 'draft',
         ]);
@@ -59,6 +60,35 @@ class MonthlyRecapApiTest extends TestCase
         $this->actingAs($user, 'sanctum')->getJson('/api/v1/monthly-recaps')
             ->assertOk()
             ->assertJsonCount(1, 'data');
+    }
+
+    public function test_admin_can_filter_by_source_outsource(): void
+    {
+        [$userA, $employeeA] = $this->makeActiveUserAndEmployee();
+        $outsource = \App\Models\Outsource::factory()->create();
+
+        MonthlyRecap::create([
+            'employee_id' => $employeeA->id,
+            'source' => 'employee',
+            'period' => '2026-09',
+            'status' => 'draft',
+        ]);
+        MonthlyRecap::create([
+            'employee_id' => null,
+            'outsource_id' => $outsource->id,
+            'source' => 'outsource',
+            'period' => '2026-09',
+            'status' => 'draft',
+        ]);
+
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo('monthly_recap.view');
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/v1/monthly-recaps?source=outsource')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.source', 'outsource');
     }
 
     public function test_admin_sees_all_recaps_with_filter(): void

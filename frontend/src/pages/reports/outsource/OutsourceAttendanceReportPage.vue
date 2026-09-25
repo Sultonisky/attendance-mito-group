@@ -24,7 +24,7 @@ import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
 import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../../utils/dataTable'
 import { formatAttendanceDateTime, toAttendanceDatetimeLocal } from '../../../utils/attendanceDateTime'
-import type { OutsourceAttendanceReportRow, OutsourceAttendanceReportFilters } from '../../../types/reports'
+import type { OutsourceAttendanceReportRow, OutsourceAttendanceReportFilters, OutsourceAttendanceEventLocation } from '../../../types/reports'
 import { defaultReportDates } from '../../../types/reportDates'
 
 const route = useRoute()
@@ -67,10 +67,10 @@ const hideableColumns = [
   { id: 'attendance_date', label: 'Date' },
   { id: 'outsource', label: 'Outsource' },
   { id: 'city', label: 'City' },
-  { id: 'address', label: 'Address' },
-  { id: 'coordinates', label: 'Coordinates' },
   { id: 'check_in_at', label: 'Clock In' },
+  { id: 'check_in_location', label: 'Clock In Location' },
   { id: 'check_out_at', label: 'Clock Out' },
+  { id: 'check_out_location', label: 'Clock Out Location' },
   { id: 'duration_minutes', label: 'Duration' },
   { id: 'status', label: 'Status' },
 ]
@@ -99,9 +99,39 @@ function formatCoordinate(value: number | null | undefined): string {
   return value.toFixed(6)
 }
 
-function formatPinCoordinates(pin: OutsourceAttendanceReportRow['pin']): string {
+function formatPinCoordinates(
+  pin: OutsourceAttendanceEventLocation['pin'] | undefined,
+): string {
   if (!pin || pin.latitude == null || pin.longitude == null) return ''
   return `${formatCoordinate(pin.latitude)}, ${formatCoordinate(pin.longitude)}`
+}
+
+function locationLines(location: OutsourceAttendanceEventLocation | null | undefined): string[] {
+  if (!location?.pin) return []
+  const lines: string[] = []
+  if (location.pin.name) lines.push(location.pin.name)
+  const pinCoords = formatPinCoordinates(location.pin)
+  if (pinCoords) lines.push(pinCoords)
+  return lines
+}
+
+function formatLocationPlain(location: OutsourceAttendanceEventLocation | null | undefined): string {
+  return locationLines(location).join(' | ')
+}
+
+function createLocationCell(location: OutsourceAttendanceEventLocation | null | undefined) {
+  const lines = locationLines(location)
+  if (!lines.length) {
+    return h('span', { class: 'text-sm text-muted' }, '—')
+  }
+  return h(
+    'div',
+    {
+      class: 'min-w-0 max-w-64 space-y-0.5 text-sm',
+      title: lines.join('\n'),
+    },
+    lines.map(line => h('div', { class: 'truncate' }, line)),
+  )
 }
 
 function asOutsourceRow(row: unknown): OutsourceAttendanceReportRow {
@@ -111,12 +141,9 @@ function asOutsourceRow(row: unknown): OutsourceAttendanceReportRow {
 /** Human-readable CSV columns (flat; Excel-friendly; overnight clock shows date). */
 const csvColumns: ReportCsvColumn[] = [
   { header: 'Date', value: row => asOutsourceRow(row).attendance_date ?? '' },
-  { header: 'Outsource Name', value: row => asOutsourceRow(row).outsource?.name ?? '' },
   { header: 'Outsource Code', value: row => asOutsourceRow(row).outsource?.code ?? '' },
+  { header: 'Outsource Name', value: row => asOutsourceRow(row).outsource?.name ?? '' },
   { header: 'City', value: row => asOutsourceRow(row).city?.name ?? '' },
-  { header: 'Address', value: row => asOutsourceRow(row).pin?.address ?? '' },
-  { header: 'Latitude', value: row => formatCoordinate(asOutsourceRow(row).pin?.latitude) },
-  { header: 'Longitude', value: row => formatCoordinate(asOutsourceRow(row).pin?.longitude) },
   {
     header: 'Clock In',
     value: (row) => {
@@ -125,11 +152,27 @@ const csvColumns: ReportCsvColumn[] = [
     },
   },
   {
+    header: 'Clock In Pin Name',
+    value: row => asOutsourceRow(row).check_in_location?.pin?.name ?? '',
+  },
+  {
+    header: 'Clock In Coordinates',
+    value: row => formatPinCoordinates(asOutsourceRow(row).check_in_location?.pin),
+  },
+  {
     header: 'Clock Out',
     value: (row) => {
       const r = asOutsourceRow(row)
       return formatAttendanceDateTime(r.check_out_at, r.attendance_date, '')
     },
+  },
+  {
+    header: 'Clock Out Pin Name',
+    value: row => asOutsourceRow(row).check_out_location?.pin?.name ?? '',
+  },
+  {
+    header: 'Clock Out Coordinates',
+    value: row => formatPinCoordinates(asOutsourceRow(row).check_out_location?.pin),
   },
   {
     header: 'Duration',
@@ -149,10 +192,16 @@ const csvFilename = computed(() =>
 )
 
 async function fetchAllRowsForExport(): Promise<OutsourceAttendanceReportRow[]> {
+  // Already have every filtered row in memory — skip re-fetch.
+  if (data.value.length > 0 && data.value.length >= meta.total) {
+    return [...data.value]
+  }
+
   try {
     const all: OutsourceAttendanceReportRow[] = []
     let page = 1
     let lastPage = 1
+    const maxPages = 200
 
     do {
       const res = await fetchOutsourceAttendanceReport({
@@ -168,10 +217,20 @@ async function fetchAllRowsForExport(): Promise<OutsourceAttendanceReportRow[]> 
         direction: filters.direction,
         page,
       })
-      all.push(...res.data)
-      lastPage = res.meta.last_page
+
+      const rows = Array.isArray(res.data) ? res.data : []
+      if (!rows.length) break
+
+      all.push(...rows)
+
+      const parsedLast = Number(res.meta?.last_page)
+      lastPage = Number.isFinite(parsedLast) && parsedLast > 0 ? parsedLast : page
+
+      // Stop if API ignored page and kept returning the same first page.
+      if (Number(res.meta?.current_page) === 1 && page > 1) break
+
       page += 1
-    } while (page <= lastPage)
+    } while (page <= lastPage && page <= maxPages)
 
     return all
   }
@@ -203,30 +262,26 @@ const columns = computed<TableColumn<OutsourceAttendanceReportRow>[]>(() => [
     cell: ({ row }) => createTruncatedText(row.original.city?.name),
   },
   {
-    id: 'address',
-    header: 'Address',
-    accessorFn: row => row.pin?.address ?? row.pin?.name ?? '',
-    cell: ({ row }) => {
-      const pin = row.original.pin
-      const label = pin?.address || pin?.name || null
-      return createTruncatedText(label)
-    },
-  },
-  {
-    id: 'coordinates',
-    header: 'Coordinates',
-    accessorFn: row => formatPinCoordinates(row.pin),
-    cell: ({ row }) => createTruncatedText(formatPinCoordinates(row.original.pin) || null),
-  },
-  {
     accessorKey: 'check_in_at',
     header: ({ column }) => createSortableHeader(column, 'Clock In'),
     cell: ({ row }) => formatAttendanceDateTime(row.getValue<string | null>('check_in_at'), row.original.attendance_date),
   },
   {
+    id: 'check_in_location',
+    header: 'Clock In Location',
+    accessorFn: row => formatLocationPlain(row.check_in_location),
+    cell: ({ row }) => createLocationCell(row.original.check_in_location),
+  },
+  {
     accessorKey: 'check_out_at',
     header: ({ column }) => createSortableHeader(column, 'Clock Out'),
     cell: ({ row }) => formatAttendanceDateTime(row.getValue<string | null>('check_out_at'), row.original.attendance_date),
+  },
+  {
+    id: 'check_out_location',
+    header: 'Clock Out Location',
+    accessorFn: row => formatLocationPlain(row.check_out_location),
+    cell: ({ row }) => createLocationCell(row.original.check_out_location),
   },
   {
     accessorKey: 'duration_minutes',
@@ -306,11 +361,20 @@ async function onCityChange() {
   if (!filters.city_id) return
   try {
     stores.value = await fetchOutsourceStores(Number(filters.city_id))
+    // OS: 1 cabang/kota — auto-select so outsource filter stays usable without a second step.
+    if (stores.value.length === 1) {
+      filters.store_id = String(stores.value[0].id)
+      await onStoreChange()
+    }
   }
   catch {
     stores.value = []
   }
 }
+
+const showCabangFilter = computed(() =>
+  Boolean(filters.city_id) && stores.value.length > 1,
+)
 
 async function onStoreChange() {
   outsources.value = []
@@ -680,17 +744,17 @@ onMounted(async () => {
             <template #filters>
               <USelect
                 :model-value="toSelectId(filters.city_id)"
-                :items="[{ label: 'All cities', value: ALL }, ...cities.map(c => ({ label: c.name, value: String(c.id) }))]"
+                :items="[{ label: 'All cities/cabangs', value: ALL }, ...cities.map(c => ({ label: c.name, value: String(c.id) }))]"
                 value-key="value"
-                class="w-36"
+                class="w-44"
                 @update:model-value="(v: unknown) => { filters.city_id = fromSelectId(v); onCityChange() }"
               />
               <USelect
+                v-if="showCabangFilter"
                 :model-value="toSelectId(filters.store_id)"
                 :items="[{ label: 'All cabangs', value: ALL }, ...stores.map(s => ({ label: s.name, value: String(s.id) }))]"
                 value-key="value"
                 class="w-36"
-                :disabled="!filters.city_id"
                 @update:model-value="(v: unknown) => { filters.store_id = fromSelectId(v); onStoreChange() }"
               />
               <USelect

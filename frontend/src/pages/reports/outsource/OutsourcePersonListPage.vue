@@ -17,7 +17,7 @@ import {
   type OutsourcePersonRow,
   type OutsourcePersonFilters,
 } from '../../../services/outsourcePersonApi'
-import { fetchOutsourceCities, fetchOutsourceStores } from '../../../services/outsourceService'
+import { fetchOutsourceCities, fetchOutsourceStores, formatCityCabangLabel } from '../../../services/outsourceService'
 import {
   fetchWorkLocationPins,
   type WorkLocationPinRow,
@@ -62,14 +62,13 @@ const statusOptions = [
 ]
 
 const hideableColumns = [
-  { id: 'outsource_code', label: 'Code'    },
-  { id: 'name',           label: 'Name'    },
-  { id: 'city',           label: 'City'    },
-  { id: 'store',          label: 'Cabang'  },
-  { id: 'pins',           label: 'Pins'    },
-  { id: 'status',         label: 'Status'  },
-  { id: 'created_at',     label: 'Joined'  },
-  { id: 'actions',        label: 'Actions' },
+  { id: 'outsource_code', label: 'Code'         },
+  { id: 'name',           label: 'Name'         },
+  { id: 'city',           label: 'City/Cabang'  },
+  { id: 'pins',           label: 'Pins'         },
+  { id: 'status',         label: 'Status'       },
+  { id: 'created_at',     label: 'Joined'       },
+  { id: 'actions',        label: 'Actions'      },
 ]
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
@@ -93,10 +92,12 @@ const form = reactive({
   password: '',
   city_id:  '' as string,
   store_id: '' as string,
+  store_ids: [] as number[],
   pin_ids:  [] as number[],
 })
 
 const formCities = ref<{ id: number; name: string }[]>([])
+const selectedStores = ref<{ id: number; name: string; city_id: number | null; city_name: string | null }[]>([])
 
 // ── Modal — delete confirm ────────────────────────────────────────────────────
 const showDeleteModal  = ref(false)
@@ -106,10 +107,18 @@ const deleteBusy       = ref(false)
 // ── Modal — view pins ─────────────────────────────────────────────────────────
 const showPinsModal = ref(false)
 const pinsTarget = ref<OutsourcePersonRow | null>(null)
-const pinsList = ref<WorkLocationPinRow[]>([])
+const pinsSections = ref<{
+  storeId: number
+  title: string
+  pins: WorkLocationPinRow[]
+}[]>([])
 const pinsLoading = ref(false)
 const pinsError = ref('')
 const pinsScopeLabel = ref('')
+
+const pinsTotalCount = computed(() =>
+  pinsSections.value.reduce((sum, section) => sum + section.pins.length, 0),
+)
 
 function formatPinRadius(meters: number | null | undefined): string {
   if (meters == null) return '150 m'
@@ -117,28 +126,58 @@ function formatPinRadius(meters: number | null | undefined): string {
   return `${meters} m`
 }
 
+function personStores(person: OutsourcePersonRow): { id: number; name: string; city?: { id: number; name: string } | null }[] {
+  if (person.stores?.length) return person.stores
+  if (person.store) {
+    return [{ id: person.store.id, name: person.store.name, city: person.city }]
+  }
+  return []
+}
+
+function formatStoresLabel(person: OutsourcePersonRow): string {
+  const stores = personStores(person)
+  if (!stores.length) return ''
+  return stores.map((s) => formatCityCabangLabel(s.city?.name, s.name) || s.name).join(', ')
+}
+
 async function openPins(person: OutsourcePersonRow): Promise<void> {
-  if (!person.store?.id) return
+  const stores = personStores(person)
+  if (!stores.length) return
 
   pinsTarget.value = person
-  pinsList.value = []
+  pinsSections.value = []
   pinsError.value = ''
   pinsScopeLabel.value = ''
   showPinsModal.value = true
   pinsLoading.value = true
 
   try {
-    const allPins = await fetchWorkLocationPins(person.store.id)
     const allowIds = person.pin_ids ?? []
-    if (allowIds.length === 0) {
-      pinsList.value = allPins.filter(p => p.status === 'active')
-      pinsScopeLabel.value = 'All active cabang pins'
+    const allowed = new Set(allowIds)
+    const sections: {
+      storeId: number
+      title: string
+      pins: WorkLocationPinRow[]
+    }[] = []
+
+    for (const store of stores) {
+      const allPins = await fetchWorkLocationPins(store.id)
+      const active = allPins.filter(p => p.status === 'active')
+      const storePins = allowIds.length === 0
+        ? active
+        : active.filter(p => allowed.has(p.id))
+      sections.push({
+        storeId: store.id,
+        title: formatCityCabangLabel(store.city?.name, store.name) || store.name,
+        pins: storePins,
+      })
     }
-    else {
-      const allowed = new Set(allowIds)
-      pinsList.value = allPins.filter(p => allowed.has(p.id))
-      pinsScopeLabel.value = `${pinsList.value.length} allowed pin${pinsList.value.length === 1 ? '' : 's'}`
-    }
+
+    pinsSections.value = sections
+    const totalPins = sections.reduce((sum, s) => sum + s.pins.length, 0)
+    pinsScopeLabel.value = allowIds.length === 0
+      ? `All active pins · ${stores.length} cabang`
+      : `${totalPins} allowed pin${totalPins === 1 ? '' : 's'} · ${stores.length} cabang`
   }
   catch (e: unknown) {
     pinsError.value = e instanceof Error ? e.message : 'Failed to load pins.'
@@ -146,6 +185,107 @@ async function openPins(person: OutsourcePersonRow): Promise<void> {
   finally {
     pinsLoading.value = false
   }
+}
+
+async function reloadFormPins(): Promise<void> {
+  formPins.value = []
+  if (!selectedStores.value.length) return
+  try {
+    const rows: WorkLocationPinRow[] = []
+    for (const store of selectedStores.value) {
+      const pins = (await fetchWorkLocationPins(store.id)).filter(p => p.status === 'active')
+      rows.push(...pins)
+    }
+    formPins.value = rows
+    const validIds = new Set(rows.map(p => p.id))
+    form.pin_ids = form.pin_ids.filter(id => validIds.has(id))
+  }
+  catch {
+    formPins.value = []
+  }
+}
+
+const formPinSections = computed(() => {
+  return selectedStores.value.map((store) => {
+    const pins = formPins.value.filter(p => p.work_location_id === store.id)
+    const selectedCount = pins.filter(p => form.pin_ids.includes(p.id)).length
+    return {
+      storeId: store.id,
+      title: formatCityCabangLabel(store.city_name, store.name) || store.name,
+      pins,
+      selectedCount,
+      allSelected: pins.length > 0 && selectedCount === pins.length,
+      needsSelection: pins.length > 0 && selectedCount === 0,
+    }
+  })
+})
+
+const pinSelectionIncomplete = computed(() =>
+  formPinSections.value.some(section => section.needsSelection),
+)
+
+const availableFormStores = computed(() =>
+  formModalStores.value.filter(s => !selectedStores.value.some(sel => sel.id === s.id)),
+)
+
+const selectedStoreAlreadyAssigned = computed(() => {
+  if (!form.store_id) return false
+  return selectedStores.value.some(s => String(s.id) === form.store_id)
+})
+
+function toggleFormPin(pinId: number): void {
+  if (form.pin_ids.includes(pinId)) {
+    form.pin_ids = form.pin_ids.filter(id => id !== pinId)
+  } else {
+    form.pin_ids = [...form.pin_ids, pinId]
+  }
+}
+
+function toggleSectionPins(storeId: number, selectAll: boolean): void {
+  const sectionPinIds = formPins.value
+    .filter(p => p.work_location_id === storeId)
+    .map(p => p.id)
+  if (selectAll) {
+    form.pin_ids = [...new Set([...form.pin_ids, ...sectionPinIds])]
+  } else {
+    const drop = new Set(sectionPinIds)
+    form.pin_ids = form.pin_ids.filter(id => !drop.has(id))
+  }
+}
+
+function addSelectedCabang(): void {
+  if (!form.store_id) return
+  const store = formModalStores.value.find(s => String(s.id) === form.store_id)
+    ?? availableFormStores.value.find(s => String(s.id) === form.store_id)
+  if (!store) {
+    formError.value = 'Cabang tidak ditemukan.'
+    return
+  }
+  if (selectedStores.value.some(s => s.id === store.id)) {
+    formError.value = `Cabang “${store.name}” sudah di-assign. Pilih cabang lain.`
+    form.store_id = ''
+    return
+  }
+  const city = formCities.value.find(c => String(c.id) === form.city_id)
+  selectedStores.value.push({
+    id: store.id,
+    name: store.name,
+    city_id: city?.id ?? null,
+    city_name: city?.name ?? null,
+  })
+  form.store_ids = selectedStores.value.map(s => s.id)
+  formError.value = ''
+  // Clear picker so it never looks like a prefilled assignment editor.
+  form.city_id = ''
+  form.store_id = ''
+  formModalStores.value = []
+  void reloadFormPins()
+}
+
+function removeSelectedCabang(storeId: number): void {
+  selectedStores.value = selectedStores.value.filter(s => s.id !== storeId)
+  form.store_ids = selectedStores.value.map(s => s.id)
+  void reloadFormPins()
 }
 
 // ── Columns ───────────────────────────────────────────────────────────────────
@@ -165,30 +305,25 @@ const columns = computed<TableColumn<OutsourcePersonRow>[]>(() => [
   },
   {
     id: 'city',
-    header: ({ column }) => createSortableHeader(column, 'City'),
-    accessorFn: (row) => row.city?.name ?? '',
-    cell: ({ row }) => createTruncatedText(row.original.city?.name),
-  },
-  {
-    id: 'store',
-    header: ({ column }) => createSortableHeader(column, 'Cabang'),
-    accessorFn: (row) => row.store?.name ?? '',
-    cell: ({ row }) => createTruncatedText(row.original.store?.name),
+    header: 'City/Cabang',
+    accessorFn: (row) => formatStoresLabel(row),
+    cell: ({ row }) => createTruncatedText(formatStoresLabel(row.original) || null),
   },
   {
     id: 'pins',
     header: 'Pins',
     cell: ({ row }) => {
       const person = row.original
-      if (!person.store) {
+      const stores = personStores(person)
+      if (!stores.length) {
         return h('span', { class: 'text-[var(--ui-text-dimmed)] text-xs' }, '—')
       }
       const ids = person.pin_ids ?? []
       const label = ids.length === 0
-        ? 'All'
+        ? `All (${stores.length})`
         : String(ids.length)
       const title = ids.length === 0
-        ? 'View all cabang pins'
+        ? `View all pins across ${stores.length} cabang`
         : `View ${ids.length} allowed pin${ids.length === 1 ? '' : 's'}`
 
       return h(resolveComponent('UButton'), {
@@ -275,40 +410,68 @@ async function onCityChange(): Promise<void> {
   stores.value = []
   filters.store_id = ''
   if (!filters.city_id) return
-  try { stores.value = await fetchOutsourceStores(Number(filters.city_id)) } catch { stores.value = [] }
+  try {
+    stores.value = await fetchOutsourceStores(Number(filters.city_id))
+    // OS: usually 1 cabang per city — no need to send store_id; city filter is enough.
+    // Keep stores only so multi-cabang cities can still refine.
+  } catch {
+    stores.value = []
+  }
 }
+
+const showCabangFilter = computed(() =>
+  Boolean(filters.city_id) && stores.value.length > 1,
+)
 
 async function onFormCityChange(): Promise<void> {
   formModalStores.value = []
   form.store_id = ''
-  form.pin_ids = []
-  formPins.value = []
+  formError.value = ''
   if (!form.city_id) return
   try {
     const raw = await fetchOutsourceStores(Number(form.city_id))
     formModalStores.value = raw.map(s => ({ id: s.id, name: s.name }))
-  } catch { formModalStores.value = [] }
-}
-
-async function onFormStoreChange(): Promise<void> {
-  form.pin_ids = []
-  formPins.value = []
-  if (!form.store_id) return
-  try {
-    formPins.value = (await fetchWorkLocationPins(Number(form.store_id)))
-      .filter(pin => pin.status === 'active')
+    // OS model: one cabang per city (name ≈ city). Auto-pick when unambiguous.
+    const city = formCities.value.find(c => String(c.id) === form.city_id)
+    const available = formModalStores.value.filter(
+      s => !selectedStores.value.some(sel => sel.id === s.id),
+    )
+    const match = city
+      ? available.find(s => s.name.toUpperCase() === city.name.toUpperCase())
+      : null
+    if (match) {
+      form.store_id = String(match.id)
+    } else if (available.length === 1) {
+      form.store_id = String(available[0].id)
+    }
+    // OS: 1 cabang/kota — auto-add so Save never creates an unassigned person by accident.
+    if (form.store_id) {
+      addSelectedCabang()
+    }
   } catch {
-    formPins.value = []
+    formModalStores.value = []
   }
 }
 
-function toggleFormPin(pinId: number): void {
-  if (form.pin_ids.includes(pinId)) {
-    form.pin_ids = form.pin_ids.filter(id => id !== pinId)
-  } else {
-    form.pin_ids = [...form.pin_ids, pinId]
+const formAddCabangHint = computed(() => {
+  if (!form.city_id) return ''
+  if (availableFormStores.value.length === 0) {
+    return formModalStores.value.length === 0
+      ? 'Belum ada cabang untuk kota ini. Buat dulu di Work locations.'
+      : 'Semua cabang kota ini sudah di-assign.'
   }
-}
+  if (form.store_id) {
+    const store = availableFormStores.value.find(s => String(s.id) === form.store_id)
+    if (store) {
+      const city = formCities.value.find(c => String(c.id) === form.city_id)
+      return formatCityCabangLabel(city?.name, store.name) || store.name
+    }
+  }
+  if (availableFormStores.value.length > 1) {
+    return 'Beberapa cabang tersedia — pilih salah satu.'
+  }
+  return ''
+})
 
 // ── Load ──────────────────────────────────────────────────────────────────────
 watch(statusTab, (value) => {
@@ -382,9 +545,11 @@ function openCreate(): void {
   form.password   = '123456'
   form.city_id    = ''
   form.store_id   = ''
+  form.store_ids  = []
   form.pin_ids    = []
   formPins.value  = []
   formModalStores.value = []
+  selectedStores.value = []
   formError.value = ''
   showPassword.value = false
   formCities.value = cities.value
@@ -396,37 +561,37 @@ async function openEdit(person: OutsourcePersonRow): Promise<void> {
   editingId.value = person.id
   form.name       = person.name
   form.password   = ''
-  form.city_id    = person.city ? String(person.city.id) : ''
-  form.store_id   = person.store ? String(person.store.id) : ''
+  form.city_id    = ''
+  form.store_id   = ''
+  const hadExplicitPins = (person.pin_ids ?? []).length > 0
   form.pin_ids    = [...(person.pin_ids ?? [])]
-  formModalStores.value = person.store
-    ? [{ id: person.store.id, name: person.store.name }]
-    : []
   formError.value = ''
   showPassword.value = false
   formCities.value = cities.value
   showFormModal.value = true
 
-  if (form.city_id) {
-    try {
-      const raw = await fetchOutsourceStores(Number(form.city_id))
-      formModalStores.value = raw.map(s => ({ id: s.id, name: s.name }))
-    } catch { /* keep existing store option */ }
-  }
-  if (form.store_id) {
-    try {
-      formPins.value = (await fetchWorkLocationPins(Number(form.store_id)))
-        .filter(pin => pin.status === 'active')
-    } catch {
-      formPins.value = []
-    }
-  } else {
-    formPins.value = []
+  const stores = personStores(person)
+  selectedStores.value = stores.map(s => ({
+    id: s.id,
+    name: s.name,
+    city_id: s.city?.id ?? null,
+    city_name: s.city?.name ?? null,
+  }))
+  form.store_ids = selectedStores.value.map(s => s.id)
+  formModalStores.value = []
+  await reloadFormPins()
+  // Legacy "all pins" (empty allowlist) → preselect so Save remains usable for name-only edits.
+  if (!hadExplicitPins && formPins.value.length > 0) {
+    form.pin_ids = formPins.value.map(p => p.id)
   }
 }
 
 async function submitForm(): Promise<void> {
   if (!form.name.trim()) { formError.value = 'Name is required.'; return }
+  if (selectedStores.value.length === 0) {
+    formError.value = 'Tambah minimal 1 kota/cabang ke daftar sebelum Save.'
+    return
+  }
   const pin = form.password.trim()
   if (formMode.value === 'create' && pin === '') {
     form.password = '123456'
@@ -436,26 +601,42 @@ async function submitForm(): Promise<void> {
     formError.value = 'PIN must be 4–8 digits.'
     return
   }
+  if (pinSelectionIncomplete.value) {
+    const missing = formPinSections.value
+      .filter(s => s.needsSelection)
+      .map(s => s.title)
+    formError.value = missing.length
+      ? `Checklist minimal 1 pin untuk: ${missing.join(', ')}.`
+      : 'Checklist minimal 1 pin untuk setiap cabang yang punya pin.'
+    return
+  }
   formBusy.value = true
   formError.value = ''
   try {
     const payload = {
-      name:     form.name.trim(),
-      store_id: form.store_id ? Number(form.store_id) : null,
-      pin_ids:  form.store_id ? form.pin_ids : [],
+      name: form.name.trim(),
+      store_ids: form.store_ids,
+      pin_ids: form.pin_ids,
       password: passwordToSend || null,
     }
     if (formMode.value === 'create') {
-      await createOutsourcePerson({
+      const created = await createOutsourcePerson({
         ...payload,
         password: passwordToSend || '123456',
       })
       toast.success('Person created', 'Outsource person saved with login PIN.')
+      // Clear location filters so the new person is visible even if another city was filtered.
+      filters.city_id = ''
+      filters.store_id = ''
+      stores.value = []
+      searchInput.value = created.data.name
+      filters.search = created.data.name
     } else if (editingId.value !== null) {
       await updateOutsourcePerson(editingId.value, payload)
       toast.success('Person updated')
     }
     showFormModal.value = false
+    meta.current_page = 1
     await load()
   } catch (e: unknown) {
     formError.value = e instanceof Error ? e.message : 'Failed to save. Please try again.'
@@ -558,17 +739,17 @@ onMounted(async () => {
             <template #filters>
               <USelect
                 :model-value="toSelectId(filters.city_id)"
-                :items="[{ label: 'All cities', value: ALL }, ...cities.map(c => ({ label: c.name, value: String(c.id) }))]"
+                :items="[{ label: 'All cities/cabangs', value: ALL }, ...cities.map(c => ({ label: c.name, value: String(c.id) }))]"
                 value-key="value"
-                class="w-36"
+                class="w-44"
                 @update:model-value="(v: unknown) => { filters.city_id = fromSelectId(v); onCityChange() }"
               />
               <USelect
+                v-if="showCabangFilter"
                 :model-value="toSelectId(filters.store_id)"
                 :items="[{ label: 'All cabangs', value: ALL }, ...stores.map(s => ({ label: s.name, value: String(s.id) }))]"
                 value-key="value"
                 class="w-36"
-                :disabled="!filters.city_id"
                 @update:model-value="(v: unknown) => { filters.store_id = fromSelectId(v) }"
               />
             </template>
@@ -599,26 +780,105 @@ onMounted(async () => {
           <UInput v-model="form.name" placeholder="Full name" class="w-full" />
         </UFormField>
 
-        <UFormField label="City">
-          <USelect
-            :model-value="toSelectId(form.city_id)"
-            :items="[{ label: 'No city', value: ALL }, ...formCities.map(c => ({ label: c.name, value: String(c.id) }))]"
-            value-key="value"
-            class="w-full"
-            @update:model-value="(v: unknown) => { form.city_id = fromSelectId(v); onFormCityChange() }"
-          />
-        </UFormField>
+        <!-- Current assignment (source of truth) -->
+        <div class="space-y-2 rounded-md border border-default p-3">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <p class="text-sm font-medium text-highlighted">Assigned cabangs</p>
+              <p class="text-xs text-muted">
+                Cabang yang sudah terpasang ke person ini. Hapus dengan tombol ×.
+              </p>
+            </div>
+            <UBadge
+              v-if="selectedStores.length"
+              size="sm"
+              color="neutral"
+              variant="subtle"
+            >
+              {{ selectedStores.length }}
+            </UBadge>
+          </div>
 
-        <UFormField label="Cabang">
-          <USelect
-            :model-value="toSelectId(form.store_id)"
-            :items="[{ label: 'No cabang', value: ALL }, ...formModalStores.map(s => ({ label: s.name, value: String(s.id) }))]"
-            value-key="value"
-            class="w-full"
-            :disabled="!form.city_id"
-            @update:model-value="(v: unknown) => { form.store_id = fromSelectId(v); onFormStoreChange() }"
-          />
-        </UFormField>
+          <div
+            v-if="!selectedStores.length"
+            class="rounded-md border border-dashed border-default px-3 py-2.5 text-sm text-muted"
+          >
+            Belum ada cabang. Tambahkan lewat form di bawah.
+          </div>
+          <div v-else class="flex flex-wrap gap-2">
+            <UBadge
+              v-for="store in selectedStores"
+              :key="store.id"
+              color="primary"
+              variant="subtle"
+              class="gap-1"
+            >
+              {{ formatCityCabangLabel(store.city_name, store.name) || store.name }}
+              <button
+                type="button"
+                class="ml-1 opacity-70 hover:opacity-100"
+                aria-label="Remove cabang"
+                @click="removeSelectedCabang(store.id)"
+              >
+                ×
+              </button>
+            </UBadge>
+          </div>
+        </div>
+
+        <!-- Add action (not a prefill of existing assignment) -->
+        <div class="space-y-3 rounded-md border border-dashed border-default p-3">
+          <div>
+            <p class="text-sm font-medium text-highlighted">Tambah kota/cabang</p>
+            <p class="text-xs text-muted">
+              Pilih kota lalu klik <strong>Tambah ke daftar</strong>.
+              Cabang di-auto (1 cabang per kota). Field ini kosong — bukan autofill yang sudah assigned.
+            </p>
+          </div>
+
+          <UFormField label="Kota (untuk menambah)">
+            <div class="flex gap-2">
+              <USelect
+                :model-value="toSelectId(form.city_id)"
+                :items="[{ label: 'Pilih kota…', value: ALL }, ...formCities.map(c => ({ label: c.name, value: String(c.id) }))]"
+                value-key="value"
+                class="min-w-0 flex-1"
+                @update:model-value="(v: unknown) => { form.city_id = fromSelectId(v); onFormCityChange() }"
+              />
+              <UButton
+                color="primary"
+                variant="soft"
+                icon="i-lucide-plus"
+                :disabled="!form.store_id || selectedStoreAlreadyAssigned"
+                @click="addSelectedCabang"
+              >
+                Tambah ke daftar
+              </UButton>
+            </div>
+            <p v-if="form.city_id && formAddCabangHint" class="mt-1 text-xs text-muted">
+              <template v-if="form.store_id && availableFormStores.length > 0">
+                Cabang: <span class="text-highlighted">{{ formAddCabangHint }}</span>
+              </template>
+              <template v-else>{{ formAddCabangHint }}</template>
+            </p>
+            <p v-if="selectedStoreAlreadyAssigned" class="mt-1 text-xs text-error">
+              Cabang ini sudah di-assign.
+            </p>
+          </UFormField>
+
+          <UFormField v-if="form.city_id && availableFormStores.length > 1" label="Cabang">
+            <USelect
+              :model-value="toSelectId(form.store_id)"
+              :items="[
+                { label: 'Pilih cabang…', value: ALL },
+                ...availableFormStores.map(s => ({ label: s.name, value: String(s.id) })),
+              ]"
+              value-key="value"
+              class="w-full"
+              @update:model-value="(v: unknown) => { form.store_id = fromSelectId(v); formError = '' }"
+            />
+          </UFormField>
+        </div>
 
         <UFormField
           :label="formMode === 'create' ? 'PIN' : 'New PIN'"
@@ -651,33 +911,69 @@ onMounted(async () => {
         </UFormField>
 
         <UFormField
-          v-if="form.store_id"
+          v-if="selectedStores.length"
           label="Allowed pins"
-          hint="Leave unchecked to allow all active pins of this cabang"
+          required
+          hint="Wajib checklist minimal 1 pin per cabang sebelum Save"
         >
           <div v-if="formPins.length === 0" class="text-sm text-muted">
-            No active pins on this cabang yet. Add pins from Cabangs.
+            No active pins on assigned cabangs yet. Add pins from Work locations.
           </div>
-          <div v-else class="max-h-48 space-y-2 overflow-y-auto rounded-md border border-default p-3">
-            <label
-              v-for="pin in formPins"
-              :key="pin.id"
-              class="flex cursor-pointer items-start gap-2 text-sm"
+          <div v-else class="max-h-72 space-y-3 overflow-y-auto rounded-md border border-default p-2">
+            <section
+              v-for="section in formPinSections"
+              :key="section.storeId"
+              class="overflow-hidden rounded-md border"
+              :class="section.needsSelection ? 'border-error' : 'border-default'"
             >
-              <UCheckbox
-                :model-value="form.pin_ids.includes(pin.id)"
-                @update:model-value="() => toggleFormPin(pin.id)"
-              />
-              <span>
-                <span class="font-medium">{{ pin.name }}</span>
-                <span class="text-muted">
-                  · {{ pin.radius_meters != null && pin.radius_meters >= 1000
-                    ? `${pin.radius_meters / 1000} km`
-                    : `${pin.radius_meters ?? 150} m` }}
-                </span>
-                <span v-if="pin.address" class="text-muted"> — {{ pin.address }}</span>
-              </span>
-            </label>
+              <div class="flex items-center justify-between gap-2 border-b border-default bg-elevated/50 px-3 py-2">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-medium text-highlighted">{{ section.title }}</p>
+                  <p class="text-[11px]" :class="section.needsSelection ? 'text-error' : 'text-muted'">
+                    <template v-if="section.needsSelection">Pilih minimal 1 pin</template>
+                    <template v-else>
+                      {{ section.pins.length }} pin{{ section.pins.length === 1 ? '' : 's' }}
+                      <span v-if="section.selectedCount"> · {{ section.selectedCount }} selected</span>
+                    </template>
+                  </p>
+                </div>
+                <UButton
+                  v-if="section.pins.length"
+                  size="xs"
+                  color="neutral"
+                  variant="ghost"
+                  :disabled="formBusy"
+                  @click="toggleSectionPins(section.storeId, !section.allSelected)"
+                >
+                  {{ section.allSelected ? 'Clear' : 'Select all' }}
+                </UButton>
+              </div>
+
+              <div v-if="section.pins.length === 0" class="px-3 py-2.5 text-xs text-muted">
+                No active pins in this cabang.
+              </div>
+              <div v-else class="space-y-2 px-3 py-2.5">
+                <label
+                  v-for="pin in section.pins"
+                  :key="pin.id"
+                  class="flex cursor-pointer items-start gap-2 text-sm"
+                >
+                  <UCheckbox
+                    :model-value="form.pin_ids.includes(pin.id)"
+                    @update:model-value="() => toggleFormPin(pin.id)"
+                  />
+                  <span>
+                    <span class="font-medium">{{ pin.name }}</span>
+                    <span class="text-muted">
+                      · {{ pin.radius_meters != null && pin.radius_meters >= 1000
+                        ? `${pin.radius_meters / 1000} km`
+                        : `${pin.radius_meters ?? 150} m` }}
+                    </span>
+                    <span v-if="pin.address" class="text-muted"> — {{ pin.address }}</span>
+                  </span>
+                </label>
+              </div>
+            </section>
           </div>
         </UFormField>
 
@@ -690,7 +986,12 @@ onMounted(async () => {
         <UButton color="neutral" variant="outline" :disabled="formBusy" @click="showFormModal = false">
           Cancel
         </UButton>
-        <UButton color="primary" :loading="formBusy" @click="submitForm">
+        <UButton
+          color="primary"
+          :loading="formBusy"
+          :disabled="formBusy || pinSelectionIncomplete"
+          @click="submitForm"
+        >
           {{ formMode === 'create' ? 'Add person' : 'Save changes' }}
         </UButton>
       </div>
@@ -728,50 +1029,70 @@ onMounted(async () => {
         <p class="text-sm text-muted">
           Allowed check-in locations for
           <strong class="text-highlighted">{{ pinsTarget?.name }}</strong>
-          <template v-if="pinsTarget?.store?.name">
-            at <strong class="text-highlighted">{{ pinsTarget.store.name }}</strong>
+          <template v-if="pinsTarget">
+            at <strong class="text-highlighted">{{ formatStoresLabel(pinsTarget) }}</strong>
           </template>.
-          <span v-if="pinsScopeLabel" class="block mt-1 text-xs">{{ pinsScopeLabel }}</span>
+          <span v-if="pinsScopeLabel" class="mt-1 block text-xs">{{ pinsScopeLabel }}</span>
         </p>
 
         <div v-if="pinsLoading" class="text-sm text-muted">Loading…</div>
         <UAlert v-else-if="pinsError" color="error" variant="subtle" :description="pinsError" />
         <div
-          v-else-if="pinsList.length === 0"
+          v-else-if="pinsSections.length === 0 || pinsTotalCount === 0"
           class="rounded-md border border-dashed border-default p-3 text-sm text-muted"
         >
           No pins available for this person.
         </div>
-        <ul v-else class="divide-y divide-default rounded-md border border-default">
-          <li
-            v-for="pin in pinsList"
-            :key="pin.id"
-            class="flex items-start justify-between gap-3 px-3 py-2.5"
+        <div v-else class="max-h-80 space-y-3 overflow-y-auto rounded-md border border-default p-2">
+          <section
+            v-for="section in pinsSections"
+            :key="section.storeId"
+            class="overflow-hidden rounded-md border border-default"
           >
-            <div class="min-w-0">
-              <p class="truncate text-sm font-medium">{{ pin.name }}</p>
-              <p v-if="pin.address" class="truncate text-xs text-muted">{{ pin.address }}</p>
-              <p
-                v-if="pin.latitude != null && pin.longitude != null"
-                class="truncate font-mono text-[11px] text-muted"
-              >
-                {{ pin.latitude }}, {{ pin.longitude }}
-              </p>
+            <div class="flex items-center justify-between gap-2 border-b border-default bg-elevated/50 px-3 py-2">
+              <div class="min-w-0">
+                <p class="truncate text-sm font-medium text-highlighted">{{ section.title }}</p>
+                <p class="text-[11px] text-muted">
+                  {{ section.pins.length }} pin{{ section.pins.length === 1 ? '' : 's' }}
+                </p>
+              </div>
             </div>
-            <div class="flex shrink-0 flex-col items-end gap-1">
-              <UBadge size="sm" variant="subtle" color="neutral">
-                {{ formatPinRadius(pin.radius_meters) }}
-              </UBadge>
-              <UBadge
-                size="sm"
-                variant="subtle"
-                :color="pin.status === 'active' ? 'success' : 'error'"
-              >
-                {{ pin.status }}
-              </UBadge>
+
+            <div v-if="section.pins.length === 0" class="px-3 py-2.5 text-xs text-muted">
+              No allowed pins in this cabang.
             </div>
-          </li>
-        </ul>
+            <ul v-else class="divide-y divide-default">
+              <li
+                v-for="pin in section.pins"
+                :key="pin.id"
+                class="flex items-start justify-between gap-3 px-3 py-2.5"
+              >
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-medium">{{ pin.name }}</p>
+                  <p v-if="pin.address" class="truncate text-xs text-muted">{{ pin.address }}</p>
+                  <p
+                    v-if="pin.latitude != null && pin.longitude != null"
+                    class="truncate font-mono text-[11px] text-muted"
+                  >
+                    {{ pin.latitude }}, {{ pin.longitude }}
+                  </p>
+                </div>
+                <div class="flex shrink-0 flex-col items-end gap-1">
+                  <UBadge size="sm" variant="subtle" color="neutral">
+                    {{ formatPinRadius(pin.radius_meters) }}
+                  </UBadge>
+                  <UBadge
+                    size="sm"
+                    variant="subtle"
+                    :color="pin.status === 'active' ? 'success' : 'error'"
+                  >
+                    {{ pin.status }}
+                  </UBadge>
+                </div>
+              </li>
+            </ul>
+          </section>
+        </div>
       </div>
     </template>
     <template #footer>

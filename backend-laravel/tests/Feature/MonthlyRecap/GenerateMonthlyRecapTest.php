@@ -103,6 +103,98 @@ class GenerateMonthlyRecapTest extends TestCase
         ])->assertOk()->assertJsonPath('data.status', 'draft');
     }
 
+    public function test_admin_can_generate_outsource_recap(): void
+    {
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo('monthly_recap.generate');
+
+        $outsource = \App\Models\Outsource::factory()->create(['status' => 'active']);
+        \App\Models\AttendanceRecord::factory()
+            ->forOutsource($outsource)
+            ->onDate('2026-09-01')
+            ->status('present')
+            ->create();
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/generate', [
+            'source' => 'outsource',
+            'outsource_id' => $outsource->id,
+            'year' => 2026,
+            'month' => 9,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'draft')
+            ->assertJsonPath('data.source', 'outsource')
+            ->assertJsonPath('data.outsource_id', $outsource->id)
+            ->assertJsonPath('data.summary.present_days', 1);
+
+        $this->assertSame(1, MonthlyRecap::where('outsource_id', $outsource->id)->where('period', '2026-09')->count());
+    }
+
+    public function test_generate_outsource_requires_outsource_id(): void
+    {
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo('monthly_recap.generate');
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/generate', [
+            'source' => 'outsource',
+            'year' => 2026,
+            'month' => 9,
+        ])->assertUnprocessable()->assertJsonValidationErrors(['outsource_id']);
+    }
+
+    public function test_admin_can_bulk_generate_all_employees_for_month(): void
+    {
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo('monthly_recap.generate');
+
+        $employeeA = $this->makeEmployee();
+        $employeeB = $this->makeEmployee();
+        $this->makeScheduleAndPolicy($employeeA);
+        $this->makeScheduleAndPolicy($employeeB);
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/generate-bulk', [
+            'source' => 'employee',
+            'year' => 2026,
+            'month' => 9,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.period', '2026-09')
+            ->assertJsonPath('data.source', 'employee')
+            ->assertJsonPath('data.generated', 2)
+            ->assertJsonPath('data.skipped', 0)
+            ->assertJsonPath('data.failed', 0);
+
+        $this->assertSame(2, MonthlyRecap::where('source', 'employee')->where('period', '2026-09')->count());
+    }
+
+    public function test_bulk_generate_skips_finalized(): void
+    {
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo(['monthly_recap.generate', 'monthly_recap.review', 'monthly_recap.finalize']);
+
+        $employee = $this->makeEmployee();
+        $this->makeScheduleAndPolicy($employee);
+
+        $recap = app(GenerateMonthlyRecap::class)->execute(
+            $employee,
+            CarbonImmutable::create(2026, 9, 1),
+            CarbonImmutable::create(2026, 9, 30),
+            $admin,
+        );
+        app(ReviewMonthlyRecap::class)->execute($recap->fresh(), $admin);
+        app(FinalizeMonthlyRecap::class)->execute($recap->fresh(), $admin);
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/generate-bulk', [
+            'source' => 'employee',
+            'year' => 2026,
+            'month' => 9,
+            'employee_id' => $employee->id,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.generated', 0)
+            ->assertJsonPath('data.skipped', 1);
+    }
+
     public function test_unauthorized_user_cannot_generate_for_others(): void
     {
         [$userA, $employeeA] = $this->makeActiveUserAndEmployee();
@@ -187,6 +279,160 @@ class GenerateMonthlyRecapTest extends TestCase
 
         $this->assertSame('review', $reopened->status);
         $this->assertNull($reopened->finalized_at);
+    }
+
+    public function test_reopen_exported_recap(): void
+    {
+        [$user, $employee] = $this->makeActiveUserAndEmployee();
+        $this->makeScheduleAndPolicy($employee);
+
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo(['monthly_recap.generate', 'monthly_recap.review', 'monthly_recap.finalize', 'monthly_recap.export']);
+
+        $recap = app(GenerateMonthlyRecap::class)->execute($employee, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $admin);
+        app(ReviewMonthlyRecap::class)->execute($recap->fresh(), $admin);
+        app(FinalizeMonthlyRecap::class)->execute($recap->fresh(), $admin);
+        $exported = app(ExportMonthlyRecap::class)->execute($recap->fresh(), $admin);
+
+        $reopened = app(ReopenMonthlyRecap::class)->execute($exported->fresh(), $admin);
+
+        $this->assertSame('review', $reopened->status);
+        $this->assertNull($reopened->finalized_at);
+        $this->assertNull($reopened->exported_at);
+    }
+
+    public function test_export_bulk_marks_finalized_and_skips_others(): void
+    {
+        [$userA, $employeeA] = $this->makeActiveUserAndEmployee();
+        [$userB, $employeeB] = $this->makeActiveUserAndEmployee();
+        $this->makeScheduleAndPolicy($employeeA);
+        $this->makeScheduleAndPolicy($employeeB);
+
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo(['monthly_recap.generate', 'monthly_recap.review', 'monthly_recap.finalize', 'monthly_recap.export']);
+
+        $recapA = app(GenerateMonthlyRecap::class)->execute($employeeA, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $admin);
+        app(ReviewMonthlyRecap::class)->execute($recapA->fresh(), $admin);
+        app(FinalizeMonthlyRecap::class)->execute($recapA->fresh(), $admin);
+
+        $recapB = app(GenerateMonthlyRecap::class)->execute($employeeB, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $admin);
+
+        $response = $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/export-bulk', [
+            'ids' => [$recapA->id, $recapB->id],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.exported', 1)
+            ->assertJsonPath('data.skipped', 1)
+            ->assertJsonPath('data.failed', 0);
+
+        $this->assertSame('exported', $recapA->fresh()->status);
+        $this->assertNotNull($recapA->fresh()->exported_at);
+        $this->assertSame('draft', $recapB->fresh()->status);
+    }
+
+    public function test_transition_bulk_reviews_same_status_drafts(): void
+    {
+        [$userA, $employeeA] = $this->makeActiveUserAndEmployee();
+        [$userB, $employeeB] = $this->makeActiveUserAndEmployee();
+        $this->makeScheduleAndPolicy($employeeA);
+        $this->makeScheduleAndPolicy($employeeB);
+
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo(['monthly_recap.generate', 'monthly_recap.review']);
+
+        $recapA = app(GenerateMonthlyRecap::class)->execute($employeeA, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $admin);
+        $recapB = app(GenerateMonthlyRecap::class)->execute($employeeB, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $admin);
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/transition-bulk', [
+            'ids' => [$recapA->id, $recapB->id],
+            'action' => 'review',
+        ])->assertOk()
+            ->assertJsonPath('data.updated', 2)
+            ->assertJsonPath('data.from_status', 'draft');
+
+        $this->assertSame('review', $recapA->fresh()->status);
+        $this->assertSame('review', $recapB->fresh()->status);
+    }
+
+    public function test_transition_bulk_rejects_mixed_statuses(): void
+    {
+        [$userA, $employeeA] = $this->makeActiveUserAndEmployee();
+        [$userB, $employeeB] = $this->makeActiveUserAndEmployee();
+        $this->makeScheduleAndPolicy($employeeA);
+        $this->makeScheduleAndPolicy($employeeB);
+
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo(['monthly_recap.generate', 'monthly_recap.review', 'monthly_recap.finalize']);
+
+        $recapA = app(GenerateMonthlyRecap::class)->execute($employeeA, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $admin);
+        $recapB = app(GenerateMonthlyRecap::class)->execute($employeeB, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $admin);
+        app(ReviewMonthlyRecap::class)->execute($recapA->fresh(), $admin);
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/transition-bulk', [
+            'ids' => [$recapA->id, $recapB->id],
+            'action' => 'finalize',
+        ])->assertStatus(422)
+            ->assertJsonFragment(['message' => 'Bulk status change requires all selected rows to have the same status. Selected statuses: review, draft.']);
+    }
+
+    public function test_transition_bulk_rejects_action_not_allowed_for_status(): void
+    {
+        [$user, $employee] = $this->makeActiveUserAndEmployee();
+        $this->makeScheduleAndPolicy($employee);
+
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo(['monthly_recap.generate', 'monthly_recap.finalize']);
+
+        $recap = app(GenerateMonthlyRecap::class)->execute($employee, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $admin);
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/transition-bulk', [
+            'ids' => [$recap->id],
+            'action' => 'finalize',
+        ])->assertStatus(422)
+            ->assertJsonFragment(['message' => 'Action "finalize" is not allowed for status "draft". Allowed source status(es): review.']);
+    }
+
+    public function test_transition_bulk_requires_permission(): void
+    {
+        [$user, $employee] = $this->makeActiveUserAndEmployee();
+        $this->makeScheduleAndPolicy($employee);
+
+        $actor = $this->makeUser('USER');
+        $actor->givePermissionTo(['monthly_recap.generate', 'monthly_recap.view']);
+
+        $recap = app(GenerateMonthlyRecap::class)->execute($employee, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $actor);
+
+        $this->actingAs($actor, 'sanctum')->postJson('/api/v1/monthly-recaps/transition-bulk', [
+            'ids' => [$recap->id],
+            'action' => 'review',
+        ])->assertForbidden();
+    }
+
+    public function test_transition_bulk_finalizes_legacy_reviewed_status(): void
+    {
+        [$userA, $employeeA] = $this->makeActiveUserAndEmployee();
+        [$userB, $employeeB] = $this->makeActiveUserAndEmployee();
+        $this->makeScheduleAndPolicy($employeeA);
+        $this->makeScheduleAndPolicy($employeeB);
+
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo(['monthly_recap.generate', 'monthly_recap.finalize']);
+
+        $recapA = app(GenerateMonthlyRecap::class)->execute($employeeA, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $admin);
+        $recapB = app(GenerateMonthlyRecap::class)->execute($employeeB, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30), $admin);
+        $recapA->update(['status' => 'reviewed']);
+        $recapB->update(['status' => 'reviewed']);
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/transition-bulk', [
+            'ids' => [$recapA->id, $recapB->id],
+            'action' => 'finalize',
+        ])->assertOk()
+            ->assertJsonPath('data.updated', 2)
+            ->assertJsonPath('data.from_status', 'review');
+
+        $this->assertSame('finalized', $recapA->fresh()->status);
+        $this->assertSame('finalized', $recapB->fresh()->status);
     }
 
     public function test_cannot_regenerate_finalized_without_reopen(): void

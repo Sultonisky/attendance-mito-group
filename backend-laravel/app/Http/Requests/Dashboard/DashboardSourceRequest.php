@@ -6,7 +6,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * Shared source filter for KPI and staff-today endpoints.
- * source: employee (default) | outsource | all
+ * source: employee (default) | outsource
  */
 class DashboardSourceRequest extends FormRequest
 {
@@ -21,7 +21,7 @@ class DashboardSourceRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'source' => ['nullable', 'string', 'in:employee,outsource,all'],
+            'source' => ['nullable', 'string', 'in:employee,outsource'],
         ];
     }
 }

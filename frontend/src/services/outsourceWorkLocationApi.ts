@@ -90,6 +90,15 @@ export async function fetchWorkLocationCities(): Promise<{ id: number; name: str
   return res.data
 }
 
+export async function createWorkLocationCity(
+  payload: { name: string; code?: string | null },
+): Promise<{ success: boolean; data: { id: number; name: string; code: string | null } }> {
+  return apiFetch('/outsource-work-locations/cities', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export async function createWorkLocation(
   payload: WorkLocationPayload,
 ): Promise<{ success: boolean; data: { id: number; name: string } }> {

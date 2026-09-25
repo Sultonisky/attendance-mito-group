@@ -6,8 +6,13 @@ use Carbon\CarbonImmutable;
 
 final readonly class MonthlyRecapData
 {
+    /**
+     * @param  list<MonthlyRecapDetailData>  $details
+     */
     public function __construct(
-        public int $employeeId,
+        public string $source,
+        public ?int $employeeId,
+        public ?int $outsourceId,
         public CarbonImmutable $periodStart,
         public CarbonImmutable $periodEnd,
         public int $scheduledDays,
@@ -15,12 +20,6 @@ final readonly class MonthlyRecapData
         public int $lateDays,
         public int $incompleteDays,
         public int $absentDays,
-        public int $leaveDays,
-        public int $businessTripDays,
-        public int $overtimeApprovedMinutes,
-        public int $overtimePotentialMinutes,
-        public float $penaltyPoints,
-        public int $penaltyCount,
         public array $details,
     ) {}
 }

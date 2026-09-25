@@ -52,4 +52,24 @@ class ResolveOutsourceAllowedPinsTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $resolver->assertPinAllowed($outsource, $pinB->id);
     }
+
+    public function test_multiple_active_assignments_return_pins_from_all_cabangs(): void
+    {
+        $storeA = WorkLocation::factory()->create(['status' => 'active', 'name' => 'Cabang A']);
+        $storeB = WorkLocation::factory()->create(['status' => 'active', 'name' => 'Cabang B']);
+        $pinA = WorkLocationPin::factory()->forLocation($storeA)->create(['name' => 'Pin A', 'status' => 'active']);
+        $pinB = WorkLocationPin::factory()->forLocation($storeB)->create(['name' => 'Pin B', 'status' => 'active']);
+
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        OutsourceStoreAssignment::factory()->forOutsource($outsource)->forStore($storeA)->create(['status' => 'active']);
+        OutsourceStoreAssignment::factory()->forOutsource($outsource)->forStore($storeB)->create(['status' => 'active']);
+
+        $resolver = app(ResolveOutsourceAllowedPins::class);
+        $resolved = $resolver->execute($outsource);
+
+        $this->assertCount(2, $resolved['assignments']);
+        $this->assertEqualsCanonicalizing([$pinA->id, $pinB->id], $resolved['pins']->pluck('id')->all());
+        $this->assertSame($pinA->id, $resolver->assertPinAllowed($outsource, $pinA->id)->id);
+        $this->assertSame($pinB->id, $resolver->assertPinAllowed($outsource, $pinB->id)->id);
+    }
 }

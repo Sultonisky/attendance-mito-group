@@ -81,6 +81,12 @@ jobs:
             "$VPS_USER@$VPS_HOST" \
             "echo SSH-OK"
 
+      # IMPORTANT (regression since PR #37):
+      # `ssh host <<EOF` + `docker compose exec` will attach the heredoc as the
+      # exec process stdin. After `artisan down`, the remainder of the deploy
+      # script is consumed as stdin and never run by the shell — Actions still
+      # exits 0, `latest` is retagged, container is NOT recreated.
+      # Fix: `bash -s` + quoted heredoc, and `</dev/null` on every compose exec.
       - name: Deploy to VPS
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -92,169 +98,166 @@ jobs:
           ssh \
             -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=yes \
-            "$VPS_USER@$VPS_HOST" << EOF
+            "$VPS_USER@$VPS_HOST" \
+            "TESTED_SHA=$(printf %q "$TESTED_SHA") VITE_API_BASE_URL=$(printf %q "$VITE_API_BASE_URL") VITE_GPS_MAX_ACCURACY_METERS=$(printf %q "$VITE_GPS_MAX_ACCURACY_METERS") bash -s" <<'EOF'
+          set -euo pipefail
 
-            set -e
+          echo "======================================"
+          echo "      MITO ATTENDANCE DEPLOY"
+          echo "      Tested commit: $TESTED_SHA"
+          echo "======================================"
 
-            echo "======================================"
-            echo "      MITO ATTENDANCE DEPLOY"
-            echo "      Tested commit: $TESTED_SHA"
-            echo "======================================"
+          echo "==> Updating source to tested commit"
+          cd /opt/attendance-src
 
-            echo "==> Updating source to tested commit"
-            cd /opt/attendance-src
+          git fetch origin main
+          git reset --hard "$TESTED_SHA"
 
-            git fetch origin main
-            git reset --hard "$TESTED_SHA"
+          echo "==> Verifying checkout"
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
 
-            echo "==> Verifying checkout"
-            test "\$(git rev-parse HEAD)" = "$TESTED_SHA"
+          echo "==> Building production image"
+          docker build \
+            --build-arg VITE_API_BASE_URL="$VITE_API_BASE_URL" \
+            --build-arg VITE_GPS_MAX_ACCURACY_METERS="$VITE_GPS_MAX_ACCURACY_METERS" \
+            -t "hris-attendance:$TESTED_SHA" \
+            -t hris-attendance:latest \
+            /opt/attendance-src
 
-            echo "==> Building production image"
-            docker build \
-              --build-arg VITE_API_BASE_URL="$VITE_API_BASE_URL" \
-              --build-arg VITE_GPS_MAX_ACCURACY_METERS="$VITE_GPS_MAX_ACCURACY_METERS" \
-              -t "hris-attendance:$TESTED_SHA" \
-              -t hris-attendance:latest \
-              /opt/attendance-src
+          echo "==> Enabling maintenance mode"
+          # storage is a bind mount — down flag survives container recreate.
+          # Do NOT call mito:maintenance on the OLD image (chicken-and-egg).
+          # </dev/null is mandatory so compose exec cannot eat the deploy script.
+          # If this script exits before "Disabling maintenance mode", prod stays
+          # DOWN on purpose. Bring it up manually:
+          #   docker compose exec -T attendance php artisan up </dev/null
+          cd /opt/attendance
+          docker compose exec -T attendance php artisan down --retry=60 </dev/null
 
-            echo "==> Enabling maintenance mode"
-            # Use native artisan down/up for deploys — always present on every image.
-            # Do NOT call mito:maintenance here: that command only exists AFTER the
-            # new image is recreated (chicken-and-egg). storage is a bind mount, so
-            # storage/framework/down survives container recreate.
-            # IMPORTANT: nginx location = /health returns 200 even while Laravel is
-            # DOWN — never treat it as proof the app is serving traffic.
-            # If this script exits before "Disabling maintenance mode", prod stays
-            # DOWN on purpose (failed deploy). Bring it up manually:
-            #   docker compose exec -T attendance php artisan up
-            cd /opt/attendance
-            docker compose exec -T attendance php artisan down --retry=60
+          echo "==> Recreating attendance container"
+          docker compose up -d \
+            --no-deps \
+            --force-recreate \
+            attendance
 
-            echo "==> Recreating attendance container"
-            docker compose up -d \
-              --no-deps \
-              --force-recreate \
-              attendance
+          echo "==> Verifying running container uses the tested image"
+          EXPECTED_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "hris-attendance:$TESTED_SHA")"
+          RUNNING_IMAGE_ID="$(docker inspect -f '{{.Image}}' hris-attendance)"
+          echo "Expected: $EXPECTED_IMAGE_ID"
+          echo "Running:  $RUNNING_IMAGE_ID"
+          if [ "$RUNNING_IMAGE_ID" != "$EXPECTED_IMAGE_ID" ]; then
+            echo "ERROR: container is still on an old image after --force-recreate."
+            docker ps --filter name=hris-attendance
+            docker compose images attendance || true
+            exit 1
+          fi
+          echo "Container image matches tested commit $TESTED_SHA."
 
-            echo "==> Verifying running container uses the tested image"
-            EXPECTED_IMAGE_ID="\$(docker image inspect -f '{{.Id}}' "hris-attendance:$TESTED_SHA")"
-            RUNNING_IMAGE_ID="\$(docker inspect -f '{{.Image}}' hris-attendance)"
-            echo "Expected: \$EXPECTED_IMAGE_ID"
-            echo "Running:  \$RUNNING_IMAGE_ID"
-            if [ "\$RUNNING_IMAGE_ID" != "\$EXPECTED_IMAGE_ID" ]; then
-              echo "ERROR: container is still on an old image after --force-recreate."
-              docker ps --filter name=hris-attendance
-              docker compose images attendance || true
+          echo "==> Waiting for artisan inside container"
+          for i in $(seq 1 24); do
+            if docker compose exec -T attendance php artisan about </dev/null > /dev/null 2>&1; then
+              echo "Artisan ready (attempt $i)."
+              break
+            fi
+            if [ "$i" -eq 24 ]; then
+              echo "Artisan NOT ready after 24 attempts."
+              docker compose logs --tail=100 attendance
               exit 1
             fi
-            echo "Container image matches tested commit $TESTED_SHA."
+            sleep 5
+          done
 
-            echo "==> Waiting for artisan inside container"
-            for i in \$(seq 1 24); do
-              if docker compose exec -T attendance php artisan about > /dev/null 2>&1; then
-                echo "Artisan ready (attempt \$i)."
-                break
-              fi
-              if [ "\$i" -eq 24 ]; then
-                echo "Artisan NOT ready after 24 attempts."
-                docker compose logs --tail=100 attendance
-                exit 1
-              fi
-              sleep 5
-            done
+          echo "==> Verifying mito:maintenance shipped in this image"
+          if docker compose exec -T attendance \
+            test -f /var/www/html/app/Console/Commands/MitoMaintenanceCommand.php </dev/null \
+            && docker compose exec -T attendance php artisan list mito </dev/null > /dev/null 2>&1; then
+            echo "mito:maintenance is registered."
+          else
+            echo "WARNING: mito:maintenance missing from image — deploy continues with native artisan up/down only."
+          fi
 
-            echo "==> Verifying mito:maintenance shipped in this image"
-            if docker compose exec -T attendance \
-              test -f /var/www/html/app/Console/Commands/MitoMaintenanceCommand.php \
-              && docker compose exec -T attendance php artisan list mito > /dev/null 2>&1; then
-              echo "mito:maintenance is registered."
-            else
-              echo "WARNING: mito:maintenance missing from image — deploy continues with native artisan up/down only."
+          echo "==> Verifying seed data files in image"
+          docker compose exec -T attendance \
+            test -f /opt/seed-data/stores.json </dev/null
+
+          echo "==> Running database migrations"
+          docker compose exec -T attendance \
+            php artisan migrate --force </dev/null
+
+          echo "==> Seeding roles, permissions and initial dashboard users (idempotent)"
+          # Full DatabaseSeeder: RBAC baseline + initial dashboard accounts
+          # (hisar.hesti@ ADMIN, reginald.hirawan@ SUPER_ADMIN, plus demo
+          # superadmin@ / admin@ / user@mito.co.id). Dummy demo data
+          # (DevelopmentDataSeeder) is skipped outside APP_ENV=local.
+          # Set SEED_USER_PASSWORD in the container .env to override the
+          # default seeded password.
+          docker compose exec -T attendance \
+            php artisan db:seed --force </dev/null
+
+          echo "==> Importing outsource cabang + pins from stores.json (idempotent)"
+          docker compose exec -T attendance \
+            php artisan outsource:import /opt/seed-data/stores.json \
+              --require-min=1 \
+              --require-min-cabangs=1 \
+              --require-min-pins=1 \
+              --allow-partial </dev/null
+
+          echo "==> Spot-check: sample cabang + pin (must not be empty)"
+          docker compose exec -T attendance php artisan tinker --execute="
+            \$c = \App\Models\WorkLocation::query()->orderBy('id')->first();
+            \$p = \App\Models\WorkLocationPin::query()->orderBy('id')->first();
+            echo 'sample_cabang=' . (\$c?->name ?? 'NULL') . PHP_EOL;
+            echo 'sample_pin=' . (\$p?->name ?? 'NULL') . PHP_EOL;
+            if (!\$c || !\$p) { throw new RuntimeException('Post-import spot-check failed: missing cabang or pin'); }
+          " </dev/null
+
+          echo "==> Waiting for nginx container health (not Laravel readiness)"
+          for i in $(seq 1 12); do
+            if curl --fail --silent http://127.0.0.1:8081/health > /dev/null; then
+              echo "Nginx health passed (attempt $i)."
+              break
             fi
-
-            echo "==> Verifying seed data files in image"
-            docker compose exec -T attendance \
-              test -f /opt/seed-data/stores.json
-
-            echo "==> Running database migrations"
-            docker compose exec -T attendance \
-              php artisan migrate --force
-
-            echo "==> Seeding roles, permissions and initial dashboard users (idempotent)"
-            # Full DatabaseSeeder: RBAC baseline + initial dashboard accounts
-            # (hisar.hesti@ ADMIN, reginald.hirawan@ SUPER_ADMIN, plus demo
-            # superadmin@ / admin@ / user@mito.co.id). Dummy demo data
-            # (DevelopmentDataSeeder) is skipped outside APP_ENV=local.
-            # Set SEED_USER_PASSWORD in the container .env to override the
-            # default seeded password.
-            docker compose exec -T attendance \
-              php artisan db:seed --force
-
-            echo "==> Importing outsource cabang + pins from stores.json (idempotent)"
-            docker compose exec -T attendance \
-              php artisan outsource:import /opt/seed-data/stores.json \
-                --require-min=1 \
-                --require-min-cabangs=1 \
-                --require-min-pins=1 \
-                --allow-partial
-
-            echo "==> Spot-check: sample cabang + pin (must not be empty)"
-            docker compose exec -T attendance php artisan tinker --execute="
-              \$c = \App\Models\WorkLocation::query()->orderBy('id')->first();
-              \$p = \App\Models\WorkLocationPin::query()->orderBy('id')->first();
-              echo 'sample_cabang=' . (\$c?->name ?? 'NULL') . PHP_EOL;
-              echo 'sample_pin=' . (\$p?->name ?? 'NULL') . PHP_EOL;
-              if (!\$c || !\$p) { throw new RuntimeException('Post-import spot-check failed: missing cabang or pin'); }
-            "
-            echo "==> Waiting for nginx container health (not Laravel readiness)"
-            for i in \$(seq 1 12); do
-              if curl --fail --silent http://127.0.0.1:8081/health > /dev/null; then
-                echo "Nginx health passed (attempt \$i)."
-                break
-              fi
-              if [ "\$i" -eq 12 ]; then
-                echo "Nginx health FAILED after 12 attempts."
-                docker compose logs --tail=100 attendance
-                exit 1
-              fi
-              sleep 5
-            done
-
-            echo "==> Disabling maintenance mode"
-            # Native up is authoritative. mito:maintenance up is best-effort after
-            # recreate (resets public/maintenance.json to enabled:false when present).
-            docker compose exec -T attendance php artisan up
-            docker compose exec -T attendance php artisan mito:maintenance up \
-              > /dev/null 2>&1 || true
-
-            if docker compose exec -T attendance \
-              test -f /var/www/html/storage/framework/down; then
-              echo "ERROR: storage/framework/down still present after artisan up"
-              docker compose exec -T attendance php artisan up
-              docker compose exec -T attendance \
-                test ! -f /var/www/html/storage/framework/down
+            if [ "$i" -eq 12 ]; then
+              echo "Nginx health FAILED after 12 attempts."
+              docker compose logs --tail=100 attendance
+              exit 1
             fi
+            sleep 5
+          done
 
-            echo
-            echo "==> Laravel API health"
-            curl --fail --silent http://127.0.0.1:8081/api/v1/health
-            echo
+          echo "==> Disabling maintenance mode"
+          # Native up is authoritative. mito:maintenance up is best-effort after
+          # recreate (resets public/maintenance.json to enabled:false when present).
+          docker compose exec -T attendance php artisan up </dev/null
+          docker compose exec -T attendance php artisan mito:maintenance up \
+            </dev/null > /dev/null 2>&1 || true
 
-            echo
-            echo "==> Laravel -> AI health"
-            curl --fail --silent http://127.0.0.1:8081/api/v1/ai-health
-            echo
+          if docker compose exec -T attendance \
+            test -f /var/www/html/storage/framework/down </dev/null; then
+            echo "ERROR: storage/framework/down still present after artisan up"
+            docker compose exec -T attendance php artisan up </dev/null
+            docker compose exec -T attendance \
+              test ! -f /var/www/html/storage/framework/down </dev/null
+          fi
 
-            echo
-            echo "==> Container status"
-            docker ps \
-              --filter name=hris-attendance \
-              --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.ID}}'
+          echo
+          echo "==> Laravel API health"
+          curl --fail --silent http://127.0.0.1:8081/api/v1/health
+          echo
 
-            echo
-            echo "======================================"
-            echo "      DEPLOYMENT SUCCESSFUL ($TESTED_SHA)"
-            echo "======================================"
+          echo
+          echo "==> Laravel -> AI health"
+          curl --fail --silent http://127.0.0.1:8081/api/v1/ai-health
+          echo
 
+          echo
+          echo "==> Container status"
+          docker ps \
+            --filter name=hris-attendance \
+            --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.ID}}'
+
+          echo
+          echo "======================================"
+          echo "      DEPLOYMENT SUCCESSFUL ($TESTED_SHA)"
+          echo "======================================"
           EOF

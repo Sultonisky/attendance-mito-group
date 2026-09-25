@@ -4,6 +4,7 @@ import type { DataTableFilterOption } from '../utils/dataTable'
 
 withDefaults(defineProps<{
   searchPlaceholder?: string
+  searchMaxlength?: number
   statusOptions?: DataTableFilterOption[]
   displayItems?: DropdownMenuItem[]
   selectedCount?: number
@@ -13,6 +14,7 @@ withDefaults(defineProps<{
   showPerPage?: boolean
 }>(), {
   searchPlaceholder: 'Filter...',
+  searchMaxlength: undefined,
   statusOptions: () => [],
   displayItems: () => [],
   selectedCount: 0,
@@ -43,6 +45,7 @@ const emit = defineEmits<{
           class="w-full min-w-0 sm:max-w-sm sm:min-w-[12ch]"
           icon="i-lucide-search"
           :placeholder="searchPlaceholder"
+          :maxlength="searchMaxlength"
         />
 
         <div

@@ -26,7 +26,6 @@ const visibleActions = computed(() =>
   props.actions.filter(a => can(a.permission)),
 )
 
-// Map to dropdown items — shown as dropdown when >2 visible actions
 const dropdownItems = computed<DropdownMenuItem[][]>(() => [
   visibleActions.value.map(a => ({
     label: a.label,
@@ -53,35 +52,17 @@ function iconToLucide(name: AppIconName): string {
 </script>
 
 <template>
-  <div v-if="visibleActions.length" class="flex items-center gap-1.5">
-    <!-- Inline buttons when ≤ 2 actions -->
-    <template v-if="visibleActions.length <= 2">
+  <div v-if="visibleActions.length" class="flex justify-end">
+    <UDropdownMenu :items="dropdownItems">
       <UButton
-        v-for="action in visibleActions"
-        :key="action.key"
         size="xs"
-        :color="action.variant === 'primary' ? 'primary' : action.destructive ? 'error' : 'neutral'"
-        :variant="action.variant === 'primary' ? 'solid' : 'outline'"
+        color="neutral"
+        variant="ghost"
+        icon="i-lucide-more-horizontal"
+        :loading="busy"
         :disabled="busy"
-        :aria-label="action.label"
-        @click="emit('action', action.key)"
-      >
-        {{ action.label }}
-      </UButton>
-    </template>
-
-    <!-- Dropdown when > 2 actions -->
-    <template v-else>
-      <UDropdownMenu :items="dropdownItems">
-        <UButton
-          size="xs"
-          color="neutral"
-          variant="outline"
-          icon="i-lucide-more-horizontal"
-          :disabled="busy"
-          aria-label="Row actions"
-        />
-      </UDropdownMenu>
-    </template>
+        aria-label="Row actions"
+      />
+    </UDropdownMenu>
   </div>
 </template>

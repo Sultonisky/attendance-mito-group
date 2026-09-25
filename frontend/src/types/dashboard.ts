@@ -4,6 +4,7 @@ export type DashboardKpiData = {
   absent: number
   late: number
   on_leave: number
+  incomplete: number
 }
 
 export type DashboardKpiResponse = {
@@ -13,10 +14,11 @@ export type DashboardKpiResponse = {
 
 export type DashboardStaffRow = {
   id: number
+  code: string
   name: string
   email: string | null
   location: string
-  status: 'Present' | 'Late' | 'On leave' | 'Absent'
+  status: 'Present' | 'Late' | 'On leave' | 'Absent' | 'Incomplete'
 }
 
 export type DashboardStaffResponse = {

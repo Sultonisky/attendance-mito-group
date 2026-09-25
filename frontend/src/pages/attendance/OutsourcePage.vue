@@ -24,6 +24,8 @@ import {
   // Disabled: riwayat presensi
   type OutsourceHistoryItem,
   type OutsourceSessionPayload,
+  formatOutsourcePinLabel,
+  formatCityCabangLabel,
 } from "../../services/outsourceService";
 import {
   formatAttendanceLongDate,
@@ -492,11 +494,28 @@ const selectedPinLabel = computed(() => selectedPin.value?.name ?? null);
 
 /** Assignment context only — never implies a specific active pin. */
 const assignmentLocationLabel = computed(() => {
-  const parts = [selectedCityName.value.trim(), selectedStoreName.value.trim()].filter(
-    (part) => part.length > 0,
+  const label = formatCityCabangLabel(
+    selectedCityName.value,
+    selectedStoreName.value,
+    " · ",
   );
-  return parts.length > 0 ? parts.join(" · ") : "Belum dipilih";
+  return label || "Belum dipilih";
 });
+
+/** True when kota & cabang display the same name (common for OS 1-cabang-per-kota). */
+const cityCabangNamesMatch = computed(() => {
+  const city = selectedCityName.value.trim();
+  const cabang = selectedStoreName.value.trim();
+  return (
+    city.length > 0 &&
+    cabang.length > 0 &&
+    city.toLocaleLowerCase("id") === cabang.toLocaleLowerCase("id")
+  );
+});
+
+const greetLocationLabel = computed(() =>
+  formatCityCabangLabel(selectedCityName.value, selectedStoreName.value),
+);
 
 /**
  * Active pin for stats: selected pin, single-pin auto case, or multi-pin pending.
@@ -1581,6 +1600,8 @@ async function submitLogin(): Promise<void> {
         error.value =
           err.message ||
           "Perangkat ini masih dipakai absensi personel lain. Clock-out dulu sebelum ganti orang.";
+      } else if (err.code === "INACTIVE_OUTSOURCE") {
+        error.value = "Akun nonaktif. Hubungi admin.";
       } else if (err.status === 422) {
         error.value = err.message || "Kode atau password tidak valid.";
       } else if (err.status === 429) {
@@ -1923,6 +1944,10 @@ async function submitAttendance(): Promise<void> {
           "Presensi Clock-Out berhasil dicatat. Tugas hari ini selesai!";
         hasServerSession.value = false;
         expiresAt.value = null;
+        // Action chrome hidden via !isSessionActive; stop live GPS watch.
+        followDistance.value = false;
+        stopProximityWatch();
+        destroyCartoMap();
       } else {
         step.value = "attendance_open";
         message.value = "Presensi Clock-In berhasil dicatat! Selamat bertugas.";
@@ -1980,11 +2005,34 @@ function resetSelection(): void {
   selectedStoreName.value = "";
   selectedCityName.value = "";
   selectedOutsource.value = null;
+  selectedPinId.value = null;
+  allowedPins.value = [];
   attendanceHistory.value = [];
   stores.value = [];
   outsources.value = [];
   step.value = "city";
   loadCities();
+}
+
+/** Manual dismiss after Clock-Out — back to login (Redis session already cleared by BE). */
+function dismissCompleted(): void {
+  invalidateSessionState();
+  currentMapLocation.value = null;
+  mapError.value = "";
+  destroyCartoMap();
+  selectedCity.value = null;
+  selectedStore.value = null;
+  selectedStoreName.value = "";
+  selectedCityName.value = "";
+  selectedOutsource.value = null;
+  selectedPinId.value = null;
+  allowedPins.value = [];
+  attendanceHistory.value = [];
+  stores.value = [];
+  outsources.value = [];
+  loginCode.value = "";
+  loginPassword.value = "";
+  step.value = "login";
 }
 
 onMounted(() => {
@@ -2061,7 +2109,7 @@ onUnmounted(() => {
                 type="text"
                 name="outsource-code"
                 autocomplete="username"
-                placeholder="Contoh: 001"
+                placeholder="Cth: DM2026XXXX"
                 :disabled="isSubmitting"
               />
             </span>
@@ -2123,7 +2171,7 @@ onUnmounted(() => {
 
       <div class="header-meta">
         <div
-          v-if="isSessionActive && selectedOutsource"
+          v-if="(isSessionActive || step === 'completed' || step === 'greet') && selectedOutsource"
           class="user-badge"
           :title="selectedOutsource.name"
         >
@@ -2149,6 +2197,9 @@ onUnmounted(() => {
       <h1 v-if="step === 'greet' && selectedOutsource">
         Halo, {{ greetFirstName }}
       </h1>
+      <h1 v-else-if="step === 'completed' && selectedOutsource">
+        Hi, {{ selectedOutsource.name.split(" ")[0] }}
+      </h1>
       <h1 v-else-if="isSessionActive && selectedOutsource">
         Hi, {{ selectedOutsource.name.split(" ")[0] }}
       </h1>
@@ -2160,6 +2211,10 @@ onUnmounted(() => {
         <template v-else>
           Pilih aksi di bawah untuk melanjutkan. Pin point dipilih saat clock in.
         </template>
+      </p>
+      <p v-else-if="step === 'completed'">
+        Presensi hari ini sudah selesai. Ringkasan di bawah hanya konfirmasi —
+        sesi perangkat sudah ditutup.
       </p>
       <p v-else-if="isSessionActive">
         Sesi individu aktif di
@@ -2267,14 +2322,20 @@ onUnmounted(() => {
         </div>
 
         <div class="greet-card__facts">
-          <div class="greet-fact">
-            <span>Kota</span>
-            <strong>{{ selectedCityName || "—" }}</strong>
+          <div v-if="cityCabangNamesMatch" class="greet-fact">
+            <span>Lokasi</span>
+            <strong>{{ greetLocationLabel || "—" }}</strong>
           </div>
-          <div class="greet-fact">
-            <span>Cabang</span>
-            <strong>{{ selectedStoreName || "—" }}</strong>
-          </div>
+          <template v-else>
+            <div class="greet-fact">
+              <span>Kota</span>
+              <strong>{{ selectedCityName || "—" }}</strong>
+            </div>
+            <div class="greet-fact">
+              <span>Cabang</span>
+              <strong>{{ selectedStoreName || "—" }}</strong>
+            </div>
+          </template>
           <div class="greet-fact">
             <span>{{ allowedPins.length > 1 ? "Pin tersedia" : "Pin point" }}</span>
             <strong>{{ greetAllowedPinsLabel }}</strong>
@@ -2297,12 +2358,15 @@ onUnmounted(() => {
               </span>
               <div>
                 <strong>{{ pin.name }}</strong>
-                <small v-if="pin.address">{{ pin.address }}</small>
+                <small v-if="pin.city_name || pin.cabang_name">
+                  {{ formatCityCabangLabel(pin.city_name, pin.cabang_name) }}
+                </small>
+                <small v-else-if="pin.address">{{ pin.address }}</small>
               </div>
             </li>
           </ul>
           <p v-else class="greet-card__empty">
-            Belum ada subset pin khusus — semua pin aktif di cabang dapat dipilih saat absensi.
+            Belum ada subset pin khusus — semua pin aktif di cabang yang di-assign dapat dipilih saat absensi.
           </p>
           <p v-if="allowedPins.length > 0" class="greet-card__pins-note">
             {{ greetPinsSectionHint }}
@@ -2723,7 +2787,7 @@ onUnmounted(() => {
             >
               <option :value="null" disabled>-- Pilih alamat absensi --</option>
               <option v-for="pin in allowedPins" :key="pin.id" :value="pin.id">
-                {{ pin.name }}{{ pin.address ? ` — ${pin.address}` : "" }}
+                {{ formatOutsourcePinLabel(pin) }}
               </option>
             </select>
             <AppIcon
@@ -3000,7 +3064,9 @@ onUnmounted(() => {
         </div>
         <h2>Presensi Hari Ini Selesai</h2>
         <p class="completed-sub">
-          Terima kasih atas kerja keras Anda hari ini!
+          Terima kasih atas kerja keras Anda hari ini. Sesi perangkat sudah
+          ditutup — ringkasan ini tetap tampil sampai Anda tekan Selesai atau
+          memuat ulang halaman.
         </p>
 
         <div class="summary-grid">
@@ -3034,9 +3100,9 @@ onUnmounted(() => {
           class="btn-primary"
           variant="primary"
           icon="CircleCheckBig"
-          @click="resetSelection"
+          @click="dismissCompleted"
         >
-          Selesai & Tutup Sesi
+          Selesai & Tutup
         </AppButton>
       </section>
     </template>

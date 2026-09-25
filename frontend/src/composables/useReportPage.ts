@@ -4,7 +4,7 @@
  */
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ApiError } from '../services/apiClient'
+import { ApiError, firstValidationMessage } from '../services/apiClient'
 
 export interface ReportMeta {
   current_page: number
@@ -12,6 +12,8 @@ export interface ReportMeta {
   total: number
   last_page: number
 }
+
+export type ReportApiErrorKind = 'auth' | 'forbidden' | 'validation' | 'network' | 'other'
 
 export function useReportPage() {
   const router = useRouter()
@@ -26,22 +28,35 @@ export function useReportPage() {
     last_page: 1,
   })
 
-  /** Call inside your load() try/catch */
-  async function handleApiError(err: unknown, fallbackMessage: string): Promise<boolean> {
+  /**
+   * Call inside your load() try/catch.
+   * Returns the error kind so callers can keep the table visible for filter/validation
+   * issues (toast + soft banner) instead of replacing the page with "Failed to load".
+   */
+  async function handleApiError(err: unknown, fallbackMessage: string): Promise<ReportApiErrorKind> {
     if (err instanceof ApiError) {
       if (err.status === 401) {
         await router.push({ name: 'error.unauthorized' })
-        return true // handled — caller should return
+        return 'auth'
       }
       if (err.status === 403) {
         error.value = 'You do not have permission to view this report.'
-        return true
+        return 'forbidden'
+      }
+      if (err.status === 422) {
+        error.value = firstValidationMessage(err)
+          ?? (err.message && err.message !== `API request failed: ${err.status}`
+            ? err.message
+            : 'One or more filters are invalid. Adjust them and try again.')
+        return 'validation'
       }
     }
-    error.value = err instanceof TypeError
-      ? 'Unable to connect to the API. Check that Laravel is running.'
-      : fallbackMessage
-    return false
+    if (err instanceof TypeError) {
+      error.value = 'Unable to connect to the API. Check that Laravel is running.'
+      return 'network'
+    }
+    error.value = fallbackMessage
+    return 'other'
   }
 
   function applyMeta(responseMeta: Partial<ReportMeta>) {

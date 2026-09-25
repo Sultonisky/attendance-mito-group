@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useAppToast } from '../composables/useAppToast'
 
 export type ReportCsvColumn = {
   header: string
@@ -9,14 +10,18 @@ export type ReportCsvColumn = {
 const props = defineProps<{
   total: number
   rows: unknown[]
-  filename: string
+  /** Static name, or resolve from the rows actually exported. */
+  filename: string | ((rows: unknown[]) => string)
   loading?: boolean
   /** When set, export uses these ordered human headers instead of raw API keys. */
   columns?: ReportCsvColumn[]
   /** When set, export fetches/builds rows on click (e.g. all filtered pages). */
   fetchRows?: () => Promise<unknown[]> | unknown[]
+  /** Optional hook after CSV download succeeds (e.g. batch mark statuses). */
+  afterExport?: (rows: unknown[]) => Promise<void> | void
 }>()
 
+const toast = useAppToast()
 const exporting = ref(false)
 
 function csvValue(value: unknown): string {
@@ -31,27 +36,35 @@ function buildCsv(records: unknown[], columns?: ReportCsvColumn[]): string {
   )
   if (!rows.length) return ''
 
-  if (columns?.length) {
-    return [
-      columns.map(c => csvValue(c.header)).join(','),
-      ...rows.map(r => columns.map(c => csvValue(c.value(r))).join(',')),
-    ].join('\n')
-  }
+  // Excel (ID/EU locales) often treats `;` as the list separator and dumps
+  // comma-CSV into a single column. `sep=,` tells Excel to split on commas.
+  const body = columns?.length
+    ? [
+        columns.map(c => csvValue(c.header)).join(','),
+        ...rows.map(r => columns.map(c => csvValue(c.value(r))).join(',')),
+      ].join('\n')
+    : (() => {
+        const keys = [...new Set(rows.flatMap(r => Object.keys(r)))]
+        return [
+          keys.map(csvValue).join(','),
+          ...rows.map(r => keys.map(k => csvValue(r[k])).join(',')),
+        ].join('\n')
+      })()
 
-  const keys = [...new Set(rows.flatMap(r => Object.keys(r)))]
-  return [
-    keys.map(csvValue).join(','),
-    ...rows.map(r => keys.map(k => csvValue(r[k])).join(',')),
-  ].join('\n')
+  return `sep=,\n${body}`
 }
 
-function downloadCsv(csv: string): void {
+function downloadCsv(csv: string, filename: string): void {
   const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${props.filename}.csv`
+  a.download = `${filename}.csv`
+  a.rel = 'noopener'
+  a.style.display = 'none'
+  document.body.appendChild(a)
   a.click()
+  document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
 
@@ -60,10 +73,28 @@ async function exportCsv(): Promise<void> {
   exporting.value = true
   try {
     const source = props.fetchRows ? await props.fetchRows() : props.rows
-    if (!source.length) return
+    if (!Array.isArray(source) || !source.length) {
+      toast.error('No records to export for the current filters.')
+      return
+    }
     const csv = buildCsv(source, props.columns)
-    if (!csv) return
-    downloadCsv(csv)
+    if (!csv) {
+      toast.error('Unable to build CSV from the current data.')
+      return
+    }
+    const filename = typeof props.filename === 'function'
+      ? props.filename(source)
+      : props.filename
+    downloadCsv(csv, filename)
+    if (props.afterExport) {
+      await props.afterExport(source)
+    }
+    else {
+      toast.success(`Exported ${source.length.toLocaleString()} records.`)
+    }
+  }
+  catch (err) {
+    toast.fromError(err, 'Unable to export CSV. Please try again.')
   }
   finally {
     exporting.value = false

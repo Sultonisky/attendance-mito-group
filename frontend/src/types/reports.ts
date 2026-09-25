@@ -68,17 +68,49 @@ export type PenaltyReportRow = {
   created_at: string
 }
 
+export type MonthlyRecapSummary = {
+  scheduled_days: number
+  present_days: number
+  late_days: number
+  incomplete_days: number
+  absent_days: number
+}
+
 export type MonthlyRecapRow = {
   id: number
-  employee_id: number
+  source: 'employee' | 'outsource'
+  employee_id: number | null
+  outsource_id: number | null
+  employee_code?: string | null
+  outsource_code?: string | null
+  subject_name?: string | null
   period: string
   status: string
-  summary: Record<string, unknown> | null
+  summary: MonthlyRecapSummary | null
   details: unknown[]
   finalized_at: string | null
   exported_at: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+export type OutsourceAttendanceLocationPin = {
+  id: number | null
+  name: string | null
+  address: string | null
+  latitude: number | null
+  longitude: number | null
+}
+
+export type OutsourceAttendanceLocationGps = {
+  latitude: number | null
+  longitude: number | null
+  accuracy_meters: number | null
+}
+
+export type OutsourceAttendanceEventLocation = {
+  pin: OutsourceAttendanceLocationPin | null
+  gps: OutsourceAttendanceLocationGps | null
 }
 
 export type OutsourceAttendanceReportRow = {
@@ -96,13 +128,9 @@ export type OutsourceAttendanceReportRow = {
     id: number
     name: string
   } | null
-  pin: {
-    id: number | null
-    name: string | null
-    address: string | null
-    latitude: number | null
-    longitude: number | null
-  } | null
+  pin: OutsourceAttendanceLocationPin | null
+  check_in_location: OutsourceAttendanceEventLocation | null
+  check_out_location: OutsourceAttendanceEventLocation | null
   attendance_date: string
   status: string
   check_in_at: string | null

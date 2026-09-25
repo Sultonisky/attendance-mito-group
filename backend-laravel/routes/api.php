@@ -182,6 +182,9 @@ Route::prefix('v1')->group(function () {
         Route::prefix('monthly-recaps')->name('monthly-recap.')->group(function () {
             Route::get('/', [MonthlyRecapController::class, 'index'])->middleware('can:monthly_recap.view')->name('index');
             Route::post('/generate', [MonthlyRecapController::class, 'generate'])->middleware('can:monthly_recap.generate')->name('generate');
+            Route::post('/generate-bulk', [MonthlyRecapController::class, 'generateBulk'])->middleware('can:monthly_recap.generate')->name('generate-bulk');
+            Route::post('/export-bulk', [MonthlyRecapController::class, 'exportBulk'])->middleware('can:monthly_recap.export')->name('export-bulk');
+            Route::post('/transition-bulk', [MonthlyRecapController::class, 'transitionBulk'])->name('transition-bulk');
             Route::get('/{monthlyRecap}', [MonthlyRecapController::class, 'show'])->middleware('can:monthly_recap.view')->name('show');
             Route::post('/{monthlyRecap}/review', [MonthlyRecapController::class, 'review'])->middleware('can:monthly_recap.review')->name('review');
             Route::post('/{monthlyRecap}/finalize', [MonthlyRecapController::class, 'finalize'])->middleware('can:monthly_recap.finalize')->name('finalize');
@@ -236,6 +239,7 @@ Route::prefix('v1')->group(function () {
         // ── Outsource work locations (admin CRUD) ───────────────────────────────
         Route::prefix('outsource-work-locations')->group(function () {
             Route::get('/cities',                           [OutsourceWorkLocationController::class, 'cities'])       ->middleware('can:outsource_work_location.view');
+            Route::post('/cities',                          [OutsourceWorkLocationController::class, 'storeCity'])    ->middleware('can:outsource_work_location.create');
             Route::get('/',                                 [OutsourceWorkLocationController::class, 'index'])        ->middleware('can:outsource_work_location.view');
             Route::post('/',                                [OutsourceWorkLocationController::class, 'store'])        ->middleware('can:outsource_work_location.create');
             Route::get('/{outsourceWorkLocation}',          [OutsourceWorkLocationController::class, 'show'])         ->middleware('can:outsource_work_location.view');
