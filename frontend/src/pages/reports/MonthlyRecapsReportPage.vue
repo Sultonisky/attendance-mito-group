@@ -13,7 +13,7 @@ import { fetchMonthlyRecaps } from '../../services/reports/monthlyRecapApi'
 import {
   exportMonthlyRecap,
   finalizeMonthlyRecap,
-  generateMonthlyRecap,
+  generateMonthlyRecapBulk,
   reopenMonthlyRecap,
   reviewMonthlyRecap,
 } from '../../services/adminCrudApi'
@@ -21,8 +21,10 @@ import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
 import AdminRowActions, { type AdminRowAction } from '../../components/AdminRowActions.vue'
-import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
+import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../utils/dataTable'
 import type { MonthlyRecapRow } from '../../types/reports'
+
+type RecapSource = 'employee' | 'outsource'
 
 const route = useRoute()
 const { can } = usePermission()
@@ -31,7 +33,6 @@ const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportP
 
 const data = ref<MonthlyRecapRow[]>([])
 const actionBusyId = ref<number | null>(null)
-const generating = ref(false)
 /** Soft action/generate message — keeps the table visible (unlike hard `error`). */
 const actionError = ref('')
 const columnFilters = ref<ColumnFiltersState>([])
@@ -39,9 +40,51 @@ const columnVisibility = ref<VisibilityState>()
 const statusFilter = ref('all')
 const search = ref('')
 
-const employeeId = ref('')
-const year = ref(new Date().getFullYear())
-const month = ref(new Date().getMonth() + 1)
+// ── List filters only (not generate inputs) ───────────────────────────────────
+const filterSource = ref<RecapSource>('employee')
+const filterSubjectId = ref('')
+const filterPeriod = ref('') // YYYY-MM
+
+const sourceOptions = [
+  { label: 'Employee', value: 'employee' as RecapSource },
+  { label: 'Outsource', value: 'outsource' as RecapSource },
+]
+
+const subjectPlaceholder = computed(() =>
+  filterSource.value === 'outsource' ? 'Outsource ID' : 'Employee ID',
+)
+
+// ── Generate modal ────────────────────────────────────────────────────────────
+const showGenerateModal = ref(false)
+const generating = ref(false)
+const generateError = ref('')
+const genForm = reactive({
+  source: 'employee' as RecapSource,
+  period: currentPeriodValue(),
+})
+
+function currentPeriodValue(): string {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
+function openGenerateModal(): void {
+  genForm.source = filterSource.value
+  genForm.period = filterPeriod.value || currentPeriodValue()
+  generateError.value = ''
+  showGenerateModal.value = true
+}
+
+function parsePeriod(period: string): { year: number; month: number } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(period.trim())
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  if (month < 1 || month > 12) return null
+  return { year, month }
+}
 
 const sortState = reactive({
   sort: 'period',
@@ -61,12 +104,23 @@ const statusOptions = [
   { label: 'Exported', value: 'exported' },
 ]
 
-const hideableColumns = [
-  { id: 'period', label: 'Period' },
-  { id: 'status', label: 'Status' },
-  { id: 'finalized_at', label: 'Finalized At' },
-  { id: 'exported_at', label: 'Exported At' },
-]
+const isOutsourceFilter = computed(() => filterSource.value === 'outsource')
+
+const hideableColumns = computed(() => {
+  const cols = [
+    { id: 'source', label: 'Source' },
+    { id: 'subject', label: 'Subject' },
+    { id: 'period', label: 'Period' },
+    { id: 'status', label: 'Status' },
+    { id: 'present_days', label: 'Present' },
+    ...(!isOutsourceFilter.value ? [{ id: 'late_days', label: 'Late' }] : []),
+    { id: 'incomplete_days', label: 'Incomplete' },
+    { id: 'absent_days', label: 'Absent' },
+    { id: 'total_present', label: 'Total' },
+    { id: 'finalized_at', label: 'Finalized At' },
+  ]
+  return cols
+})
 
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
@@ -77,15 +131,6 @@ const allRecapActions: AdminRowAction[] = [
   { key: 'reopen',   label: 'Reopen',   permission: 'monthly_recap.finalize', icon: 'ArrowLeft', variant: 'ghost'     },
 ]
 
-/**
- * State machine aligned with BE lifecycle:
- * draft → review → finalized → exported
- *
- * draft      → review
- * review     → finalize
- * finalized  → export, reopen
- * exported   → (locked; reopen not supported by API yet)
- */
 function recapActionsFor(status: string): AdminRowAction[] {
   const keys: Record<string, string[]> = {
     draft:     ['review'],
@@ -104,7 +149,41 @@ const statusColor: Record<string, 'success' | 'warning' | 'info' | 'neutral' | '
   exported: 'success',
 }
 
+function summaryNum(row: MonthlyRecapRow, key: keyof NonNullable<MonthlyRecapRow['summary']>): number {
+  return Number(row.summary?.[key] ?? 0)
+}
+
+function subjectLabel(row: MonthlyRecapRow): string {
+  if (row.source === 'outsource') {
+    return row.outsource_code || (row.outsource_id != null ? `#${row.outsource_id}` : '—')
+  }
+  return row.employee_code || (row.employee_id != null ? `#${row.employee_id}` : '—')
+}
+
 const columns = computed<TableColumn<MonthlyRecapRow>[]>(() => [
+  {
+    accessorKey: 'source',
+    header: ({ column }) => createSortableHeader(column, 'Source'),
+    cell: ({ row }) => createStatusBadge(
+      row.original.source === 'outsource' ? 'outsource' : 'employee',
+      row.original.source === 'outsource' ? 'warning' : 'info',
+    ),
+  },
+  {
+    id: 'subject',
+    header: 'Subject',
+    enableSorting: false,
+    cell: ({ row }) => {
+      const code = subjectLabel(row.original)
+      const name = row.original.subject_name
+      return h('div', { class: 'min-w-0' }, [
+        createTruncatedText(code, 'font-mono text-xs'),
+        name
+          ? h('div', { class: 'truncate text-xs text-[var(--ui-text-muted)]' }, name)
+          : null,
+      ])
+    },
+  },
   {
     accessorKey: 'period',
     header: ({ column }) => createSortableHeader(column, 'Period'),
@@ -119,18 +198,43 @@ const columns = computed<TableColumn<MonthlyRecapRow>[]>(() => [
     },
   },
   {
+    id: 'present_days',
+    header: 'Present',
+    enableSorting: false,
+    cell: ({ row }) => String(summaryNum(row.original, 'present_days')),
+  },
+  ...(!isOutsourceFilter.value
+    ? [{
+        id: 'late_days',
+        header: 'Late',
+        enableSorting: false,
+        cell: ({ row }: { row: { original: MonthlyRecapRow } }) =>
+          String(summaryNum(row.original, 'late_days')),
+      } satisfies TableColumn<MonthlyRecapRow>]
+    : []),
+  {
+    id: 'incomplete_days',
+    header: 'Incomplete',
+    enableSorting: false,
+    cell: ({ row }) => String(summaryNum(row.original, 'incomplete_days')),
+  },
+  {
+    id: 'absent_days',
+    header: 'Absent',
+    enableSorting: false,
+    cell: ({ row }) => String(summaryNum(row.original, 'absent_days')),
+  },
+  {
+    id: 'total_present',
+    header: 'Total',
+    enableSorting: false,
+    cell: ({ row }) => String(summaryNum(row.original, 'present_days')),
+  },
+  {
     accessorKey: 'finalized_at',
     header: ({ column }) => createSortableHeader(column, 'Finalized At'),
     cell: ({ row }) => {
       const v = row.getValue<string | null>('finalized_at')
-      return v ? (() => { const d = new Date(v); return isNaN(d.getTime()) ? '—' : d.toLocaleString() })() : '—'
-    },
-  },
-  {
-    accessorKey: 'exported_at',
-    header: ({ column }) => createSortableHeader(column, 'Exported At'),
-    cell: ({ row }) => {
-      const v = row.getValue<string | null>('exported_at')
       return v ? (() => { const d = new Date(v); return isNaN(d.getTime()) ? '—' : d.toLocaleString() })() : '—'
     },
   },
@@ -154,7 +258,7 @@ watch([search, statusFilter], () => {
   columnFilters.value = next
 })
 
-watch(employeeId, () => {
+watch([filterSource, filterSubjectId, filterPeriod], () => {
   if (!ready.value) return
   meta.current_page = 1
   load()
@@ -165,14 +269,18 @@ const ready = ref(false)
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
-  actionError.value = ''
   try {
     const params: Record<string, string | number | null | undefined> = {
       page: meta.current_page,
       sort: sortState.sort,
       direction: sortState.direction,
+      source: filterSource.value,
     }
-    if (employeeId.value) params.employee_id = employeeId.value
+    if (filterSubjectId.value) {
+      if (filterSource.value === 'outsource') params.outsource_id = filterSubjectId.value
+      else params.employee_id = filterSubjectId.value
+    }
+    if (filterPeriod.value) params.period = filterPeriod.value
 
     const res = await fetchMonthlyRecaps(params)
     data.value = res.data
@@ -197,27 +305,42 @@ async function load(): Promise<void> {
   }
 }
 
-async function generate(): Promise<void> {
-  if (!employeeId.value) {
-    actionError.value = 'Employee ID is required to generate a recap.'
-    toast.error('Generate gagal', actionError.value)
+async function submitGenerate(): Promise<void> {
+  const parsed = parsePeriod(genForm.period)
+  if (!parsed) {
+    generateError.value = 'Pilih periode yang valid (YYYY-MM).'
     return
   }
+
   generating.value = true
+  generateError.value = ''
   actionError.value = ''
   try {
-    await generateMonthlyRecap({
-      employee_id: Number(employeeId.value),
-      year: year.value,
-      month: month.value,
+    const res = await generateMonthlyRecapBulk({
+      source: genForm.source,
+      year: parsed.year,
+      month: parsed.month,
     })
-    toast.success('Monthly recap generated')
+    const r = res.data
+    toast.success(
+      'Generate selesai',
+      `All ${r.source} · ${r.period}: ${r.generated} generated, ${r.skipped} skipped, ${r.failed} failed.`,
+    )
+    if (r.failed > 0 && r.failures[0]) {
+      actionError.value = `Some rows failed (e.g. #${r.failures[0].id}: ${r.failures[0].message})`
+    }
+    // Sync list filters to what was just generated.
+    filterSource.value = genForm.source
+    filterPeriod.value = r.period
+    filterSubjectId.value = ''
+    showGenerateModal.value = false
+    meta.current_page = 1
     await load()
   }
   catch (e: unknown) {
     const msg = firstValidationMessage(e)
-      ?? (e instanceof Error && e.message ? e.message : 'Unable to generate the monthly recap. Please try again.')
-    actionError.value = msg
+      ?? (e instanceof Error && e.message ? e.message : 'Unable to generate monthly recaps. Please try again.')
+    generateError.value = msg
     toast.fromError(e, msg)
   }
   finally {
@@ -247,7 +370,6 @@ async function handleRowAction(action: string, id: number): Promise<void> {
     }
     await load()
   } catch (e: unknown) {
-    // Keep table visible — same soft UX as work-location search 422.
     const msg = firstValidationMessage(e)
       ?? (e instanceof Error && e.message ? e.message : 'Unable to update this monthly recap. Please try again.')
     actionError.value = msg
@@ -258,7 +380,18 @@ async function handleRowAction(action: string, id: number): Promise<void> {
 }
 
 onMounted(async () => {
-  if (typeof route.query.employee_id === 'string') employeeId.value = route.query.employee_id
+  if (typeof route.query.source === 'string' && (route.query.source === 'employee' || route.query.source === 'outsource')) {
+    filterSource.value = route.query.source
+  }
+  if (typeof route.query.period === 'string') filterPeriod.value = route.query.period
+  if (typeof route.query.employee_id === 'string') {
+    filterSource.value = 'employee'
+    filterSubjectId.value = route.query.employee_id
+  }
+  if (typeof route.query.outsource_id === 'string') {
+    filterSource.value = 'outsource'
+    filterSubjectId.value = route.query.outsource_id
+  }
   await load()
   ready.value = true
 })
@@ -275,11 +408,9 @@ onMounted(async () => {
             color="primary"
             size="sm"
             icon="i-lucide-zap"
-            :loading="generating"
-            :disabled="!employeeId"
-            @click="generate"
+            @click="openGenerateModal"
           >
-            Generate recap
+            Generate all
           </UButton>
           <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-refresh-cw" :loading="loading" @click="load">
             Refresh
@@ -314,15 +445,29 @@ onMounted(async () => {
           <DataTableToolbar
             v-model:search="search"
             v-model:status="statusFilter"
-            v-model:employee-id="employeeId"
-            search-placeholder="Filter period..."
+            search-placeholder="Filter period text..."
             :status-options="statusOptions"
             :display-items="displayItems"
-            show-employee-id
           >
             <template #filters>
-              <UInput v-model.number="year" type="number" min="2000" max="2200" placeholder="Year" class="w-24" />
-              <UInput v-model.number="month" type="number" min="1" max="12" placeholder="Month" class="w-20" />
+              <USelect
+                v-model="filterSource"
+                :items="sourceOptions"
+                class="w-36"
+              />
+              <UInput
+                v-model="filterPeriod"
+                type="month"
+                class="w-40"
+                :ui="{ base: 'ps-2.5' }"
+              />
+              <UInput
+                v-model="filterSubjectId"
+                type="number"
+                min="1"
+                :placeholder="subjectPlaceholder"
+                class="w-36"
+              />
             </template>
           </DataTableToolbar>
           <DataTable
@@ -340,7 +485,7 @@ onMounted(async () => {
           >
             <template #empty-extra>
               <p v-if="can('monthly_recap.generate')" class="mt-1 text-xs text-[var(--ui-text-dimmed)]">
-                Enter an Employee ID and click Generate recap to create one.
+                Klik Generate all, pilih periode + type, lalu generate semua absensi bulan itu.
               </p>
             </template>
           </DataTable>
@@ -348,4 +493,47 @@ onMounted(async () => {
       </div>
     </template>
   </UDashboardPanel>
+
+  <UModal
+    v-model:open="showGenerateModal"
+    title="Generate monthly recap"
+    description="Generate attendance-only recap untuk semua employee/outsource di periode yang dipilih."
+  >
+    <template #body>
+      <div class="space-y-4">
+        <UAlert
+          v-if="generateError"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-circle-alert"
+          :title="generateError"
+        />
+        <UFormField label="Type" required>
+          <USelect
+            v-model="genForm.source"
+            :items="sourceOptions"
+            class="w-full"
+          />
+        </UFormField>
+        <UFormField label="Period" required hint="Bulan yang akan digenerate">
+          <UInput
+            v-model="genForm.period"
+            type="month"
+            class="w-full"
+            :ui="{ base: 'ps-2.5' }"
+          />
+        </UFormField>
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="generating" @click="showGenerateModal = false">
+          Cancel
+        </UButton>
+        <UButton color="primary" icon="i-lucide-zap" :loading="generating" @click="submitGenerate">
+          Generate all
+        </UButton>
+      </div>
+    </template>
+  </UModal>
 </template>
