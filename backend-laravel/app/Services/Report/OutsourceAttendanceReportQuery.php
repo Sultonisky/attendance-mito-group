@@ -121,9 +121,11 @@ class OutsourceAttendanceReportQuery
                 $query->where('attendance_records.status', $status);
             })
             ->when($filters['search'] ?? null, function ($query, $search) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('outsources.name', 'like', "%{$search}%")
-                        ->orWhere('outsources.outsource_code', 'like', "%{$search}%");
+                $term = '%'.$search.'%';
+                $query->where(function ($q) use ($term) {
+                    // PostgreSQL LIKE is case-sensitive; match person-list search UX.
+                    $q->whereRaw('LOWER(outsources.name) LIKE LOWER(?)', [$term])
+                        ->orWhereRaw('LOWER(outsources.outsource_code) LIKE LOWER(?)', [$term]);
                 });
             });
 

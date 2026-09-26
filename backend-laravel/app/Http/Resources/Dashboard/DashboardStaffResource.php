@@ -20,6 +20,8 @@ class DashboardStaffResource extends JsonResource
             'email' => $this->resource['email'],
             'location' => $this->resource['location'],
             'status' => $this->resource['status'],
+            'check_in_at' => $this->resource['check_in_at'] ?? null,
+            'check_out_at' => $this->resource['check_out_at'] ?? null,
         ];
     }
 }

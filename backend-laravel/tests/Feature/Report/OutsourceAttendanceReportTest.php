@@ -250,6 +250,21 @@ class OutsourceAttendanceReportTest extends TestCase
         $response->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.outsource.name', 'Alpha Worker');
+
+        // Case-insensitive partial match (PostgreSQL LIKE is case-sensitive by default).
+        $byLowerName = $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/reports/outsource-attendance?from=2026-09-01&to=2026-09-30&search=alpha');
+
+        $byLowerName->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.outsource.name', 'Alpha Worker');
+
+        $byPartialCode = $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/reports/outsource-attendance?from=2026-09-01&to=2026-09-30&search=beta-00');
+
+        $byPartialCode->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.outsource.code', 'BETA-002');
     }
 
     public function test_city_filter(): void

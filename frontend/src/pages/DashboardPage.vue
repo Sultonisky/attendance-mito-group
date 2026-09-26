@@ -24,6 +24,7 @@ import DashboardKpiCard from '../components/DashboardKpiCard.vue'
 import DataTableToolbar from '../components/DataTableToolbar.vue'
 import { createSortableHeader, createStatusBadge, createTruncatedText, UCheckbox, DATA_TABLE_UI } from '../utils/dataTable'
 import { useDataTableDisplay } from '../composables/useDataTableDisplay'
+import { formatAttendanceDateTime } from '../utils/attendanceDateTime'
 
 const router = useRouter()
 const { isNotificationsSlideoverOpen } = useDashboard()
@@ -227,8 +228,8 @@ watch(isCompactViewport, (compact) => {
   columnVisibility.value = {
     ...columnVisibility.value,
     code: !compact,
-    email: !compact,
-    location: !compact,
+    check_in_at: true,
+    check_out_at: true,
   }
 }, { immediate: true })
 
@@ -253,8 +254,8 @@ const tableFilterOptions = computed(() => {
 const hideableColumns = [
   { id: 'code', label: 'Code' },
   { id: 'name', label: 'Name' },
-  { id: 'email', label: 'Email' },
-  { id: 'location', label: 'Location' },
+  { id: 'check_in_at', label: 'Clock In' },
+  { id: 'check_out_at', label: 'Clock Out' },
   { id: 'status', label: 'Status' },
 ]
 
@@ -316,14 +317,14 @@ const tableColumns = computed<TableColumn<DashboardStaffRow>[]>(() => [
     cell: ({ row }) => createTruncatedText(row.getValue<string>('name'), 'text-sm font-medium'),
   },
   {
-    accessorKey: 'email',
-    header: ({ column }) => createSortableHeader(column, 'Email'),
-    cell: ({ row }) => createTruncatedText(row.getValue<string>('email'), 'text-sm text-[var(--ui-text-muted)]'),
+    accessorKey: 'check_in_at',
+    header: ({ column }) => createSortableHeader(column, 'Clock In'),
+    cell: ({ row }) => formatAttendanceDateTime(row.getValue<string | null>('check_in_at')),
   },
   {
-    accessorKey: 'location',
-    header: ({ column }) => createSortableHeader(column, 'Location'),
-    cell: ({ row }) => createTruncatedText(row.getValue<string>('location')),
+    accessorKey: 'check_out_at',
+    header: ({ column }) => createSortableHeader(column, 'Clock Out'),
+    cell: ({ row }) => formatAttendanceDateTime(row.getValue<string | null>('check_out_at')),
   },
   {
     accessorKey: 'status',
@@ -342,10 +343,7 @@ watch([tableSearch, tableStatusFilter, source], () => {
   const next: ColumnFiltersState = []
   const q = tableSearch.value.trim()
   if (q) {
-    next.push({
-      id: source.value === 'outsource' ? 'name' : 'email',
-      value: q,
-    })
+    next.push({ id: 'name', value: q })
   }
   if (tableStatusFilter.value !== 'all') next.push({ id: 'status', value: tableStatusFilter.value })
   columnFilters.value = next
@@ -620,7 +618,7 @@ function getTableRowId(row: DashboardStaffRow): string {
                   :key="`staff-toolbar-${source}`"
                   v-model:search="tableSearch"
                   v-model:status="tableStatusFilter"
-                  :search-placeholder="isOutsourceSource ? 'Filter names…' : 'Filter emails…'"
+                  search-placeholder="Filter names…"
                   :status-options="tableFilterOptions"
                   :display-items="displayItems"
                   :selected-count="selectedCount"
