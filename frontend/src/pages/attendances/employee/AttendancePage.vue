@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import AppButton from '../../components/AppButton.vue'
-import AppIcon from '../../components/AppIcon.vue'
-import { ApiError } from '../../services/apiClient'
-import { fetchAttendanceToday, submitCheckIn, submitCheckOut } from '../../services/attendanceService'
-import { useAttendanceCamera } from '../../composables/useAttendanceCamera'
-import { useGeolocation } from '../../composables/useGeolocation'
-import type { AttendanceRecord } from '../../types/attendance'
-import { formatAttendanceLongDate, formatAttendanceTime } from '../../utils/attendanceDateTime'
+import AppButton from '../../../components/AppButton.vue'
+import AppIcon from '../../../components/AppIcon.vue'
+import { ApiError } from '../../../services/apiClient'
+import { fetchAttendanceToday, submitCheckIn, submitCheckOut } from '../../../services/attendanceService'
+import { useAttendanceCamera } from '../../../composables/useAttendanceCamera'
+import { useGeolocation } from '../../../composables/useGeolocation'
+import type { AttendanceRecord } from '../../../types/attendance'
+import { formatAttendanceLongDate, formatAttendanceTime } from '../../../utils/attendanceDateTime'
 
 const router = useRouter()
 
@@ -41,8 +41,8 @@ const hasOpenSession = computed(() => {
 })
 
 const actionLabel = computed(() => {
-  if (hasOpenSession.value) return 'Check Out'
-  return 'Check In'
+  if (hasOpenSession.value) return 'Clock Out'
+  return 'Clock In'
 })
 
 const canCapture = computed(() => {
@@ -50,7 +50,7 @@ const canCapture = computed(() => {
 })
 
 const statusLabel = computed(() => {
-  if (!todayRecord.value) return 'Not checked in'
+  if (!todayRecord.value) return 'Not clocked in'
   return formatStatus(todayRecord.value.status)
 })
 
@@ -121,7 +121,7 @@ async function captureAndSubmit(): Promise<void> {
 
     if (response.success) {
       todayRecord.value = response.data
-      resultMessage.value = hasOpenSession.value ? 'Check-out successful.' : 'Check-in successful.'
+      resultMessage.value = hasOpenSession.value ? 'Clock-out successful.' : 'Clock-in successful.'
       stopCamera()
       clearLocation()
       showCameraWorkflow.value = false
@@ -275,7 +275,7 @@ onUnmounted(() => {
         <p v-else class="no-sessions">No attendance sessions recorded today.</p>
 
         <p class="status-helper">
-          {{ hasOpenSession ? 'You are currently checked in. Complete your day when you leave.' : 'Ready to record your presence with Face ID and location.' }}
+          {{ hasOpenSession ? 'You are currently clocked in. Complete your day when you leave.' : 'Ready to record your presence with Face ID and location.' }}
         </p>
 
         <AppButton

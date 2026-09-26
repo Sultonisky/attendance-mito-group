@@ -26,6 +26,7 @@ const router = createRouter({
         { path: '', name: 'dashboard', component: () => import('../pages/DashboardPage.vue'), meta: { title: 'Dashboard', permission: 'dashboard.view' } },
         { path: 'reports', name: 'reports', component: () => import('../pages/reports/ReportsPage.vue'), meta: { title: 'Admin menu' } },
         { path: 'reports/attendance', name: 'reports.attendance', component: () => import('../pages/reports/AttendanceReportPage.vue'), meta: { title: 'Attendance', permission: 'attendance.view' } },
+        { path: 'reports/attendance-corrections', name: 'reports.attendance-corrections', component: () => import('../pages/reports/AttendanceCorrectionReportPage.vue'), meta: { title: 'Attendance corrections', permission: 'attendance.correction.view' } },
         { path: 'reports/leave', name: 'reports.leave', component: () => import('../pages/reports/LeaveReportPage.vue'), meta: { title: 'Leave', permission: 'leave.view' } },
         { path: 'reports/overtime', name: 'reports.overtime', component: () => import('../pages/reports/OvertimeReportPage.vue'), meta: { title: 'Overtime', permission: 'overtime.view' } },
         { path: 'reports/penalties', name: 'reports.penalties', component: () => import('../pages/reports/PenaltyReportPage.vue'), meta: { title: 'Penalties', permission: 'penalty.view' } },
@@ -43,14 +44,26 @@ const router = createRouter({
     {
       path: '/employee',
       name: 'employee-app',
-      component: () => import('../pages/attendance/EmployeeAppPage.vue'),
+      component: () => import('../pages/attendances/employee/EmployeeAppPage.vue'),
       meta: { requiresAuth: true, employeeOnly: true, title: 'Employee App' },
+    },
+    {
+      path: '/employee/attendance',
+      name: 'employee-attendance',
+      component: () => import('../pages/attendances/employee/EmployeeAttendanceListPage.vue'),
+      meta: { requiresAuth: true, employeeOnly: true, title: 'Attendance List' },
+    },
+    {
+      path: '/employee/request',
+      name: 'employee-request',
+      component: () => import('../pages/attendances/employee/EmployeeAttendanceRequestPage.vue'),
+      meta: { requiresAuth: true, employeeOnly: true, title: 'Attendance Request' },
     },
     {
       path: '/attendance',
       name: 'attendance',
-      component: () => import('../pages/attendance/AttendancePage.vue'),
-      meta: { requiresAuth: true, employeeOnly: true, title: 'Attendance Check-in' },
+      component: () => import('../pages/attendances/employee/AttendancePage.vue'),
+      meta: { requiresAuth: true, employeeOnly: true, title: 'Attendance Clock' },
     },
     {
       path: '/login',
@@ -72,7 +85,7 @@ const router = createRouter({
     {
       path: '/outsource',
       name: 'outsource',
-      component: () => import('../pages/attendance/OutsourcePage.vue'),
+      component: () => import('../pages/attendances/outsource/OutsourcePage.vue'),
       meta: { requiresAuth: false, title: 'Presensi Outsource' },
     },
     {

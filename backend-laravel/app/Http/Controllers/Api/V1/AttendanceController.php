@@ -4,15 +4,23 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\Attendance\CheckInEmployee;
 use App\Actions\Attendance\CheckOutEmployee;
+use App\Actions\Attendance\CreateEmployeeAttendance;
+use App\Actions\Attendance\UpdateEmployeeAttendance;
+use App\Actions\Attendance\VoidEmployeeAttendance;
 use App\Http\Requests\Attendance\CheckInRequest;
 use App\Http\Requests\Attendance\CheckOutRequest;
+use App\Http\Requests\Attendance\IndexAttendanceRequest;
+use App\Http\Requests\Attendance\StoreEmployeeAttendanceRequest;
+use App\Http\Requests\Attendance\UpdateEmployeeAttendanceRequest;
 use App\Http\Resources\Attendance\AttendanceResource;
 use App\Models\AttendanceRecord;
 use App\Models\Employee;
+use App\Support\AttendanceDateTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use InvalidArgumentException;
 
 class AttendanceController
 {
@@ -157,7 +165,7 @@ class AttendanceController
     /**
      * List attendance records for the authenticated employee.
      */
-    public function index(Request $request): JsonResponse
+    public function index(IndexAttendanceRequest $request): JsonResponse
     {
         $employee = $request->user()->employee
             ?? Employee::where('email', $request->user()->email)->first();
@@ -169,11 +177,26 @@ class AttendanceController
             ], 404);
         }
 
+        $validated = $request->validated();
+        $perPage = (int) ($validated['per_page'] ?? 30);
+
         $records = AttendanceRecord::query()
             ->where('employee_id', $employee->id)
             ->with(['sessions'])
+            ->when(
+                isset($validated['from']),
+                fn ($query) => $query->whereDate('attendance_date', '>=', $validated['from'])
+            )
+            ->when(
+                isset($validated['to']),
+                fn ($query) => $query->whereDate('attendance_date', '<=', $validated['to'])
+            )
+            ->when(
+                isset($validated['status']),
+                fn ($query) => $query->where('status', $validated['status'])
+            )
             ->orderByDesc('attendance_date')
-            ->paginate(30);
+            ->paginate($perPage);
 
         return AttendanceResource::collection($records)->response();
     }
@@ -214,6 +237,80 @@ class AttendanceController
             'created_at' => $attendance->created_at,
             'updated_at' => $attendance->updated_at,
         ]))->response();
+    }
+
+    /**
+     * Admin manual create of an employee attendance record.
+     */
+    public function storeAdmin(
+        StoreEmployeeAttendanceRequest $request,
+        CreateEmployeeAttendance $action,
+    ): JsonResponse {
+        try {
+            $record = $action->execute($request->validated(), $request->user(), $request);
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->adminAttendancePayload($record),
+        ], 201);
+    }
+
+    /**
+     * Admin manual update (clock in/out). Employee and date stay locked.
+     */
+    public function updateAdmin(
+        UpdateEmployeeAttendanceRequest $request,
+        AttendanceRecord $attendance,
+        UpdateEmployeeAttendance $action,
+    ): JsonResponse {
+        try {
+            $updated = $action->execute($attendance, $request->validated(), $request->user(), $request);
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->adminAttendancePayload($updated),
+        ]);
+    }
+
+    /**
+     * Admin void (delete) an employee attendance record.
+     */
+    public function voidAdmin(
+        AttendanceRecord $attendance,
+        Request $request,
+        VoidEmployeeAttendance $action,
+    ): JsonResponse {
+        try {
+            $action->execute($attendance, $request->user(), $request);
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function adminAttendancePayload(AttendanceRecord $record): array
+    {
+        $session = $record->sessions()->orderBy('id')->first();
+
+        return [
+            'attendance_id' => $record->id,
+            'employee_id' => $record->employee_id,
+            'attendance_date' => optional($record->attendance_date)?->toDateString() ?? $record->attendance_date,
+            'status' => $record->status,
+            'check_in_at' => AttendanceDateTime::toApi($session?->check_in_at),
+            'check_out_at' => AttendanceDateTime::toApi($session?->check_out_at),
+            'duration_minutes' => $session?->duration_minutes,
+        ];
     }
 
     /**

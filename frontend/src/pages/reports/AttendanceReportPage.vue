@@ -1,22 +1,32 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, reactive, ref, resolveComponent, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { TableColumn } from '@nuxt/ui'
 import type { ColumnFiltersState, VisibilityState } from '@tanstack/vue-table'
 import { useReportPage } from '../../composables/useReportPage'
 import { useDataTableSort } from '../../composables/useDataTableSort'
 import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
-import { fetchAttendanceReport } from '../../services/reports/attendanceReportApi'
+import { usePermission } from '../../features/auth/composables/usePermission'
+import { useAppToast } from '../../composables/useAppToast'
+import {
+  fetchAttendanceReport,
+  createEmployeeAttendance,
+  updateEmployeeAttendance,
+  voidEmployeeAttendance,
+} from '../../services/reports/attendanceReportApi'
+import { fetchEmployees, type EmployeeRow } from '../../services/employeeApi'
 import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
 import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
-import { formatAttendanceDateTime } from '../../utils/attendanceDateTime'
+import { formatAttendanceDateTime, toAttendanceDatetimeLocal } from '../../utils/attendanceDateTime'
 import type { AttendanceReportRow } from '../../types/reports'
 import { defaultReportDates } from '../../types/reportDates'
 
 const route = useRoute()
 const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const toast = useAppToast()
+const { can } = usePermission()
 
 const data = ref<AttendanceReportRow[]>([])
 const columnFilters = ref<ColumnFiltersState>([])
@@ -40,6 +50,7 @@ const { sorting } = useDataTableSort(filters, () => {
 const statusOptions = [
   { label: 'All', value: 'all' },
   { label: 'Present', value: 'present' },
+  { label: 'Incomplete', value: 'incomplete' },
   { label: 'Late', value: 'late' },
   { label: 'Absent', value: 'absent' },
   { label: 'On leave', value: 'on_leave' },
@@ -48,6 +59,9 @@ const statusOptions = [
 const hideableColumns = [
   { id: 'employee_name', label: 'Employee' },
   { id: 'attendance_date', label: 'Date' },
+  { id: 'check_in_at', label: 'Clock In' },
+  { id: 'check_out_at', label: 'Clock Out' },
+  { id: 'duration_minutes', label: 'Duration' },
   { id: 'status', label: 'Status' },
   { id: 'created_at', label: 'Created At' },
 ]
@@ -58,7 +72,15 @@ const statusColor: Record<string, 'success' | 'warning' | 'error' | 'neutral'> =
   present: 'success',
   late: 'warning',
   absent: 'error',
+  incomplete: 'error',
   on_leave: 'neutral',
+}
+
+function formatDurationMinutes(mins: number | null | undefined): string {
+  if (mins == null || mins <= 0) return '—'
+  const hours = Math.floor(mins / 60)
+  const m = mins % 60
+  return hours > 0 ? `${hours}h ${m}m` : `${m}m`
 }
 
 const columns = computed<TableColumn<AttendanceReportRow>[]>(() => [
@@ -69,6 +91,21 @@ const columns = computed<TableColumn<AttendanceReportRow>[]>(() => [
   {
     accessorKey: 'attendance_date',
     header: ({ column }) => createSortableHeader(column, 'Date'),
+  },
+  {
+    accessorKey: 'check_in_at',
+    header: ({ column }) => createSortableHeader(column, 'Clock In'),
+    cell: ({ row }) => formatAttendanceDateTime(row.original.check_in_at),
+  },
+  {
+    accessorKey: 'check_out_at',
+    header: ({ column }) => createSortableHeader(column, 'Clock Out'),
+    cell: ({ row }) => formatAttendanceDateTime(row.original.check_out_at),
+  },
+  {
+    accessorKey: 'duration_minutes',
+    header: ({ column }) => createSortableHeader(column, 'Duration'),
+    cell: ({ row }) => formatDurationMinutes(row.original.duration_minutes),
   },
   {
     accessorKey: 'status',
@@ -82,9 +119,40 @@ const columns = computed<TableColumn<AttendanceReportRow>[]>(() => [
   {
     accessorKey: 'created_at',
     header: ({ column }) => createSortableHeader(column, 'Created At'),
+    cell: ({ row }) => formatAttendanceDateTime(row.getValue<string>('created_at')),
+  },
+  {
+    id: 'actions',
+    header: 'Actions',
     cell: ({ row }) => {
-      const value = row.getValue<string>('created_at')
-      return formatAttendanceDateTime(value)
+      const record = row.original
+      const items = [
+        can('attendance.update') && {
+          label: 'Edit',
+          icon: 'i-lucide-pencil',
+          onSelect: () => openEdit(record),
+        },
+        can('attendance.void') && {
+          label: 'Void',
+          icon: 'i-lucide-trash-2',
+          color: 'error' as const,
+          onSelect: () => confirmVoid(record),
+        },
+      ].filter(Boolean)
+
+      if (!items.length) return null
+
+      return h('div', { class: 'flex justify-end' }, [
+        h(resolveComponent('UDropdownMenu'), { items: [items] }, {
+          default: () => h(resolveComponent('UButton'), {
+            size: 'xs',
+            color: 'neutral',
+            variant: 'ghost',
+            icon: 'i-lucide-more-horizontal',
+            'aria-label': 'Row actions',
+          }),
+        }),
+      ])
     },
   },
 ])
@@ -138,6 +206,150 @@ async function load(): Promise<void> {
   }
 }
 
+// ── Create / Edit ─────────────────────────────────────────────────────────────
+const showFormModal = ref(false)
+const formMode = ref<'create' | 'edit'>('create')
+const formBusy = ref(false)
+const formError = ref('')
+const editingRow = ref<AttendanceReportRow | null>(null)
+const formEmployees = ref<EmployeeRow[]>([])
+
+const form = reactive({
+  employee_id: '' as string,
+  attendance_date: '',
+  check_in_at: '',
+  check_out_at: '',
+})
+
+const ALL = '__all__'
+
+function toSelectId(raw: string): string {
+  return raw === '' ? ALL : raw
+}
+
+function fromSelectId(raw: unknown): string {
+  const v = String(raw ?? '')
+  return v === ALL ? '' : v
+}
+
+function resetForm(): void {
+  form.employee_id = ''
+  form.attendance_date = ''
+  form.check_in_at = ''
+  form.check_out_at = ''
+  formError.value = ''
+  editingRow.value = null
+}
+
+function toApiDateTime(localValue: string): string {
+  return localValue.trim().replace('T', ' ')
+}
+
+async function loadFormEmployees(): Promise<void> {
+  try {
+    const res = await fetchEmployees({ per_page: 200, sort: 'full_name', direction: 'asc' })
+    formEmployees.value = res.data
+  }
+  catch {
+    formEmployees.value = []
+  }
+}
+
+async function openCreate(): Promise<void> {
+  formMode.value = 'create'
+  resetForm()
+  await loadFormEmployees()
+  const today = new Date()
+  const y = today.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })
+  form.attendance_date = y
+  form.check_in_at = `${y}T08:30`
+  showFormModal.value = true
+}
+
+function openEdit(row: AttendanceReportRow): void {
+  formMode.value = 'edit'
+  resetForm()
+  editingRow.value = row
+  form.employee_id = String(row.employee_id)
+  form.attendance_date = row.attendance_date
+  form.check_in_at = toAttendanceDatetimeLocal(row.check_in_at)
+  form.check_out_at = toAttendanceDatetimeLocal(row.check_out_at)
+  showFormModal.value = true
+}
+
+async function submitForm(): Promise<void> {
+  formError.value = ''
+  if (!form.check_in_at) {
+    formError.value = 'Clock in is required.'
+    return
+  }
+  if (formMode.value === 'create' && (!form.employee_id || !form.attendance_date)) {
+    formError.value = 'Employee and date are required.'
+    return
+  }
+
+  formBusy.value = true
+  try {
+    const checkIn = toApiDateTime(form.check_in_at)
+    const checkOut = form.check_out_at.trim() ? toApiDateTime(form.check_out_at) : null
+
+    if (formMode.value === 'create') {
+      await createEmployeeAttendance({
+        employee_id: Number(form.employee_id),
+        attendance_date: form.attendance_date,
+        check_in_at: checkIn,
+        check_out_at: checkOut,
+      })
+      toast.success('Attendance created')
+    }
+    else if (editingRow.value) {
+      await updateEmployeeAttendance(editingRow.value.id, {
+        check_in_at: checkIn,
+        check_out_at: checkOut,
+      })
+      toast.success('Attendance updated')
+    }
+
+    showFormModal.value = false
+    resetForm()
+    await load()
+  }
+  catch (e: unknown) {
+    toast.fromError(e, formMode.value === 'create' ? 'Unable to create attendance.' : 'Unable to update attendance.')
+  }
+  finally {
+    formBusy.value = false
+  }
+}
+
+// ── Void ──────────────────────────────────────────────────────────────────────
+const showVoidModal = ref(false)
+const voidTarget = ref<AttendanceReportRow | null>(null)
+const voidBusy = ref(false)
+
+function confirmVoid(row: AttendanceReportRow): void {
+  voidTarget.value = row
+  showVoidModal.value = true
+}
+
+async function executeVoid(): Promise<void> {
+  if (!voidTarget.value) return
+  voidBusy.value = true
+  try {
+    await voidEmployeeAttendance(voidTarget.value.id)
+    showVoidModal.value = false
+    voidTarget.value = null
+    toast.success('Attendance voided')
+    await load()
+  }
+  catch (e: unknown) {
+    toast.fromError(e, 'Unable to void this attendance record.')
+  }
+  finally {
+    voidBusy.value = false
+  }
+}
+
 onMounted(async () => {
   if (typeof route.query.from === 'string') filters.from = route.query.from
   if (typeof route.query.to === 'string') filters.to = route.query.to
@@ -154,6 +366,15 @@ onMounted(async () => {
           <UDashboardSidebarCollapse />
         </template>
         <template #right>
+          <UButton
+            v-if="can('attendance.create')"
+            color="primary"
+            size="sm"
+            icon="i-lucide-plus"
+            @click="openCreate"
+          >
+            Add record
+          </UButton>
           <UButton
             color="neutral"
             variant="outline"
@@ -225,4 +446,82 @@ onMounted(async () => {
       </div>
     </template>
   </UDashboardPanel>
+
+  <UModal
+    v-model:open="showFormModal"
+    :title="formMode === 'create' ? 'Add attendance record' : 'Edit attendance record'"
+  >
+    <template #body>
+      <div class="space-y-4">
+        <UAlert v-if="formError" color="error" variant="subtle" :title="formError" />
+
+        <template v-if="formMode === 'create'">
+          <UFormField label="Employee" required>
+            <USelect
+              :model-value="toSelectId(form.employee_id)"
+              :items="[
+                { label: formEmployees.length ? 'Select employee' : 'No employees available', value: ALL },
+                ...formEmployees.map(e => ({
+                  label: `${e.full_name} (${e.employee_code})`,
+                  value: String(e.id),
+                })),
+              ]"
+              value-key="value"
+              class="w-full"
+              @update:model-value="form.employee_id = fromSelectId($event)"
+            />
+          </UFormField>
+          <UFormField label="Date" required>
+            <UInput v-model="form.attendance_date" type="date" class="w-full" />
+          </UFormField>
+        </template>
+
+        <template v-else>
+          <UFormField label="Employee">
+            <UInput :model-value="editingRow?.employee_name ?? '—'" disabled class="w-full" />
+          </UFormField>
+          <UFormField label="Date">
+            <UInput :model-value="form.attendance_date" disabled class="w-full" />
+          </UFormField>
+        </template>
+
+        <UFormField label="Clock In" required hint="Asia/Jakarta">
+          <UInput v-model="form.check_in_at" type="datetime-local" class="w-full" />
+        </UFormField>
+        <UFormField label="Clock Out" hint="Optional — leave empty for incomplete">
+          <UInput v-model="form.check_out_at" type="datetime-local" class="w-full" />
+        </UFormField>
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="formBusy" @click="showFormModal = false">
+          Cancel
+        </UButton>
+        <UButton color="primary" :loading="formBusy" @click="submitForm">
+          {{ formMode === 'create' ? 'Add record' : 'Save changes' }}
+        </UButton>
+      </div>
+    </template>
+  </UModal>
+
+  <UModal v-model:open="showVoidModal" title="Void attendance record">
+    <template #body>
+      <p class="text-sm text-muted">
+        Are you sure you want to void the attendance record for
+        <strong class="text-highlighted">{{ voidTarget?.employee_name }}</strong>
+        on <strong class="text-highlighted">{{ voidTarget?.attendance_date }}</strong>?
+      </p>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="voidBusy" @click="showVoidModal = false">
+          Cancel
+        </UButton>
+        <UButton color="error" :loading="voidBusy" @click="executeVoid">
+          Void record
+        </UButton>
+      </div>
+    </template>
+  </UModal>
 </template>
