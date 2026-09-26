@@ -6,6 +6,7 @@ use App\Actions\Outsource\ResolveOutsourceSession;
 use App\Enums\OutsourceAttendanceSessionStatus;
 use App\Models\AttendanceRecord;
 use App\Models\AttendanceSession;
+use App\Models\AuditLog;
 use App\Models\City;
 use App\Models\Outsource;
 use App\Models\OutsourceStoreAssignment;
@@ -231,6 +232,15 @@ class OutsourcePublicApiTest extends TestCase
         $response->assertJsonMissingPath('data.session_token');
         $response->assertCookie($this->cookieName());
         $this->assertDatabaseCount('outsource_attendance_sessions', 0);
+
+        $log = AuditLog::where('action', 'outsource.session.init')->latest('id')->first();
+        $this->assertNotNull($log);
+        $this->assertNull($log->actor_id);
+        $this->assertNotNull($log->ip_address);
+        $this->assertSame('outsource', $log->metadata['actor_kind'] ?? null);
+        $this->assertSame($outsource->id, $log->metadata['outsource_id'] ?? null);
+        $this->assertSame($outsource->name, $log->metadata['outsource_name'] ?? null);
+        $this->assertSame($outsource->outsource_code, $log->metadata['outsource_code'] ?? null);
     }
 
     public function test_invalid_assignment_rejected(): void
@@ -537,6 +547,14 @@ class OutsourcePublicApiTest extends TestCase
         $response->assertStatus(200);
         $response->assertJson(['success' => true]);
         $this->assertNull($this->sessionStore()->find($sessionId));
+
+        $log = AuditLog::where('action', 'outsource.attendance.check_out')->latest('id')->first();
+        $this->assertNotNull($log);
+        $this->assertNull($log->actor_id);
+        $this->assertNotNull($log->ip_address);
+        $this->assertSame('outsource', $log->metadata['actor_kind'] ?? null);
+        $this->assertSame($outsource->id, $log->metadata['outsource_id'] ?? null);
+        $this->assertSame($outsource->name, $log->metadata['outsource_name'] ?? null);
     }
 
     public function test_check_out_without_open_attendance_rejected(): void

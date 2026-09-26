@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AttendanceController;
+use App\Http\Controllers\Api\V1\AttendanceCorrectionController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\EmployeeController;
@@ -134,6 +135,38 @@ Route::prefix('v1')->group(function () {
                 ->name('attendance.check-in');
             Route::post('/check-out', [AttendanceController::class, 'checkOut'])
                 ->name('attendance.check-out');
+
+            // Correction requests must be registered before /{attendance}.
+            Route::get('/correction-requests', [AttendanceCorrectionController::class, 'index'])
+                ->name('attendance.correction-requests.index')
+                ->middleware('can:attendance.correction.view');
+            Route::post('/correction-requests', [AttendanceCorrectionController::class, 'store'])
+                ->name('attendance.correction-requests.store')
+                ->middleware('can:attendance.correction.create');
+            Route::get('/correction-requests/{correction}', [AttendanceCorrectionController::class, 'show'])
+                ->name('attendance.correction-requests.show')
+                ->middleware('can:attendance.correction.view');
+            Route::post('/correction-requests/{correction}/approve', [AttendanceCorrectionController::class, 'approve'])
+                ->name('attendance.correction-requests.approve')
+                ->middleware('can:attendance.correction.approve');
+            Route::post('/correction-requests/{correction}/reject', [AttendanceCorrectionController::class, 'reject'])
+                ->name('attendance.correction-requests.reject')
+                ->middleware('can:attendance.correction.reject');
+            Route::post('/correction-requests/{correction}/cancel', [AttendanceCorrectionController::class, 'cancel'])
+                ->name('attendance.correction-requests.cancel')
+                ->middleware('can:attendance.correction.cancel');
+
+            // Admin manual CRUD (must stay before GET /{attendance}).
+            Route::post('/', [AttendanceController::class, 'storeAdmin'])
+                ->name('attendance.admin.store')
+                ->middleware('can:attendance.create');
+            Route::put('/{attendance}', [AttendanceController::class, 'updateAdmin'])
+                ->name('attendance.admin.update')
+                ->middleware('can:attendance.update');
+            Route::delete('/{attendance}/void', [AttendanceController::class, 'voidAdmin'])
+                ->name('attendance.admin.void')
+                ->middleware('can:attendance.void');
+
             Route::get('/', [AttendanceController::class, 'index'])
                 ->name('attendance.index')
                 ->middleware('can:attendance.view');

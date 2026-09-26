@@ -78,11 +78,23 @@ class DashboardStaffAndTrendTest extends TestCase
         $admin = $this->makeAdmin();
         $employee = $this->makeScheduledEmployee();
 
-        AttendanceRecord::factory()
+        $record = AttendanceRecord::factory()
             ->forEmployee($employee)
             ->onDate('2026-09-15')
             ->status('present')
             ->create();
+
+        $checkIn = CarbonImmutable::parse('2026-09-15 08:05:00', 'Asia/Jakarta');
+        $checkOut = CarbonImmutable::parse('2026-09-15 17:10:00', 'Asia/Jakarta');
+
+        $session = \App\Models\AttendanceSession::factory()
+            ->forRecord($record)
+            ->closed()
+            ->create([
+                'check_in_at' => $checkIn,
+                'check_out_at' => $checkOut,
+                'duration_minutes' => 545,
+            ]);
 
         $this->actingAs($admin, 'sanctum')
             ->getJson('/api/v1/dashboard/staff-today')
@@ -94,6 +106,52 @@ class DashboardStaffAndTrendTest extends TestCase
                 'name' => $employee->full_name,
                 'location' => 'Jakarta',
                 'status' => 'Present',
+                'check_in_at' => \App\Support\AttendanceDateTime::toApi($session->check_in_at),
+                'check_out_at' => \App\Support\AttendanceDateTime::toApi($session->check_out_at),
+            ]);
+    }
+
+    public function test_staff_today_outsource_includes_clock_times(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-15 10:00:00', 'Asia/Jakarta'));
+        $admin = $this->makeAdmin();
+        $store = \App\Models\WorkLocation::factory()->create(['status' => 'active']);
+        $person = \App\Models\Outsource::factory()->create(['status' => 'active', 'name' => 'Outsource Demo']);
+
+        \App\Models\OutsourceStoreAssignment::factory()
+            ->forOutsource($person)
+            ->forStore($store)
+            ->create(['status' => 'active']);
+
+        $record = AttendanceRecord::factory()
+            ->forOutsource($person)
+            ->onDate('2026-09-15')
+            ->status('present')
+            ->create();
+
+        $checkIn = CarbonImmutable::parse('2026-09-15 08:05:00', 'Asia/Jakarta');
+        $checkOut = CarbonImmutable::parse('2026-09-15 17:10:00', 'Asia/Jakarta');
+
+        $session = \App\Models\AttendanceSession::factory()
+            ->forRecord($record)
+            ->closed()
+            ->create([
+                'check_in_at' => $checkIn,
+                'check_out_at' => $checkOut,
+                'duration_minutes' => 545,
+            ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/v1/dashboard/staff-today?source=outsource')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonFragment([
+                'id' => $person->id,
+                'code' => $person->outsource_code,
+                'name' => 'Outsource Demo',
+                'status' => 'Present',
+                'check_in_at' => \App\Support\AttendanceDateTime::toApi($session->check_in_at),
+                'check_out_at' => \App\Support\AttendanceDateTime::toApi($session->check_out_at),
             ]);
     }
 

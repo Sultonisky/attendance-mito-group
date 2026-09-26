@@ -10,8 +10,16 @@ const workspaces = computed(() => [
     description: 'Review daily attendance records and check-in status.',
     icon: 'i-lucide-calendar-check-2',
     to: '/dashboard/reports/attendance',
-    visible: true,
+    visible: can('attendance.view'),
     cta: 'Open',
+  },
+  {
+    label: 'Attendance corrections',
+    description: 'Approve or reject forgotten clock in/out requests.',
+    icon: 'i-lucide-file-text',
+    to: '/dashboard/reports/attendance-corrections',
+    visible: can('attendance.correction.view'),
+    cta: 'Manage',
   },
   {
     label: 'Leave',

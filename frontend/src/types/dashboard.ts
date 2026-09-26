@@ -19,6 +19,8 @@ export type DashboardStaffRow = {
   email: string | null
   location: string
   status: 'Present' | 'Late' | 'On leave' | 'Absent' | 'Incomplete'
+  check_in_at: string | null
+  check_out_at: string | null
 }
 
 export type DashboardStaffResponse = {

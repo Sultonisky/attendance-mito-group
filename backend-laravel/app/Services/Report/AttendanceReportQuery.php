@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 
 class AttendanceReportQuery
 {
@@ -27,8 +28,12 @@ class AttendanceReportQuery
                 'attendance_records.status',
                 'attendance_records.created_at',
                 'employees.full_name as employee_name',
+                DB::raw('(SELECT MIN(check_in_at) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as first_check_in'),
+                DB::raw('(SELECT MAX(check_out_at) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as last_check_out'),
+                DB::raw('(SELECT SUM(duration_minutes) FROM attendance_sessions WHERE attendance_sessions.attendance_record_id = attendance_records.id) as total_duration'),
             ])
             ->join('employees', 'employees.id', '=', 'attendance_records.employee_id')
+            ->whereNotNull('attendance_records.employee_id')
             ->whereDate('attendance_records.attendance_date', '>=', $filters['from'])
             ->whereDate('attendance_records.attendance_date', '<=', $filters['to']);
 

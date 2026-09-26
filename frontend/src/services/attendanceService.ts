@@ -1,15 +1,37 @@
 import { apiFetch, apiFetchFormData } from './apiClient'
 import type { AttendanceResponse, AttendanceIndexResponse, AttendanceRecord } from '../types/attendance'
 
+export type AttendanceIndexParams = {
+  from?: string
+  to?: string
+  status?: string
+  per_page?: number
+  page?: number
+}
+
 export async function fetchAttendanceIndex(
-  perPage = 1,
+  params: number | AttendanceIndexParams = 1,
 ): Promise<AttendanceIndexResponse> {
-  const query = perPage > 1 ? `?per_page=${perPage}` : ''
-  return apiFetch<AttendanceIndexResponse>(`/attendance${query}`)
+  const query = new URLSearchParams()
+
+  if (typeof params === 'number') {
+    if (params > 1) {
+      query.set('per_page', String(params))
+    }
+  } else {
+    if (params.from) query.set('from', params.from)
+    if (params.to) query.set('to', params.to)
+    if (params.status) query.set('status', params.status)
+    if (params.per_page != null) query.set('per_page', String(params.per_page))
+    if (params.page != null && params.page > 1) query.set('page', String(params.page))
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiFetch<AttendanceIndexResponse>(`/attendance${suffix}`)
 }
 
 export async function fetchAttendanceToday(): Promise<AttendanceRecord | null> {
-  const response = await fetchAttendanceIndex(5)
+  const response = await fetchAttendanceIndex({ per_page: 5 })
   const today = localDateString(new Date())
 
   const match = response.data.find(

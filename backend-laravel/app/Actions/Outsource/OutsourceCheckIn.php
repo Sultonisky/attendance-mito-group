@@ -17,6 +17,7 @@ use App\Services\Outsource\OutsourceDeviceLockService;
 use App\Services\Outsource\Session\OutsourceSessionData;
 use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class OutsourceCheckIn
@@ -28,8 +29,13 @@ class OutsourceCheckIn
         protected OutsourceSessionStoreInterface $sessions,
     ) {}
 
-    public function execute(Outsource $outsource, OutsourceSessionData $session, CarbonImmutable $occurredAt, array $context): array
-    {
+    public function execute(
+        Outsource $outsource,
+        OutsourceSessionData $session,
+        CarbonImmutable $occurredAt,
+        array $context,
+        ?Request $request = null,
+    ): array {
         $fingerprint = trim((string) ($context['device_fingerprint'] ?? ''));
         if ($fingerprint === '' || strlen($fingerprint) < 16) {
             return [
@@ -130,7 +136,7 @@ class OutsourceCheckIn
             ];
         }
 
-        $result = DB::transaction(function () use ($domainResult, $session, $fingerprint, $context) {
+        $result = DB::transaction(function () use ($domainResult, $session, $fingerprint, $context, $outsource, $request) {
             $nextSession = $session;
             if ($session->deviceFingerprint === '') {
                 $nextSession = $nextSession->withDeviceFingerprint($fingerprint);
@@ -145,12 +151,11 @@ class OutsourceCheckIn
             $record = $domainResult->attendanceRecord;
             $attendanceSession = $domainResult->session;
 
-            $this->audit->execute(
-                null,
-                'outsource.attendance.check_in',
-                $record,
-                null,
-                [
+            $this->audit->execute(RecordAuditAction::forOutsource(
+                outsource: $outsource,
+                action: 'outsource.attendance.check_in',
+                subject: $record,
+                newValues: [
                     'status' => $record->status,
                     'session_status' => $attendanceSession->status,
                     'check_in_at' => $attendanceSession->check_in_at?->toIso8601String(),
@@ -159,9 +164,10 @@ class OutsourceCheckIn
                     'pin_id' => $context['pin_id'] ?? null,
                     'device_fingerprint' => $fingerprint,
                 ],
-                null,
-                ['session_id' => $session->id, 'record_id' => $record->id]
-            );
+                ipAddress: $request?->ip() ?? $session->ipAddress,
+                userAgent: $request?->userAgent() ?? $session->userAgent,
+                metadata: ['session_id' => $session->id, 'record_id' => $record->id],
+            ));
 
             return ['record' => $record, 'session' => $attendanceSession];
         });

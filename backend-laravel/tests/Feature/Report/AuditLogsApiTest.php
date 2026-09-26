@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Report;
 
+use App\Models\AuditLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -61,7 +62,7 @@ class AuditLogsApiTest extends TestCase
             ->assertJsonStructure([
                 'success',
                 'data' => [
-                    '*' => ['id', 'action', 'actor', 'auditable_type', 'auditable_id', 'ip_address', 'metadata', 'created_at'],
+                    '*' => ['id', 'action', 'actor', 'auditable_type', 'auditable_id', 'old_values', 'new_values', 'ip_address', 'user_agent', 'metadata', 'created_at'],
                 ],
                 'meta' => ['current_page', 'last_page', 'per_page', 'total'],
             ]);
@@ -81,5 +82,36 @@ class AuditLogsApiTest extends TestCase
             ->getJson('/api/v1/audit-logs?search=updated&per_page=10')
             ->assertOk()
             ->assertJson(['success' => true]);
+    }
+
+    public function test_outsource_metadata_actor_is_exposed_in_list(): void
+    {
+        AuditLog::create([
+            'actor_id' => null,
+            'action' => 'outsource.session.init',
+            'auditable_type' => null,
+            'auditable_id' => null,
+            'old_values' => null,
+            'new_values' => ['store_id' => 1],
+            'ip_address' => '198.51.100.20',
+            'user_agent' => 'Mozilla/5.0',
+            'metadata' => [
+                'actor_kind' => 'outsource',
+                'outsource_id' => 42,
+                'outsource_name' => 'Ayu Outsource',
+                'outsource_code' => 'DM20260042',
+            ],
+        ]);
+
+        $this->actingAs($this->superAdmin(), 'sanctum')
+            ->getJson('/api/v1/audit-logs?per_page=10&action=outsource.session.init')
+            ->assertOk()
+            ->assertJsonPath('data.0.actor.kind', 'outsource')
+            ->assertJsonPath('data.0.actor.name', 'Ayu Outsource')
+            ->assertJsonPath('data.0.actor.email', 'DM20260042')
+            ->assertJsonPath('data.0.actor.id', 42)
+            ->assertJsonPath('data.0.ip_address', '198.51.100.20')
+            ->assertJsonPath('data.0.user_agent', 'Mozilla/5.0')
+            ->assertJsonPath('data.0.new_values.store_id', 1);
     }
 }

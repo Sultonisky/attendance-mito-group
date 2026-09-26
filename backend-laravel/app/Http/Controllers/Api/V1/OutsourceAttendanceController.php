@@ -443,7 +443,7 @@ class OutsourceAttendanceController
         $occurredAt = $this->resolveOccurredAt($request);
         $context = $request->validated();
 
-        $result = $this->checkIn->execute($outsource, $session, $occurredAt, $context);
+        $result = $this->checkIn->execute($outsource, $session, $occurredAt, $context, $request);
 
         if (! $result['success']) {
             return response()->json([
@@ -517,7 +517,7 @@ class OutsourceAttendanceController
         $occurredAt = $this->resolveOccurredAt($request);
         $context = $request->validated();
 
-        $result = $this->checkOut->execute($outsource, $session, $occurredAt, $context);
+        $result = $this->checkOut->execute($outsource, $session, $occurredAt, $context, $request);
 
         if (! $result['success']) {
             return response()->json([

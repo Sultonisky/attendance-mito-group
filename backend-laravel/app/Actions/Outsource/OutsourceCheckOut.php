@@ -16,6 +16,7 @@ use App\Models\Outsource;
 use App\Services\Outsource\Session\OutsourceSessionData;
 use App\Services\Outsource\Session\OutsourceSessionStoreInterface;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class OutsourceCheckOut
@@ -26,8 +27,13 @@ class OutsourceCheckOut
         protected OutsourceSessionStoreInterface $sessions,
     ) {}
 
-    public function execute(Outsource $outsource, OutsourceSessionData $session, CarbonImmutable $occurredAt, array $context): array
-    {
+    public function execute(
+        Outsource $outsource,
+        OutsourceSessionData $session,
+        CarbonImmutable $occurredAt,
+        array $context,
+        ?Request $request = null,
+    ): array {
         $fingerprint = trim((string) ($context['device_fingerprint'] ?? ''));
         if ($fingerprint === '' || strlen($fingerprint) < 16) {
             return [
@@ -118,30 +124,31 @@ class OutsourceCheckOut
             ];
         }
 
-        $result = DB::transaction(function () use ($domainResult, $session) {
+        $result = DB::transaction(function () use ($domainResult, $session, $outsource, $request) {
             $record = $domainResult->attendanceRecord;
             $attendanceSession = $domainResult->session;
 
-            $this->audit->execute(
-                null,
-                'outsource.attendance.check_out',
-                $attendanceSession,
-                [
+            $this->audit->execute(RecordAuditAction::forOutsource(
+                outsource: $outsource,
+                action: 'outsource.attendance.check_out',
+                subject: $attendanceSession,
+                oldValues: [
                     'check_in_at' => $attendanceSession->check_in_at?->toIso8601String(),
                     'check_out_at' => $attendanceSession->check_out_at?->toIso8601String(),
                     'duration_minutes' => $attendanceSession->duration_minutes,
                     'status' => $attendanceSession->status,
                 ],
-                [
+                newValues: [
                     'check_in_at' => $attendanceSession->check_in_at?->toIso8601String(),
                     'check_out_at' => $attendanceSession->check_out_at?->toIso8601String(),
                     'duration_minutes' => $attendanceSession->duration_minutes,
                     'status' => $attendanceSession->status,
                     'attendance_record_status' => $record->status,
                 ],
-                null,
-                ['session_id' => $session->id, 'record_id' => $record->id]
-            );
+                ipAddress: $request?->ip() ?? $session->ipAddress,
+                userAgent: $request?->userAgent() ?? $session->userAgent,
+                metadata: ['session_id' => $session->id, 'record_id' => $record->id],
+            ));
 
             return ['record' => $record, 'session' => $attendanceSession];
         });
