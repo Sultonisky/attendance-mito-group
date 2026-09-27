@@ -58,17 +58,26 @@ export function formatCityCabangLabel(
   return city || cabang
 }
 
+export interface OutsourceAttendanceLocation {
+  occurred_at: string | null
+  pin: { id: number; name: string; address: string | null } | null
+  work_location: { id: number; name: string } | null
+}
+
 export interface OutsourceAttendanceSnapshot {
   attendance_id: number
   status: string
+  session_status?: 'open' | 'closed' | 'expired' | string
   attendance_date: string
   check_in_at: string | null
   check_out_at: string | null
   duration_minutes: number | null
+  check_in_location?: OutsourceAttendanceLocation | null
+  check_out_location?: OutsourceAttendanceLocation | null
 }
 
 export interface OutsourceSessionPayload {
-  status: 'NONE' | 'READY' | 'ACTIVE' | string
+  status: 'NONE' | 'READY' | 'ACTIVE' | 'COMPLETED' | string
   expires_at: string | null
   outsource: Outsource | null
   store: (Pick<Store, 'id' | 'name' | 'latitude' | 'longitude'> & {
@@ -111,6 +120,8 @@ export interface OutsourceAttendanceResponse {
     check_in_at: string | null
     check_out_at: string | null
     duration_minutes: number | null
+    check_in_location?: OutsourceAttendanceLocation | null
+    check_out_location?: OutsourceAttendanceLocation | null
   }
 }
 
