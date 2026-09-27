@@ -43,7 +43,7 @@ class AttendanceDirectActionTest extends TestCase
 
     private function makeEmployee(array $overrides = []): Employee
     {
-        return Employee::factory()->create(array_merge([
+        return Employee::factory()->withWorkLocation()->create(array_merge([
             'employment_status' => 'permanent',
         ], $overrides));
     }
