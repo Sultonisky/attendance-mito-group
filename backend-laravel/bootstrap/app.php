@@ -23,6 +23,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // requests coming from the configured stateful domains.
         $middleware->statefulApi();
 
+        // Production traffic reaches the container only through the host
+        // reverse proxy (port bound to 127.0.0.1) via the Docker bridge, so
+        // REMOTE_ADDR is always a private gateway IP. Trust private ranges to
+        // resolve the real client IP from X-Forwarded-For. Must stay limited to
+        // private ranges: a public REMOTE_ADDR could otherwise spoof the header.
+        $middleware->trustProxies(
+            at: ['127.0.0.1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'],
+            headers: Request::HEADER_X_FORWARDED_FOR,
+        );
+
         // Public outsource session id is an opaque HttpOnly credential managed
         // by OutsourceSessionCookie — keep it outside Laravel's encrypted jar.
         $middleware->encryptCookies(except: [
