@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import { watchDebounced } from "@vueuse/core";
 import type { TableColumn } from "@nuxt/ui";
-import type { ColumnFiltersState, VisibilityState } from "@tanstack/vue-table";
+import type { VisibilityState } from "@tanstack/vue-table";
 import { useReportPage } from "../../composables/useReportPage";
 import { useDataTableSort } from "../../composables/useDataTableSort";
 import { useDataTableDisplay } from "../../composables/useDataTableDisplay";
-import { fetchAuditLogs } from "../../services/auditLogApi";
+import {
+  fetchAuditLogActions,
+  fetchAuditLogs,
+} from "../../services/auditLogApi";
 import DataTableToolbar from "../../components/DataTableToolbar.vue";
 import DataTable from "../../components/DataTable.vue";
 import ReportDataToolbar from "../../components/ReportDataToolbar.vue";
@@ -29,19 +33,54 @@ const {
 } = useReportPage();
 
 const data = ref<AuditLogRow[]>([]);
-const columnFilters = ref<ColumnFiltersState>([]);
 const columnVisibility = ref<VisibilityState>();
 const search = ref("");
 
 const showDetailModal = ref(false);
 const selectedLog = ref<AuditLogRow | null>(null);
 
+const ALL = "all";
+
 const filters = reactive({
   ...defaultReportDates(),
+  action: ALL,
+  actor_kind: ALL,
   per_page: 25,
   sort: "created_at",
   direction: "desc" as "asc" | "desc",
 });
+
+const actionNames = ref<string[]>([]);
+const actionOptions = computed(() => [
+  { label: "All actions", value: ALL },
+  ...actionNames.value.map((action) => ({ label: action, value: action })),
+]);
+const actorKindOptions = [
+  { label: "All actors", value: ALL },
+  { label: "User", value: "user" },
+  { label: "Outsource", value: "outsource" },
+  { label: "System", value: "system" },
+];
+
+function listParams() {
+  return {
+    search: search.value || null,
+    from: filters.from,
+    to: filters.to,
+    action: filters.action === ALL ? null : filters.action,
+    actor_kind: filters.actor_kind === ALL ? null : filters.actor_kind,
+    sort: filters.sort,
+    direction: filters.direction,
+  };
+}
+
+async function loadActionOptions(): Promise<void> {
+  try {
+    actionNames.value = await fetchAuditLogActions();
+  } catch {
+    actionNames.value = [];
+  }
+}
 
 const { sorting } = useDataTableSort(filters, () => {
   meta.current_page = 1;
@@ -214,12 +253,8 @@ async function fetchAllRowsForExport(): Promise<AuditLogRow[]> {
 
   do {
     const res = await fetchAuditLogs({
-      search: search.value || null,
-      from: filters.from,
-      to: filters.to,
+      ...listParams(),
       per_page: 100,
-      sort: filters.sort,
-      direction: filters.direction,
       page,
     });
 
@@ -329,15 +364,25 @@ const columns = computed<TableColumn<AuditLogRow>[]>(() => [
   },
 ]);
 
-watch(search, () => {
-  const next: ColumnFiltersState = [];
-  if (search.value.trim())
-    next.push({ id: "action", value: search.value.trim() });
-  columnFilters.value = next;
-});
+watchDebounced(
+  search,
+  () => {
+    if (!ready.value) return;
+    meta.current_page = 1;
+    load();
+  },
+  { debounce: 400 },
+);
 
 watch(
-  () => [filters.from, filters.to, filters.per_page] as const,
+  () =>
+    [
+      filters.from,
+      filters.to,
+      filters.per_page,
+      filters.action,
+      filters.actor_kind,
+    ] as const,
   () => {
     if (!ready.value) return;
     meta.current_page = 1;
@@ -499,12 +544,8 @@ async function load(): Promise<void> {
   clearErrors();
   try {
     const res = await fetchAuditLogs({
-      search: search.value || null,
-      from: filters.from,
-      to: filters.to,
+      ...listParams(),
       per_page: filters.per_page,
-      sort: filters.sort,
-      direction: filters.direction,
       page: meta.current_page,
     });
     data.value = res.data;
@@ -519,7 +560,7 @@ async function load(): Promise<void> {
 onMounted(async () => {
   if (typeof route.query.from === "string") filters.from = route.query.from;
   if (typeof route.query.to === "string") filters.to = route.query.to;
-  await load();
+  await Promise.all([load(), loadActionOptions()]);
   ready.value = true;
 });
 </script>
@@ -592,15 +633,33 @@ onMounted(async () => {
             v-model:from="filters.from"
             v-model:to="filters.to"
             v-model:per-page="filters.per_page"
-            search-placeholder="Search action, resource, or actor…"
+            search-placeholder="Search ID, action, actor, resource, IP…"
             :display-items="displayItems"
             show-date-range
             show-per-page
-          />
+          >
+            <template #filters>
+              <USelect
+                v-model="filters.action"
+                :items="actionOptions"
+                value-key="value"
+                label-key="label"
+                class="w-56"
+                aria-label="Filter by action"
+              />
+              <USelect
+                v-model="filters.actor_kind"
+                :items="actorKindOptions"
+                value-key="value"
+                label-key="label"
+                class="w-36"
+                aria-label="Filter by actor type"
+              />
+            </template>
+          </DataTableToolbar>
 
           <DataTable
             v-model:sorting="sorting"
-            v-model:column-filters="columnFilters"
             v-model:column-visibility="columnVisibility"
             :data="data"
             :columns="columns"
