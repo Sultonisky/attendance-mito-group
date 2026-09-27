@@ -317,5 +317,6 @@ Route::prefix('v1')->group(function () {
 
         // Audit logs (read-only)
         Route::get('/audit-logs', [AuditController::class, 'index'])->middleware('can:audit.view')->name('audit-logs.index');
+        Route::get('/audit-logs/actions', [AuditController::class, 'actions'])->middleware('can:audit.view')->name('audit-logs.actions');
     });
 });
