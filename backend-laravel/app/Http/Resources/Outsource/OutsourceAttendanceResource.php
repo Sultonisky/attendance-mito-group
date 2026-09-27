@@ -26,6 +26,7 @@ class OutsourceAttendanceResource extends JsonResource
                 'check_in_at' => AttendanceDateTime::toApi($this->resource['check_in_at'] ?? null),
                 'check_out_at' => AttendanceDateTime::toApi($this->resource['check_out_at'] ?? null),
                 'duration_minutes' => $this->resource['duration_minutes'] ?? null,
+                ...array_intersect_key($this->resource, array_flip(['check_in_location', 'check_out_location'])),
             ],
         ];
     }
