@@ -23,6 +23,7 @@ import {
 } from '../../../services/outsourceWorkLocationApi'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../../components/DashboardNavbarTitle.vue'
 import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../../utils/dataTable'
 
 const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
@@ -651,7 +652,10 @@ onMounted(async () => {
 <template>
   <UDashboardPanel id="outsource-person-list">
     <template #header>
-      <UDashboardNavbar title="Outsource persons">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading>
           <UDashboardSidebarCollapse />
         </template>

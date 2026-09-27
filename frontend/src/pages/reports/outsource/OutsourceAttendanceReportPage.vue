@@ -22,6 +22,7 @@ import ReportDataToolbar from '../../../components/ReportDataToolbar.vue'
 import type { ReportCsvColumn } from '../../../components/ReportDataToolbar.vue'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../../components/DashboardNavbarTitle.vue'
 import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../../utils/dataTable'
 import { formatAttendanceDateTime, toAttendanceDatetimeLocal } from '../../../utils/attendanceDateTime'
 import type { OutsourceAttendanceReportRow, OutsourceAttendanceReportFilters, OutsourceAttendanceEventLocation } from '../../../types/reports'
@@ -728,7 +729,10 @@ onMounted(async () => {
 <template>
   <UDashboardPanel id="outsource-attendance-report">
     <template #header>
-      <UDashboardNavbar title="Outsource attendance">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading><UDashboardSidebarCollapse /></template>
         <template #right>
           <UButton

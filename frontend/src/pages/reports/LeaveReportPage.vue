@@ -12,6 +12,7 @@ import { approveLeaveRequest, cancelLeaveRequest, rejectLeaveRequest } from '../
 import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../components/DashboardNavbarTitle.vue'
 import AdminRowActions, { type AdminRowAction } from '../../components/AdminRowActions.vue'
 import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
 import type { LeaveReportRow } from '../../types/reports'
@@ -234,7 +235,10 @@ onMounted(async () => {
 <template>
   <UDashboardPanel id="leave-report">
     <template #header>
-      <UDashboardNavbar title="Leave">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading><UDashboardSidebarCollapse /></template>
         <template #right>
           <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-refresh-cw" :loading="loading" @click="load">
