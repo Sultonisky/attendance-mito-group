@@ -24,6 +24,7 @@ import {
 import { fetchOutsourceStores } from '../../../services/outsourceService'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../../components/DashboardNavbarTitle.vue'
 import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../../utils/dataTable'
 import { ApiError } from '../../../services/apiClient'
 
@@ -597,7 +598,10 @@ onMounted(async () => {
 <template>
   <UDashboardPanel id="outsource-work-locations">
     <template #header>
-      <UDashboardNavbar title="Work locations">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading>
           <UDashboardSidebarCollapse />
         </template>
