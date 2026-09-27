@@ -25,7 +25,7 @@ class CheckInRequest extends FormRequest
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'accuracy_meters' => ['nullable', 'numeric', 'min:0'],
-            'work_location_id' => ['nullable', 'integer', 'exists:work_locations,id'],
+            'work_location_id' => ['nullable', 'integer', 'exists:employee_work_locations,id'],
             'source' => ['nullable', 'string', 'max:255'],
             'device_metadata' => ['nullable', 'array'],
             'face_session_id' => ['nullable', 'string', 'max:255'],
