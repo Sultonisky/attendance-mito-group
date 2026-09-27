@@ -10,6 +10,7 @@ use App\Domain\Attendance\Exceptions\AttendanceBlockedByPolicyException;
 use App\Domain\Attendance\Exceptions\AttendanceDayAlreadyCompletedException;
 use App\Domain\Attendance\Exceptions\InvalidLocationException;
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
+use App\Domain\Attendance\Services\AttendanceAuditLocation;
 use App\Enums\AttendanceEventType;
 use App\Exceptions\Domain\InactiveSubjectException;
 use App\Models\Outsource;
@@ -27,6 +28,7 @@ class OutsourceCheckIn
         protected RecordAuditAction $audit,
         protected OutsourceDeviceLockService $deviceLock,
         protected OutsourceSessionStoreInterface $sessions,
+        protected AttendanceAuditLocation $auditLocation = new AttendanceAuditLocation,
     ) {}
 
     public function execute(
@@ -136,7 +138,7 @@ class OutsourceCheckIn
             ];
         }
 
-        $result = DB::transaction(function () use ($domainResult, $session, $fingerprint, $context, $outsource, $request) {
+        $result = DB::transaction(function () use ($domainResult, $session, $fingerprint, $context, $outsource, $request, $operationData) {
             $nextSession = $session;
             if ($session->deviceFingerprint === '') {
                 $nextSession = $nextSession->withDeviceFingerprint($fingerprint);
@@ -166,7 +168,11 @@ class OutsourceCheckIn
                 ],
                 ipAddress: $request?->ip() ?? $session->ipAddress,
                 userAgent: $request?->userAgent() ?? $session->userAgent,
-                metadata: ['session_id' => $session->id, 'record_id' => $record->id],
+                metadata: [
+                    'session_id' => $session->id,
+                    'record_id' => $record->id,
+                    'clock_in' => $this->auditLocation->fromOperation($operationData, $domainResult),
+                ],
             ));
 
             return ['record' => $record, 'session' => $attendanceSession];
