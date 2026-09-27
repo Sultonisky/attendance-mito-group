@@ -16,6 +16,7 @@ import {
 import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../components/DashboardNavbarTitle.vue'
 import AdminRowActions, { type AdminRowAction } from '../../components/AdminRowActions.vue'
 import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
 import { formatAttendanceDateTime, formatAttendanceShortDate } from '../../utils/attendanceDateTime'
@@ -30,7 +31,7 @@ type CorrectionRow = AttendanceCorrectionRequest & {
 }
 
 const route = useRoute()
-const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
 const toast = useAppToast()
 
 const data = ref<CorrectionRow[]>([])
@@ -187,7 +188,7 @@ const ready = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
+  clearErrors()
   try {
     const res = await fetchAttendanceCorrections({
       from: filters.from,
@@ -269,7 +270,10 @@ onMounted(async () => {
 <template>
   <UDashboardPanel id="attendance-corrections">
     <template #header>
-      <UDashboardNavbar title="Attendance corrections">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading><UDashboardSidebarCollapse /></template>
         <template #right>
           <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-refresh-cw" :loading="loading" @click="load">
@@ -288,6 +292,15 @@ onMounted(async () => {
         </UAlert>
 
         <template v-else>
+          <UAlert
+            v-if="filterError"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            title="Filter tidak valid"
+            :description="filterError"
+          />
+
           <ReportDataToolbar :total="meta.total" :rows="data" filename="attendance-corrections" :loading="loading" />
           <DataTableToolbar
             v-model:search="search"

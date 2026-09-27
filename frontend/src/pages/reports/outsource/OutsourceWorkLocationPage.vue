@@ -24,15 +24,13 @@ import {
 import { fetchOutsourceStores } from '../../../services/outsourceService'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../../components/DashboardNavbarTitle.vue'
 import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../../utils/dataTable'
 import { ApiError } from '../../../services/apiClient'
 
-const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
 const { can } = usePermission()
 const toast = useAppToast()
-
-/** Soft filter/validation message — keeps the table visible (unlike hard `error`). */
-const filterError = ref('')
 
 const SEARCH_MAX = 255
 const data = ref<OutsourceWorkLocationRow[]>([])
@@ -403,8 +401,7 @@ const ready = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
-  filterError.value = ''
+  clearErrors()
   try {
     const res = await fetchOutsourceWorkLocations({
       search: filters.search || undefined,
@@ -418,13 +415,7 @@ async function load(): Promise<void> {
     data.value = res.data
     applyMeta(res.meta)
   } catch (err) {
-    const kind = await handleApiError(err, 'Unable to load work locations. Please try again.')
-    if (kind === 'validation') {
-      // Keep previous rows; show toast + soft banner instead of blank "Failed to load".
-      filterError.value = error.value
-      error.value = ''
-      toast.error('Search tidak valid', filterError.value)
-    }
+    await handleApiError(err, 'Unable to load work locations. Please try again.')
   } finally {
     loading.value = false
   }
@@ -439,7 +430,6 @@ function resetFilters(): void {
   filters.direction = 'asc'
   statusTab.value = 'active'
   searchInput.value = ''
-  filterError.value = ''
   meta.current_page = 1
   load()
 }
@@ -608,7 +598,10 @@ onMounted(async () => {
 <template>
   <UDashboardPanel id="outsource-work-locations">
     <template #header>
-      <UDashboardNavbar title="Work locations">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading>
           <UDashboardSidebarCollapse />
         </template>

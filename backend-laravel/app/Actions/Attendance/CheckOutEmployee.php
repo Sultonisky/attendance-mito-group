@@ -10,6 +10,7 @@ use App\Domain\Attendance\Exceptions\AttendanceBlockedByPolicyException;
 use App\Domain\Attendance\Exceptions\InvalidLocationException;
 use App\Domain\Attendance\Exceptions\NoOpenAttendanceSessionException;
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
+use App\Domain\Attendance\Services\AttendanceAuditLocation;
 use App\DTO\VerifyResult;
 use App\Enums\AttendanceEventType;
 use App\Enums\AttendanceStatus;
@@ -33,6 +34,7 @@ class CheckOutEmployee
         protected AttendanceEngine $engine,
         protected RecordAuditAction $audit,
         protected VerifyFaceAction $verifyFace,
+        protected AttendanceAuditLocation $auditLocation = new AttendanceAuditLocation,
     ) {}
 
     /**
@@ -77,7 +79,7 @@ class CheckOutEmployee
             employeeId: $employee->id,
             latitude: (float) ($context['latitude'] ?? 0),
             longitude: (float) ($context['longitude'] ?? 0),
-            accuracy: isset($context['accuracy']) ? (float) $context['accuracy'] : null,
+            accuracy: $this->accuracyFromContext($context),
             deviceIdentifier: $context['device_identifier'] ?? null,
             source: $context['source'] ?? 'app',
             workLocationId: isset($context['work_location_id']) ? (int) $context['work_location_id'] : null,
@@ -107,7 +109,8 @@ class CheckOutEmployee
             $actorId,
             $request,
             $verificationResult,
-            $context
+            $context,
+            $operationData
         ) {
             $record = $domainResult->attendanceRecord;
             $session = $domainResult->session;
@@ -154,7 +157,11 @@ class CheckOutEmployee
                     'attendance_record_status' => $record->status,
                 ],
                 $request,
-                ['record_id' => $record->id]
+                [
+                    'record_id' => $record->id,
+                    'clock_in' => $this->auditLocation->clockInForSession($session),
+                    'clock_out' => $this->auditLocation->fromOperation($operationData, $domainResult),
+                ]
             );
 
             return ['record' => $record, 'session' => $session];
@@ -216,6 +223,16 @@ class CheckOutEmployee
             true,
             false,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $context
+     */
+    private function accuracyFromContext(?array $context): ?float
+    {
+        $accuracy = $context['accuracy_meters'] ?? $context['accuracy'] ?? null;
+
+        return $accuracy !== null ? (float) $accuracy : null;
     }
 
     /**

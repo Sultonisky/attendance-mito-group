@@ -10,6 +10,7 @@ use App\Domain\Attendance\Exceptions\AttendanceSessionExpiredException;
 use App\Domain\Attendance\Exceptions\InvalidLocationException;
 use App\Domain\Attendance\Exceptions\NoOpenAttendanceSessionException;
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
+use App\Domain\Attendance\Services\AttendanceAuditLocation;
 use App\Enums\AttendanceEventType;
 use App\Exceptions\Domain\InactiveSubjectException;
 use App\Models\Outsource;
@@ -25,6 +26,7 @@ class OutsourceCheckOut
         protected AttendanceEngine $engine,
         protected RecordAuditAction $audit,
         protected OutsourceSessionStoreInterface $sessions,
+        protected AttendanceAuditLocation $auditLocation = new AttendanceAuditLocation,
     ) {}
 
     public function execute(
@@ -124,7 +126,7 @@ class OutsourceCheckOut
             ];
         }
 
-        $result = DB::transaction(function () use ($domainResult, $session, $outsource, $request) {
+        $result = DB::transaction(function () use ($domainResult, $session, $outsource, $request, $operationData) {
             $record = $domainResult->attendanceRecord;
             $attendanceSession = $domainResult->session;
 
@@ -147,7 +149,12 @@ class OutsourceCheckOut
                 ],
                 ipAddress: $request?->ip() ?? $session->ipAddress,
                 userAgent: $request?->userAgent() ?? $session->userAgent,
-                metadata: ['session_id' => $session->id, 'record_id' => $record->id],
+                metadata: [
+                    'session_id' => $session->id,
+                    'record_id' => $record->id,
+                    'clock_in' => $this->auditLocation->clockInForSession($attendanceSession),
+                    'clock_out' => $this->auditLocation->fromOperation($operationData, $domainResult),
+                ],
             ));
 
             return ['record' => $record, 'session' => $attendanceSession];

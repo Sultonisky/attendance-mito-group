@@ -5,6 +5,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ApiError, firstValidationMessage } from '../services/apiClient'
+import { useAppToast } from './useAppToast'
 
 export interface ReportMeta {
   current_page: number
@@ -17,9 +18,13 @@ export type ReportApiErrorKind = 'auth' | 'forbidden' | 'validation' | 'network'
 
 export function useReportPage() {
   const router = useRouter()
+  const toast = useAppToast()
 
   const loading = ref(false)
+  /** Hard failure — pages replace the table with a "Failed to load" alert. */
   const error   = ref('')
+  /** Soft filter/validation (422) message — pages keep toolbar + table visible so the user can fix filters. */
+  const filterError = ref('')
 
   const meta = reactive<ReportMeta>({
     current_page: 1,
@@ -28,10 +33,14 @@ export function useReportPage() {
     last_page: 1,
   })
 
+  function clearErrors() {
+    error.value = ''
+    filterError.value = ''
+  }
+
   /**
    * Call inside your load() try/catch.
-   * Returns the error kind so callers can keep the table visible for filter/validation
-   * issues (toast + soft banner) instead of replacing the page with "Failed to load".
+   * 422 goes to `filterError` (+ toast) instead of `error`, so the page stays usable.
    */
   async function handleApiError(err: unknown, fallbackMessage: string): Promise<ReportApiErrorKind> {
     if (err instanceof ApiError) {
@@ -44,10 +53,11 @@ export function useReportPage() {
         return 'forbidden'
       }
       if (err.status === 422) {
-        error.value = firstValidationMessage(err)
+        filterError.value = firstValidationMessage(err)
           ?? (err.message && err.message !== `API request failed: ${err.status}`
             ? err.message
             : 'One or more filters are invalid. Adjust them and try again.')
+        toast.error('Filter tidak valid', filterError.value)
         return 'validation'
       }
     }
@@ -72,5 +82,5 @@ export function useReportPage() {
     load()
   }
 
-  return { loading, error, meta, handleApiError, applyMeta, goToPage }
+  return { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage }
 }

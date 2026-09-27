@@ -30,6 +30,7 @@ use App\Support\AttendanceDateTime;
 use App\Services\Outsource\Session\OutsourceSessionCookie;
 use App\Services\Outsource\Session\OutsourceSessionStoreUnavailableException;
 use App\Services\Outsource\ResolveOutsourceAllowedPins;
+use App\Services\Outsource\OutsourceAttendanceLocationSummary;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -47,6 +48,7 @@ class OutsourceAttendanceController
         protected OutsourceCheckOut $checkOut,
         protected OutsourceSessionCookie $sessionCookie,
         protected ResolveOutsourceAllowedPins $resolveAllowedPins,
+        protected OutsourceAttendanceLocationSummary $locationSummary,
     ) {}
 
     public function cities(Request $request): JsonResponse
@@ -193,17 +195,16 @@ class OutsourceAttendanceController
         $session = $result['session'];
         $store = $result['store'];
         $outsource = $result['outsource'];
-        $attendance = $this->resolveOpenAttendance->execute($outsource->id);
-        $status = $attendance !== null ? 'ACTIVE' : 'READY';
+        $state = $this->resolveOpenAttendance->resolveState($outsource->id);
 
         return response()->json([
             'success' => true,
             'data' => $this->resolveOpenAttendance->buildSessionPayload(
-                $status,
+                $state['status'],
                 $session->expiresAt->toIso8601String(),
                 $outsource,
                 $store,
-                $attendance,
+                $state['attendance'],
             ),
         ], 201)->cookie($this->sessionCookie->make($session->id, $session->expiresAt));
     }
@@ -261,17 +262,16 @@ class OutsourceAttendanceController
             ])->cookie($this->sessionCookie->forget());
         }
 
-        $attendance = $this->resolveOpenAttendance->execute($outsource->id);
-        $status = $attendance !== null ? 'ACTIVE' : 'READY';
+        $state = $this->resolveOpenAttendance->resolveState($outsource->id);
 
         return response()->json([
             'success' => true,
             'data' => $this->resolveOpenAttendance->buildSessionPayload(
-                $status,
+                $state['status'],
                 $session->expiresAt->toIso8601String(),
                 $outsource,
                 $store,
-                $attendance,
+                $state['attendance'],
             ),
         ]);
     }
@@ -535,6 +535,7 @@ class OutsourceAttendanceController
             'check_in_at' => $result['session']->check_in_at,
             'check_out_at' => $result['session']->check_out_at,
             'duration_minutes' => $result['session']->duration_minutes,
+            ...$this->locationSummary->forSession($result['session']),
         ]))->response();
 
         if (! empty($result['invalidate_cookie'])) {

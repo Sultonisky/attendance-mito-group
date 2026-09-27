@@ -14,6 +14,7 @@ use App\Models\AttendanceRecord;
 use App\Models\AttendanceSession;
 use App\Models\City;
 use App\Models\Employee;
+use App\Models\EmployeeWorkLocation;
 use App\Models\LeaveBalance;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
@@ -75,6 +76,7 @@ class DevelopmentDataSeeder extends Seeder
         }
 
         $context = $this->seedFoundationData();
+        $this->call(EmployeeWorkLocationSeeder::class);
         $this->seedLeaveTypesAndPenaltyRules();
 
         if (! Employee::where('employee_code', 'like', self::EMPLOYEE_PREFIX.'%')->exists()) {
@@ -83,6 +85,7 @@ class DevelopmentDataSeeder extends Seeder
             $this->backfillDemoEmployeeBranches();
         }
 
+        $this->assignDemoEmployeeWorkLocations();
         $this->seedAttendanceHistory($context);
         $this->seedLeaveOvertimePenaltyAndRecaps($context);
         // Local-only outsource attendance demo (pins, address, overnight).
@@ -112,6 +115,36 @@ class DevelopmentDataSeeder extends Seeder
             if ($updates !== []) {
                 $employee->forceFill($updates)->save();
             }
+        }
+    }
+
+    /**
+     * Link demo employees to the demo work location of their branch city.
+     * Employees that already have an active assignment are left untouched.
+     */
+    protected function assignDemoEmployeeWorkLocations(): void
+    {
+        $locationsByCity = EmployeeWorkLocation::query()
+            ->where('code', 'like', 'EWL-DEV-%')
+            ->where('status', 'active')
+            ->orderBy('id')
+            ->get()
+            ->groupBy('city');
+
+        $employees = Employee::where('employee_code', 'like', self::EMPLOYEE_PREFIX.'%')
+            ->whereDoesntHave('activeWorkLocations')
+            ->get();
+
+        foreach ($employees as $employee) {
+            $location = $locationsByCity->get((string) $employee->branch)?->first();
+
+            if ($location === null) {
+                continue;
+            }
+
+            $employee->workLocations()->syncWithoutDetaching([
+                $location->id => ['status' => 'active'],
+            ]);
         }
     }
 

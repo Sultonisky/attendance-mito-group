@@ -4,11 +4,19 @@ import { useRouter } from 'vue-router'
 import AppButton from '../../../components/AppButton.vue'
 import AppIcon from '../../../components/AppIcon.vue'
 import { ApiError } from '../../../services/apiClient'
-import { fetchAttendanceToday, submitCheckIn, submitCheckOut } from '../../../services/attendanceService'
+import {
+  fetchAttendanceToday,
+  fetchAttendanceWorkLocations,
+  submitCheckIn,
+  submitCheckOut,
+  type AttendanceWorkLocation,
+} from '../../../services/attendanceService'
 import { useAttendanceCamera } from '../../../composables/useAttendanceCamera'
 import { useGeolocation } from '../../../composables/useGeolocation'
 import type { AttendanceRecord } from '../../../types/attendance'
 import { formatAttendanceLongDate, formatAttendanceTime } from '../../../utils/attendanceDateTime'
+import { distanceMeters, formatDistance } from '../../../utils/geo'
+import GeofenceMap from '../../../components/GeofenceMap.vue'
 
 const router = useRouter()
 
@@ -45,8 +53,69 @@ const actionLabel = computed(() => {
   return 'Clock In'
 })
 
+// ── Work locations (geofence targets, same concept as outsource pins) ────────
+const workLocations = ref<AttendanceWorkLocation[]>([])
+const hasAssignment = ref(true)
+const workLocationsError = ref('')
+const selectedWorkLocationId = ref<number | null>(null)
+
+const selectedWorkLocation = computed(() =>
+  workLocations.value.find((loc) => loc.id === selectedWorkLocationId.value) ?? null,
+)
+
+const workLocationBlocker = computed(() => {
+  if (workLocationsError.value) return workLocationsError.value
+  if (!hasAssignment.value) return 'Anda belum di-assign ke work location. Hubungi HR/admin.'
+  if (!workLocations.value.length) return 'Work location Anda belum punya koordinat aktif. Hubungi HR/admin.'
+  return ''
+})
+
+const userPosition = computed(() =>
+  location.value ? { lat: location.value.latitude, lng: location.value.longitude } : null,
+)
+
+const distanceToWorkLocation = computed(() => {
+  if (!selectedWorkLocation.value || !userPosition.value) return null
+  return distanceMeters(
+    { lat: selectedWorkLocation.value.latitude, lng: selectedWorkLocation.value.longitude },
+    userPosition.value,
+  )
+})
+
+const isInsideRadius = computed(() => {
+  if (distanceToWorkLocation.value === null || !selectedWorkLocation.value) return null
+  return distanceToWorkLocation.value <= selectedWorkLocation.value.radius_meters
+})
+
+function workLocationLabel(loc: AttendanceWorkLocation): string {
+  return `${loc.city} · ${loc.name}${loc.area_type_label ? ` (${loc.area_type_label})` : ''}`
+}
+
+async function loadWorkLocations(): Promise<void> {
+  workLocationsError.value = ''
+  try {
+    const res = await fetchAttendanceWorkLocations()
+    workLocations.value = res.data
+    hasAssignment.value = res.meta.has_assignment
+    if (!workLocations.value.some((loc) => loc.id === selectedWorkLocationId.value)) {
+      selectedWorkLocationId.value = workLocations.value.length === 1 ? workLocations.value[0]!.id : null
+    }
+  } catch {
+    workLocations.value = []
+    workLocationsError.value = 'Gagal memuat work location. Silakan coba lagi.'
+  }
+}
+
+function onWorkLocationChange(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value
+  selectedWorkLocationId.value = value ? Number(value) : null
+}
+
 const canCapture = computed(() => {
-  return cameraState.value === 'ready' && locationState.value === 'ready' && !isSubmitting.value
+  return cameraState.value === 'ready'
+    && locationState.value === 'ready'
+    && selectedWorkLocation.value !== null
+    && !isSubmitting.value
 })
 
 const statusLabel = computed(() => {
@@ -109,6 +178,7 @@ async function captureAndSubmit(): Promise<void> {
   formData.append('longitude', String(location.value!.longitude))
   formData.append('accuracy_meters', location.value!.accuracy != null ? String(location.value!.accuracy) : '')
   formData.append('source', 'web')
+  formData.append('work_location_id', String(selectedWorkLocation.value!.id))
   formData.append('face_session_id', crypto.randomUUID())
   formData.append('face_image', file)
 
@@ -141,7 +211,11 @@ async function captureAndSubmit(): Promise<void> {
       }
 
       if (err.status === 422) {
-        resultError.value = err.errors?.face_image?.[0] ?? err.errors?.latitude?.[0] ?? err.errors?.longitude?.[0] ?? err.message
+        resultError.value = err.errors?.face_image?.[0]
+          ?? err.errors?.work_location_id?.[0]
+          ?? err.errors?.latitude?.[0]
+          ?? err.errors?.longitude?.[0]
+          ?? err.message
         return
       }
 
@@ -188,6 +262,7 @@ function safeErrorMessage(error: string | null): string {
 
 onMounted(() => {
   loadToday()
+  loadWorkLocations()
   clockTimer = window.setInterval(() => {
     now.value = new Date()
   }, 60000)
@@ -283,11 +358,84 @@ onUnmounted(() => {
           type="button"
           variant="primary"
           icon="ArrowRight"
-          :disabled="isSubmitting || showCameraWorkflow"
+          :disabled="isSubmitting || showCameraWorkflow || Boolean(workLocationBlocker)"
           @click="startAction"
         >
           {{ actionLabel }}
         </AppButton>
+      </section>
+
+      <section class="location-card" aria-live="polite">
+        <div class="workflow-heading">
+          <div>
+            <p class="status-kicker">LOKASI KERJA</p>
+            <h2 class="location-title">
+              {{ selectedWorkLocation ? selectedWorkLocation.name : workLocations.length > 1 ? 'Pilih lokasi' : 'Work location' }}
+            </h2>
+          </div>
+          <AppIcon name="MapPinned" class="workflow-lock" :size="18" :stroke-width="2.2" aria-hidden="true" />
+        </div>
+
+        <div v-if="workLocationBlocker" class="location-blocker" role="alert">
+          <p>{{ workLocationBlocker }}</p>
+          <AppButton type="button" variant="secondary" @click="loadWorkLocations">Muat ulang</AppButton>
+        </div>
+
+        <template v-else>
+          <label v-if="workLocations.length > 1" class="location-select">
+            <span>Lokasi absensi</span>
+            <select :value="selectedWorkLocationId ?? ''" :disabled="isSubmitting" @change="onWorkLocationChange">
+              <option value="" disabled>Pilih lokasi…</option>
+              <option v-for="loc in workLocations" :key="loc.id" :value="loc.id">
+                {{ workLocationLabel(loc) }}
+              </option>
+            </select>
+          </label>
+
+          <template v-if="selectedWorkLocation">
+            <p class="location-meta">
+              {{ selectedWorkLocation.city }}<template v-if="selectedWorkLocation.area_type_label"> · {{ selectedWorkLocation.area_type_label }}</template>
+              · radius {{ Math.round(selectedWorkLocation.radius_meters) }} m
+            </p>
+            <p v-if="selectedWorkLocation.address" class="location-address">{{ selectedWorkLocation.address }}</p>
+
+            <GeofenceMap
+              :target="{ lat: selectedWorkLocation.latitude, lng: selectedWorkLocation.longitude }"
+              :radius-meters="selectedWorkLocation.radius_meters"
+              :user="userPosition"
+              :target-title="selectedWorkLocation.name"
+            />
+
+            <div class="location-distance">
+              <span>
+                Jarak: <strong>{{ formatDistance(distanceToWorkLocation) }}</strong>
+                <template v-if="location?.accuracy != null"> · akurasi ±{{ Math.round(location.accuracy) }} m</template>
+              </span>
+              <span
+                v-if="isInsideRadius !== null"
+                class="distance-badge"
+                :class="isInsideRadius ? 'badge-inside' : 'badge-outside'"
+              >
+                {{ isInsideRadius ? 'Dalam radius' : 'Di luar radius' }}
+              </span>
+              <span v-else class="distance-badge badge-pending">Lokasi belum aktif</span>
+            </div>
+            <p v-if="isInsideRadius === false" class="location-warning">
+              Anda terdeteksi di luar radius lokasi kerja. Absensi akan ditolak server jika tetap di luar radius.
+            </p>
+          </template>
+          <p v-else class="location-meta">Pilih lokasi absensi sebelum Clock In/Out.</p>
+
+          <AppButton
+            type="button"
+            class="secondary-action"
+            variant="secondary"
+            :disabled="isSubmitting || locationState === 'requesting'"
+            @click="clearLocation(); requestLocation()"
+          >
+            {{ locationState === 'ready' ? 'Perbarui GPS' : 'Cek lokasi saya' }}
+          </AppButton>
+        </template>
       </section>
 
       <section
@@ -684,6 +832,103 @@ onUnmounted(() => {
 .secondary-action:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.location-card {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.2rem;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.location-card .location-title {
+  color: var(--text-h);
+  font-size: 1.05rem;
+}
+
+.location-select {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.location-select select {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-h);
+  font-size: 0.9rem;
+}
+
+.location-meta,
+.location-address {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.location-address {
+  color: #6b6b73;
+}
+
+.location-distance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-h);
+}
+
+.distance-badge {
+  padding: 0.15rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.badge-inside {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.badge-outside {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.badge-pending {
+  background: #f1f1f3;
+  color: #6b6b73;
+}
+
+.location-warning {
+  margin: 0;
+  color: #b45309;
+  font-size: 0.78rem;
+}
+
+.location-blocker {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.85rem;
+  border: 1px dashed #f59e0b;
+  border-radius: 10px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.85rem;
+}
+
+.location-blocker p {
+  margin: 0;
 }
 
 .camera-workflow {

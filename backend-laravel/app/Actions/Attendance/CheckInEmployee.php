@@ -9,6 +9,7 @@ use App\Domain\Attendance\Engines\AttendanceEngine;
 use App\Domain\Attendance\Exceptions\AttendanceAlreadyCheckedInException;
 use App\Domain\Attendance\Exceptions\AttendanceBlockedByPolicyException;
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
+use App\Domain\Attendance\Services\AttendanceAuditLocation;
 use App\DTO\VerifyResult;
 use App\Enums\AttendanceEventType;
 use App\Enums\AttendanceStatus;
@@ -32,6 +33,7 @@ class CheckInEmployee
         protected AttendanceEngine $engine,
         protected RecordAuditAction $audit,
         protected VerifyFaceAction $verifyFace,
+        protected AttendanceAuditLocation $auditLocation = new AttendanceAuditLocation,
     ) {}
 
     /**
@@ -76,7 +78,7 @@ class CheckInEmployee
             employeeId: $employee->id,
             latitude: (float) ($context['latitude'] ?? 0),
             longitude: (float) ($context['longitude'] ?? 0),
-            accuracy: isset($context['accuracy']) ? (float) $context['accuracy'] : null,
+            accuracy: $this->accuracyFromContext($context),
             deviceIdentifier: $context['device_identifier'] ?? null,
             source: $context['source'] ?? 'app',
             workLocationId: isset($context['work_location_id']) ? (int) $context['work_location_id'] : null,
@@ -120,7 +122,8 @@ class CheckInEmployee
             $actorId,
             $request,
             $verificationResult,
-            $context
+            $context,
+            $operationData
         ) {
             $record = $domainResult->attendanceRecord;
             $session = $domainResult->session;
@@ -160,7 +163,10 @@ class CheckInEmployee
                     'check_in_at' => $session->check_in_at?->toIso8601String(),
                 ],
                 $request,
-                ['session_id' => $session->id]
+                [
+                    'session_id' => $session->id,
+                    'clock_in' => $this->auditLocation->fromOperation($operationData, $domainResult),
+                ]
             );
 
             return ['record' => $record, 'session' => $session];
@@ -222,6 +228,16 @@ class CheckInEmployee
             true,
             false,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $context
+     */
+    private function accuracyFromContext(?array $context): ?float
+    {
+        $accuracy = $context['accuracy_meters'] ?? $context['accuracy'] ?? null;
+
+        return $accuracy !== null ? (float) $accuracy : null;
     }
 
     /**

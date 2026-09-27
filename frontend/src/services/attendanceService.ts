@@ -41,6 +41,28 @@ export async function fetchAttendanceToday(): Promise<AttendanceRecord | null> {
   return match?.data ?? null
 }
 
+export type AttendanceWorkLocation = {
+  id: number
+  name: string
+  city: string
+  area_type: string | null
+  area_type_label: string | null
+  address: string | null
+  latitude: number
+  longitude: number
+  radius_meters: number
+}
+
+export type AttendanceWorkLocationsResponse = {
+  success: boolean
+  data: AttendanceWorkLocation[]
+  meta: { has_assignment: boolean }
+}
+
+export async function fetchAttendanceWorkLocations(): Promise<AttendanceWorkLocationsResponse> {
+  return apiFetch<AttendanceWorkLocationsResponse>('/attendance/work-locations')
+}
+
 export async function submitCheckIn(formData: FormData): Promise<AttendanceResponse> {
   return apiFetchFormData<AttendanceResponse>('/attendance/check-in', formData, {
     method: 'POST',

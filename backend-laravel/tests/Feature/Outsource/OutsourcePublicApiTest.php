@@ -243,6 +243,38 @@ class OutsourcePublicApiTest extends TestCase
         $this->assertSame($outsource->outsource_code, $log->metadata['outsource_code'] ?? null);
     }
 
+    public function test_session_init_audit_uses_forwarded_client_ip_behind_private_proxy(): void
+    {
+        $city = City::factory()->create();
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
+        $this->makeActiveAssignment($outsource, $store);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '172.18.0.1'])
+            ->withHeaders(['X-Forwarded-For' => '203.0.113.7'])
+            ->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource))
+            ->assertStatus(201);
+
+        $log = AuditLog::where('action', 'outsource.session.init')->latest('id')->first();
+        $this->assertSame('203.0.113.7', $log?->ip_address);
+    }
+
+    public function test_session_init_audit_ignores_forwarded_header_from_public_remote(): void
+    {
+        $city = City::factory()->create();
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $store = $this->makeStore(-6.2, 106.8, 150, $city->id);
+        $this->makeActiveAssignment($outsource, $store);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.9'])
+            ->withHeaders(['X-Forwarded-For' => '203.0.113.7'])
+            ->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource))
+            ->assertStatus(201);
+
+        $log = AuditLog::where('action', 'outsource.session.init')->latest('id')->first();
+        $this->assertSame('198.51.100.9', $log?->ip_address);
+    }
+
     public function test_invalid_assignment_rejected(): void
     {
         $city = City::factory()->create();
@@ -548,6 +580,12 @@ class OutsourcePublicApiTest extends TestCase
         $response->assertJson(['success' => true]);
         $this->assertNull($this->sessionStore()->find($sessionId));
 
+        foreach (['check_in_location', 'check_out_location'] as $key) {
+            $response->assertJsonPath("data.{$key}.pin.id", $this->defaultPin($store)->id);
+            $response->assertJsonPath("data.{$key}.work_location.id", $store->id);
+            $this->assertArrayNotHasKey('latitude', $response->json("data.{$key}"));
+        }
+
         $log = AuditLog::where('action', 'outsource.attendance.check_out')->latest('id')->first();
         $this->assertNotNull($log);
         $this->assertNull($log->actor_id);
@@ -555,6 +593,23 @@ class OutsourcePublicApiTest extends TestCase
         $this->assertSame('outsource', $log->metadata['actor_kind'] ?? null);
         $this->assertSame($outsource->id, $log->metadata['outsource_id'] ?? null);
         $this->assertSame($outsource->name, $log->metadata['outsource_name'] ?? null);
+
+        $pin = $this->defaultPin($store);
+
+        foreach (['clock_in', 'clock_out'] as $key) {
+            $location = $log->metadata[$key] ?? null;
+            $this->assertIsArray($location, "{$key} snapshot missing");
+            $this->assertSame($pin->id, $location['pin']['id']);
+            $this->assertSame($pin->name, $location['pin']['name']);
+            $this->assertSame($store->id, $location['work_location']['id']);
+            $this->assertSame($store->name, $location['work_location']['name']);
+            $this->assertNotNull($location['occurred_at']);
+            $this->assertEqualsWithDelta(-6.2001, $location['gps']['latitude'], 0.0000001);
+            $this->assertEqualsWithDelta(106.8001, $location['gps']['longitude'], 0.0000001);
+            $this->assertEqualsWithDelta(10.0, $location['gps']['accuracy_meters'], 0.001);
+        }
+
+        $this->assertTrue($log->metadata['clock_out']['gps']['geofence_passed']);
     }
 
     public function test_check_out_without_open_attendance_rejected(): void
@@ -690,7 +745,9 @@ class OutsourcePublicApiTest extends TestCase
 
         $init2 = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
         $sid2 = (string) $init2->getCookie($this->cookieName(), false)?->getValue();
-        $init2->assertJsonPath('data.status', 'READY');
+        $init2->assertJsonPath('data.status', 'COMPLETED');
+        $init2->assertJsonPath('data.attendance.check_in_location.pin.id', $this->defaultPin($store)->id);
+        $init2->assertJsonPath('data.attendance.check_out_location.pin.id', $this->defaultPin($store)->id);
 
         $in2 = $this->withOutsourceSession($sid2)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10));
         $in2->assertStatus(422);

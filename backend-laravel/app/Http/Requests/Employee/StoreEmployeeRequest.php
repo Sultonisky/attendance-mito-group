@@ -34,6 +34,8 @@ class StoreEmployeeRequest extends FormRequest
             'direct_superior_id'     => ['nullable', 'integer', 'exists:employees,id'],
             'indirect_superior_id'   => ['nullable', 'integer', 'exists:employees,id'],
             'user_id'           => ['nullable', 'integer', 'exists:users,id'],
+            'work_location_ids'   => ['nullable', 'array'],
+            'work_location_ids.*' => ['integer', 'distinct', Rule::exists('employee_work_locations', 'id')->whereNull('deleted_at')],
         ];
     }
 
@@ -48,6 +50,8 @@ class StoreEmployeeRequest extends FormRequest
             'full_name.required' => 'Full name is required.',
             'employment_status.required' => 'Employment status is required.',
             'join_date.required' => 'Join date is required.',
+            'work_location_ids.*.exists' => 'One or more selected work locations do not exist.',
+            'work_location_ids.*.distinct' => 'Each work location can only be assigned once.',
         ];
     }
 }

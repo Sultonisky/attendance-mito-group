@@ -25,7 +25,7 @@ class CheckInTest extends TestCase
 
     private function makeEmployee(array $overrides = []): Employee
     {
-        return Employee::factory()->create($overrides);
+        return Employee::factory()->withWorkLocation()->create($overrides);
     }
 
     private function makeActiveUserAndEmployee(): array
@@ -115,7 +115,6 @@ class CheckInTest extends TestCase
             'latitude' => -6.3,
             'longitude' => 106.9,
             'accuracy' => 12.5,
-            'work_location_id' => $workLocation->id,
         ]);
 
         $response->assertStatus(422);

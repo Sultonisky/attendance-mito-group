@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'employee_id',
     'outsource_id',
     'work_location_pin_id',
+    'employee_work_location_id',
     'attendance_id',
     'attendance_session_id',
     'event_type',
@@ -49,6 +50,14 @@ class AttendanceEvent extends Model
     public function workLocationPin(): BelongsTo
     {
         return $this->belongsTo(WorkLocationPin::class, 'work_location_pin_id');
+    }
+
+    /**
+     * Employee work location used as the geofence for this event.
+     */
+    public function employeeWorkLocation(): BelongsTo
+    {
+        return $this->belongsTo(EmployeeWorkLocation::class)->withTrashed();
     }
 
     /**

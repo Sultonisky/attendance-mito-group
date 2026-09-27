@@ -38,7 +38,7 @@ class AttendanceEngineTest extends TestCase
 
     private function makeEmployee(array $overrides = []): Employee
     {
-        return Employee::factory()->create(array_merge([
+        return Employee::factory()->withWorkLocation()->create(array_merge([
             'employment_status' => 'permanent',
         ], $overrides));
     }
@@ -469,6 +469,12 @@ class AttendanceEngineTest extends TestCase
         $this->assertNotNull($log->new_values);
         $this->assertSame($record->status, $log->new_values['status']);
         $this->assertSame('open', $log->new_values['session_status']);
+        $clockIn = $log->metadata['clock_in'];
+        $this->assertNotNull($clockIn['occurred_at']);
+        $this->assertEqualsWithDelta(-6.2, $clockIn['gps']['latitude'], 0.0000001);
+        $this->assertEqualsWithDelta(106.8, $clockIn['gps']['longitude'], 0.0000001);
+        $this->assertArrayHasKey('geofence_passed', $clockIn['gps']);
+        $this->assertArrayNotHasKey('clock_out', $log->metadata);
     }
 
     /**
@@ -513,6 +519,10 @@ class AttendanceEngineTest extends TestCase
         $this->assertNotNull($log->new_values);
         $this->assertSame('closed', $log->new_values['status']);
         $this->assertNotNull($log->new_values['check_out_at']);
+        $this->assertEqualsWithDelta(-6.2, $log->metadata['clock_in']['gps']['latitude'], 0.0000001);
+        $this->assertEqualsWithDelta(-6.2, $log->metadata['clock_out']['gps']['latitude'], 0.0000001);
+        $this->assertEqualsWithDelta(106.8, $log->metadata['clock_out']['gps']['longitude'], 0.0000001);
+        $this->assertNotNull($log->metadata['clock_out']['occurred_at']);
     }
 
     /**
