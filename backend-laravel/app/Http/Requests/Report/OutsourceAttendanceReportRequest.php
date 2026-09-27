@@ -26,4 +26,12 @@ class OutsourceAttendanceReportRequest extends FormRequest
             'direction' => ['nullable', 'string', 'in:asc,desc'],
         ];
     }
+
+    public function messages(): array
+    {
+        return [
+            'from.before_or_equal' => 'Tanggal mulai tidak boleh setelah tanggal akhir.',
+            'to.after_or_equal' => 'Tanggal akhir tidak boleh sebelum tanggal mulai.',
+        ];
+    }
 }
