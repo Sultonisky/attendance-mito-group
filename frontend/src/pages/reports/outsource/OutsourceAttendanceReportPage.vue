@@ -28,7 +28,7 @@ import type { OutsourceAttendanceReportRow, OutsourceAttendanceReportFilters, Ou
 import { defaultReportDates } from '../../../types/reportDates'
 
 const route = useRoute()
-const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
 const toast = useAppToast()
 const { can } = usePermission()
 
@@ -415,7 +415,7 @@ const ready = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
+  clearErrors()
   try {
     const res = await fetchOutsourceAttendanceReport({
       from: filters.from,
@@ -680,6 +680,9 @@ async function executeVoid(): Promise<void> {
 onMounted(async () => {
   if (typeof route.query.from === 'string') filters.from = route.query.from
   if (typeof route.query.to === 'string') filters.to = route.query.to
+  if (filters.from && filters.to && filters.from > filters.to) {
+    [filters.from, filters.to] = [filters.to, filters.from]
+  }
   await loadCities()
   await load()
   ready.value = true
@@ -720,6 +723,15 @@ onMounted(async () => {
         </UAlert>
 
         <template v-else>
+          <UAlert
+            v-if="filterError"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            title="Filter tidak valid"
+            :description="filterError"
+          />
+
           <ReportDataToolbar
             :total="meta.total"
             :rows="data"
