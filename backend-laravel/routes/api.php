@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AttendanceCorrectionController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\EmployeeWorkLocationController;
 use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\FaceVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
@@ -131,6 +132,8 @@ Route::prefix('v1')->group(function () {
 
         // Attendance (Phase 7)
         Route::prefix('attendance')->group(function () {
+            Route::get('/work-locations', [AttendanceController::class, 'workLocations'])
+                ->name('attendance.work-locations');
             Route::post('/check-in', [AttendanceController::class, 'checkIn'])
                 ->name('attendance.check-in');
             Route::post('/check-out', [AttendanceController::class, 'checkOut'])
@@ -246,6 +249,17 @@ Route::prefix('v1')->group(function () {
             Route::put('/{employee}',        [EmployeeController::class, 'update'])  ->middleware('can:employees.update');
             Route::patch('/{employee}',      [EmployeeController::class, 'update'])  ->middleware('can:employees.update');
             Route::delete('/{employee}',     [EmployeeController::class, 'destroy']) ->middleware('can:employees.delete');
+        });
+
+        // ── Employee work locations (admin CRUD) ─────────────────────────────────
+        Route::prefix('employee-work-locations')->group(function () {
+            Route::get('/cities',                   [EmployeeWorkLocationController::class, 'cities'])  ->middleware('can:employee_work_location.view');
+            Route::get('/',                         [EmployeeWorkLocationController::class, 'index'])   ->middleware('can:employee_work_location.view');
+            Route::post('/',                        [EmployeeWorkLocationController::class, 'store'])   ->middleware('can:employee_work_location.create');
+            Route::get('/{employeeWorkLocation}',   [EmployeeWorkLocationController::class, 'show'])    ->middleware('can:employee_work_location.view');
+            Route::put('/{employeeWorkLocation}',   [EmployeeWorkLocationController::class, 'update'])  ->middleware('can:employee_work_location.update');
+            Route::patch('/{employeeWorkLocation}', [EmployeeWorkLocationController::class, 'update'])  ->middleware('can:employee_work_location.update');
+            Route::delete('/{employeeWorkLocation}', [EmployeeWorkLocationController::class, 'destroy'])->middleware('can:employee_work_location.delete');
         });
 
         // ── Permissions (admin CRUD) ────────────────────────────────────────────
