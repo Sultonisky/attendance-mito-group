@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref, resolveComponent, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { watchDebounced } from '@vueuse/core'
 import type { TableColumn } from '@nuxt/ui'
 import type { VisibilityState } from '@tanstack/vue-table'
@@ -17,14 +18,21 @@ import {
   type EmployeeMeta,
   type CreateEmployeePayload,
   type UpdateEmployeePayload,
+  type EmployeeAssignedWorkLocation,
 } from '../../services/employeeApi'
+import {
+  fetchEmployeeWorkLocations,
+  type EmployeeWorkLocationRow,
+} from '../../services/employeeWorkLocationApi'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../components/DashboardNavbarTitle.vue'
 import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../utils/dataTable'
 
 const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
 const { can } = usePermission()
 const toast = useAppToast()
+const route = useRoute()
 
 // ── Table data ────────────────────────────────────────────────────────────────
 const data = ref<EmployeeRow[]>([])
@@ -34,10 +42,43 @@ const searchInput = ref('')
 // ── Filters ───────────────────────────────────────────────────────────────────
 const filters = reactive({
   search: '',
+  work_location_id: '',
   per_page: 25,
   sort: 'employee_code',
   direction: 'asc' as 'asc' | 'desc',
 })
+
+// ── Work locations (assignment options + filter) ─────────────────────────────
+const ALL = '__all__'
+function toSelectId(raw: string): string { return raw === '' ? ALL : raw }
+function fromSelectId(raw: unknown): string {
+  const v = String(raw ?? '')
+  return v === ALL ? '' : v
+}
+
+const workLocations = ref<EmployeeWorkLocationRow[]>([])
+// Without view access the options list is empty, so the form must not send
+// work_location_ids (an empty list would clear existing assignments).
+const canAssignWorkLocations = computed(() => can('employee_work_location.view'))
+
+function formatWorkLocationLabel(loc: Pick<EmployeeWorkLocationRow, 'name' | 'city' | 'area_type_label'>): string {
+  return `${loc.city} · ${loc.name} (${loc.area_type_label})`
+}
+
+const workLocationFilterItems = computed(() => [
+  { label: 'All work locations', value: ALL },
+  ...workLocations.value.map(loc => ({ label: formatWorkLocationLabel(loc), value: String(loc.id) })),
+])
+
+async function loadWorkLocations(): Promise<void> {
+  if (!canAssignWorkLocations.value) return
+  try {
+    const res = await fetchEmployeeWorkLocations({ status: 'active', per_page: 100, sort: 'city' })
+    workLocations.value = res.data
+  } catch {
+    workLocations.value = []
+  }
+}
 
 const { sorting } = useDataTableSort(filters, () => {
   meta.current_page = 1
@@ -56,6 +97,7 @@ const hideableColumns = [
   { id: 'full_name', label: 'Name' },
   { id: 'email', label: 'Email' },
   { id: 'employment_status', label: 'Status' },
+  { id: 'work_locations', label: 'Work location' },
   { id: 'department', label: 'Department' },
   { id: 'join_date', label: 'Join date' },
   { id: 'actions', label: 'Actions' },
@@ -87,6 +129,37 @@ const form = reactive({
   indirect_superior_id: null as number | null,
   user_id: null as number | null,
 })
+
+// Mirrors the outsource person form: assigned list is the source of truth,
+// the picker below only adds to it.
+const selectedWorkLocations = ref<EmployeeAssignedWorkLocation[]>([])
+const workLocationPick = ref('')
+
+const availableWorkLocationItems = computed(() => [
+  { label: 'Pilih work location…', value: ALL },
+  ...workLocations.value
+    .filter(loc => !selectedWorkLocations.value.some(sel => sel.id === loc.id))
+    .map(loc => ({ label: formatWorkLocationLabel(loc), value: String(loc.id) })),
+])
+
+function addSelectedWorkLocation(): void {
+  const loc = workLocations.value.find(l => String(l.id) === workLocationPick.value)
+  if (!loc) return
+  if (!selectedWorkLocations.value.some(sel => sel.id === loc.id)) {
+    selectedWorkLocations.value.push({
+      id: loc.id,
+      name: loc.name,
+      city: loc.city,
+      area_type: loc.area_type,
+      area_type_label: loc.area_type_label,
+    })
+  }
+  workLocationPick.value = ''
+}
+
+function removeSelectedWorkLocation(id: number): void {
+  selectedWorkLocations.value = selectedWorkLocations.value.filter(loc => loc.id !== id)
+}
 
 const showPassword = ref(false)
 
@@ -131,6 +204,22 @@ const columns = computed<TableColumn<EmployeeRow>[]>(() => [
           variant: 'subtle',
           size: 'sm',
         }, () => status.replace('_', ' ')),
+      ])
+    },
+  },
+  {
+    id: 'work_locations',
+    header: 'Work location',
+    accessorFn: (row) => (row.work_locations ?? []).map(loc => `${loc.city} · ${loc.name}`).join(', '),
+    cell: ({ row }) => {
+      const locations = row.original.work_locations ?? []
+      if (!locations.length) {
+        return h('span', { class: 'text-xs text-muted' }, 'Not assigned')
+      }
+      const label = locations.map(loc => `${loc.city} · ${loc.name}`).join(', ')
+      return h('div', { class: 'min-w-0 max-w-64' }, [
+        h('p', { class: 'truncate text-sm', title: label }, label),
+        h('p', { class: 'truncate text-xs text-muted' }, locations.map(loc => loc.area_type_label).join(', ')),
       ])
     },
   },
@@ -188,7 +277,7 @@ watchDebounced(searchInput, (value) => {
 }, { debounce: 400 })
 
 watch(
-  () => [filters.per_page] as const,
+  () => [filters.per_page, filters.work_location_id] as const,
   () => {
     if (!ready.value) return
     meta.current_page = 1
@@ -218,6 +307,7 @@ async function load(): Promise<void> {
 
 function resetFilters(): void {
   searchInput.value = ''
+  filters.work_location_id = ''
   meta.current_page = 1
   load()
 }
@@ -242,6 +332,8 @@ function openCreate(): void {
   form.direct_superior_id = null
   form.indirect_superior_id = null
   form.user_id = null
+  selectedWorkLocations.value = []
+  workLocationPick.value = ''
   formError.value = ''
   showFormModal.value = true
 }
@@ -265,6 +357,8 @@ function openEdit(employee: EmployeeRow): void {
   form.direct_superior_id = employee.direct_superior_id
   form.indirect_superior_id = employee.indirect_superior_id
   form.user_id = employee.user_id
+  selectedWorkLocations.value = (employee.work_locations ?? []).map(loc => ({ ...loc }))
+  workLocationPick.value = ''
   formError.value = ''
   showFormModal.value = true
 }
@@ -294,6 +388,9 @@ async function submitForm(): Promise<void> {
       direct_superior_id: form.direct_superior_id,
       indirect_superior_id: form.indirect_superior_id,
       user_id: form.user_id,
+      ...(canAssignWorkLocations.value
+        ? { work_location_ids: selectedWorkLocations.value.map(loc => loc.id) }
+        : {}),
     }
 
     if (formMode.value === 'create') {
@@ -342,7 +439,11 @@ async function executeDelete(): Promise<void> {
 }
 
 onMounted(async () => {
-  await load()
+  const queryLocation = route.query.work_location_id
+  if (typeof queryLocation === 'string' && /^\d+$/.test(queryLocation)) {
+    filters.work_location_id = queryLocation
+  }
+  await Promise.all([load(), loadWorkLocations()])
   ready.value = true
 })
 </script>
@@ -350,7 +451,10 @@ onMounted(async () => {
 <template>
   <UDashboardPanel id="employee-management">
     <template #header>
-      <UDashboardNavbar title="Employee management">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading>
           <UDashboardSidebarCollapse />
         </template>
@@ -397,7 +501,17 @@ onMounted(async () => {
             v-model:search="searchInput"
             search-placeholder="Search employee code or name…"
             :display-items="displayItems"
-          />
+          >
+            <template v-if="canAssignWorkLocations" #filters>
+              <USelect
+                :model-value="toSelectId(filters.work_location_id)"
+                :items="workLocationFilterItems"
+                value-key="value"
+                class="min-w-56"
+                @update:model-value="(v: unknown) => { filters.work_location_id = fromSelectId(v) }"
+              />
+            </template>
+          </DataTableToolbar>
 
           <DataTable
             v-model:sorting="sorting"
@@ -482,6 +596,77 @@ onMounted(async () => {
             <UInput v-model="form.grade" placeholder="A" class="w-full" />
           </UFormField>
         </div>
+
+        <template v-if="canAssignWorkLocations">
+          <div class="space-y-2 rounded-md border border-default p-3">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <p class="text-sm font-medium text-highlighted">Assigned work locations</p>
+                <p class="text-xs text-muted">
+                  Lokasi kerja yang terpasang ke employee ini. Hapus dengan tombol ×.
+                </p>
+              </div>
+              <UBadge
+                v-if="selectedWorkLocations.length"
+                size="sm"
+                color="neutral"
+                variant="subtle"
+              >
+                {{ selectedWorkLocations.length }}
+              </UBadge>
+            </div>
+
+            <div
+              v-if="!selectedWorkLocations.length"
+              class="rounded-md border border-dashed border-default px-3 py-2.5 text-sm text-muted"
+            >
+              Belum ada work location. Tambahkan lewat form di bawah.
+            </div>
+            <div v-else class="flex flex-wrap gap-2">
+              <UBadge
+                v-for="loc in selectedWorkLocations"
+                :key="loc.id"
+                color="primary"
+                variant="subtle"
+                class="gap-1"
+              >
+                {{ formatWorkLocationLabel(loc) }}
+                <button
+                  type="button"
+                  class="ml-1 opacity-70 hover:opacity-100"
+                  aria-label="Remove work location"
+                  @click="removeSelectedWorkLocation(loc.id)"
+                >
+                  ×
+                </button>
+              </UBadge>
+            </div>
+          </div>
+
+          <UFormField label="Tambah work location">
+            <div class="flex gap-2">
+              <USelect
+                :model-value="toSelectId(workLocationPick)"
+                :items="availableWorkLocationItems"
+                value-key="value"
+                class="min-w-0 flex-1"
+                @update:model-value="(v: unknown) => { workLocationPick = fromSelectId(v) }"
+              />
+              <UButton
+                color="primary"
+                variant="soft"
+                icon="i-lucide-plus"
+                :disabled="!workLocationPick"
+                @click="addSelectedWorkLocation"
+              >
+                Tambah ke daftar
+              </UButton>
+            </div>
+            <p v-if="!workLocations.length" class="mt-1 text-xs text-muted">
+              Belum ada work location aktif. Buat dulu di Employees › Work locations.
+            </p>
+          </UFormField>
+        </template>
 
         <UAlert v-if="formError" color="error" variant="subtle" :description="formError" />
       </div>
