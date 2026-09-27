@@ -29,7 +29,7 @@ class AttendanceIdentityTest extends TestCase
 
     private function makeEmployee(array $overrides = []): Employee
     {
-        return Employee::factory()->create($overrides);
+        return Employee::factory()->withWorkLocation()->create($overrides);
     }
 
     private function userForEmployee(Employee $employee, array $overrides = []): User
@@ -83,7 +83,6 @@ class AttendanceIdentityTest extends TestCase
                 'latitude' => -6.2001,
                 'longitude' => 106.8001,
                 'accuracy' => 12.5,
-                'work_location_id' => WorkLocation::first()->id,
             ]);
 
         $response->assertStatus(201);
