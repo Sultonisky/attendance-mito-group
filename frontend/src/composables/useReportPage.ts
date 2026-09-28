@@ -20,10 +20,8 @@ export function useReportPage() {
   const router = useRouter()
   const toast = useAppToast()
 
-  const loading = ref(false)
-  /** Hard failure — pages replace the table with a "Failed to load" alert. */
-  const error   = ref('')
-  /** Soft filter/validation (422) message — pages keep toolbar + table visible so the user can fix filters. */
+  const loading     = ref(false)
+  const error       = ref('')
   const filterError = ref('')
 
   const meta = reactive<ReportMeta>({
@@ -67,6 +65,11 @@ export function useReportPage() {
     }
     error.value = fallbackMessage
     return 'other'
+  }
+
+  function clearErrors() {
+    error.value = ''
+    filterError.value = ''
   }
 
   function applyMeta(responseMeta: Partial<ReportMeta>) {
