@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import { watchDebounced } from "@vueuse/core";
 import type { TableColumn } from "@nuxt/ui";
-import type { ColumnFiltersState, VisibilityState } from "@tanstack/vue-table";
+import type { VisibilityState } from "@tanstack/vue-table";
 import { useReportPage } from "../../composables/useReportPage";
 import { useDataTableSort } from "../../composables/useDataTableSort";
 import { useDataTableDisplay } from "../../composables/useDataTableDisplay";
-import { fetchAuditLogs } from "../../services/auditLogApi";
+import {
+  fetchAuditLogActions,
+  fetchAuditLogs,
+} from "../../services/auditLogApi";
 import DataTableToolbar from "../../components/DataTableToolbar.vue";
 import DataTable from "../../components/DataTable.vue";
 import ReportDataToolbar from "../../components/ReportDataToolbar.vue";
@@ -17,23 +21,66 @@ import type { AuditLogRow } from "../../types/reports";
 import { defaultReportDates } from "../../types/reportDates";
 
 const route = useRoute();
-const { loading, error, meta, handleApiError, applyMeta, goToPage } =
-  useReportPage();
+const {
+  loading,
+  error,
+  filterError,
+  meta,
+  clearErrors,
+  handleApiError,
+  applyMeta,
+  goToPage,
+} = useReportPage();
 
 const data = ref<AuditLogRow[]>([]);
-const columnFilters = ref<ColumnFiltersState>([]);
 const columnVisibility = ref<VisibilityState>();
 const search = ref("");
 
 const showDetailModal = ref(false);
 const selectedLog = ref<AuditLogRow | null>(null);
 
+const ALL = "all";
+
 const filters = reactive({
   ...defaultReportDates(),
+  action: ALL,
+  actor_kind: ALL,
   per_page: 25,
   sort: "created_at",
   direction: "desc" as "asc" | "desc",
 });
+
+const actionNames = ref<string[]>([]);
+const actionOptions = computed(() => [
+  { label: "All actions", value: ALL },
+  ...actionNames.value.map((action) => ({ label: action, value: action })),
+]);
+const actorKindOptions = [
+  { label: "All actors", value: ALL },
+  { label: "User", value: "user" },
+  { label: "Outsource", value: "outsource" },
+  { label: "System", value: "system" },
+];
+
+function listParams() {
+  return {
+    search: search.value || null,
+    from: filters.from,
+    to: filters.to,
+    action: filters.action === ALL ? null : filters.action,
+    actor_kind: filters.actor_kind === ALL ? null : filters.actor_kind,
+    sort: filters.sort,
+    direction: filters.direction,
+  };
+}
+
+async function loadActionOptions(): Promise<void> {
+  try {
+    actionNames.value = await fetchAuditLogActions();
+  } catch {
+    actionNames.value = [];
+  }
+}
 
 const { sorting } = useDataTableSort(filters, () => {
   meta.current_page = 1;
@@ -74,17 +121,72 @@ function csvActorKind(actor: AuditLogRow["actor"]): string {
   return actor.kind === "outsource" ? "outsource" : "user";
 }
 
+function csvDateTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+/** Same clock-in/out snapshot the detail modal renders, flattened for Excel. */
+function csvLocationColumns(
+  key: AuditLocation["key"],
+  label: string,
+): ReportCsvColumn[] {
+  const pick = (row: unknown) =>
+    resolveLocations(asAuditRow(row)).find((l) => l.key === key) ?? null;
+
+  return [
+    {
+      header: `${label} Time`,
+      value: (row) => csvDateTime(pick(row)?.occurredAt),
+    },
+    {
+      header: `${label} Location`,
+      value: (row) => {
+        const location = pick(row);
+        if (!location) return "";
+        const name = formatLocationName(location);
+        return name === "—" ? "" : name;
+      },
+    },
+    {
+      header: `${label} Address`,
+      value: (row) => pick(row)?.pinAddress ?? "",
+    },
+    {
+      header: `${label} Latitude`,
+      value: (row) => pick(row)?.gps?.latitude ?? "",
+    },
+    {
+      header: `${label} Longitude`,
+      value: (row) => pick(row)?.gps?.longitude ?? "",
+    },
+    {
+      header: `${label} Accuracy (m)`,
+      value: (row) => pick(row)?.gps?.accuracy_meters ?? "",
+    },
+    {
+      header: `${label} Distance (m)`,
+      value: (row) => pick(row)?.gps?.distance_meters ?? "",
+    },
+    {
+      header: `${label} Geofence`,
+      value: (row) => {
+        const passed = pick(row)?.gps?.geofence_passed;
+        if (passed === true) return "Inside";
+        if (passed === false) return "Outside";
+        return "";
+      },
+    },
+  ];
+}
+
 /** Flat Excel-friendly columns (nested actor/JSON expanded). */
 const csvColumns: ReportCsvColumn[] = [
   { header: "ID", value: (row) => asAuditRow(row).id },
   {
     header: "Created At",
-    value: (row) => {
-      const value = asAuditRow(row).created_at;
-      if (!value) return "";
-      const date = new Date(value);
-      return isNaN(date.getTime()) ? value : date.toLocaleString();
-    },
+    value: (row) => csvDateTime(asAuditRow(row).created_at),
   },
   { header: "Action", value: (row) => asAuditRow(row).action },
   {
@@ -119,6 +221,8 @@ const csvColumns: ReportCsvColumn[] = [
     header: "User Agent",
     value: (row) => asAuditRow(row).user_agent ?? "",
   },
+  ...csvLocationColumns("clock_in", "Clock In"),
+  ...csvLocationColumns("clock_out", "Clock Out"),
   {
     header: "Old Values",
     value: (row) => csvJson(asAuditRow(row).old_values),
@@ -149,12 +253,8 @@ async function fetchAllRowsForExport(): Promise<AuditLogRow[]> {
 
   do {
     const res = await fetchAuditLogs({
-      search: search.value || null,
-      from: filters.from,
-      to: filters.to,
+      ...listParams(),
       per_page: 100,
-      sort: filters.sort,
-      direction: filters.direction,
       page,
     });
 
@@ -264,15 +364,25 @@ const columns = computed<TableColumn<AuditLogRow>[]>(() => [
   },
 ]);
 
-watch(search, () => {
-  const next: ColumnFiltersState = [];
-  if (search.value.trim())
-    next.push({ id: "action", value: search.value.trim() });
-  columnFilters.value = next;
-});
+watchDebounced(
+  search,
+  () => {
+    if (!ready.value) return;
+    meta.current_page = 1;
+    load();
+  },
+  { debounce: 400 },
+);
 
 watch(
-  () => [filters.from, filters.to, filters.per_page] as const,
+  () =>
+    [
+      filters.from,
+      filters.to,
+      filters.per_page,
+      filters.action,
+      filters.actor_kind,
+    ] as const,
   () => {
     if (!ready.value) return;
     meta.current_page = 1;
@@ -311,6 +421,119 @@ const selectedUserAgent = computed(() =>
   parseUserAgent(selectedLog.value?.user_agent),
 );
 
+type AuditGps = {
+  latitude: number;
+  longitude: number;
+  accuracy_meters: number | null;
+  geofence_passed: boolean | null;
+  distance_meters: number | null;
+};
+
+type AuditLocation = {
+  key: "clock_in" | "clock_out";
+  title: string;
+  occurredAt: string | null;
+  workLocationName: string | null;
+  pinName: string | null;
+  pinAddress: string | null;
+  gps: AuditGps | null;
+  mapUrl: string | null;
+};
+
+function toFiniteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+function parseGps(value: unknown): AuditGps | null {
+  const gps = asRecord(value);
+  if (!gps) return null;
+  const latitude = toFiniteNumber(gps.latitude);
+  const longitude = toFiniteNumber(gps.longitude);
+  if (latitude === null || longitude === null) return null;
+
+  return {
+    latitude,
+    longitude,
+    accuracy_meters: toFiniteNumber(gps.accuracy_meters),
+    geofence_passed:
+      typeof gps.geofence_passed === "boolean" ? gps.geofence_passed : null,
+    distance_meters: toFiniteNumber(gps.distance_meters),
+  };
+}
+
+function parseLocation(
+  key: AuditLocation["key"],
+  title: string,
+  value: unknown,
+): AuditLocation | null {
+  const location = asRecord(value);
+  if (!location) return null;
+  const workLocation = asRecord(location.work_location);
+  const pin = asRecord(location.pin);
+  const gps = parseGps(location.gps);
+
+  return {
+    key,
+    title,
+    occurredAt: asText(location.occurred_at),
+    workLocationName: asText(workLocation?.name),
+    pinName: asText(pin?.name),
+    pinAddress: asText(pin?.address),
+    gps,
+    mapUrl: gps
+      ? `https://www.google.com/maps?q=${gps.latitude},${gps.longitude}`
+      : null,
+  };
+}
+
+function resolveLocations(row: AuditLogRow | null | undefined): AuditLocation[] {
+  const metadata = row?.metadata;
+  if (!row || !metadata) return [];
+
+  let clockIn = metadata.clock_in;
+  let clockOut = metadata.clock_out;
+
+  // Logs written before clock_in/clock_out snapshots only carry a flat `gps`.
+  if (clockIn === undefined && clockOut === undefined && metadata.gps) {
+    if (row.action.endsWith("check_out")) clockOut = { gps: metadata.gps };
+    else clockIn = { gps: metadata.gps };
+  }
+
+  return [
+    parseLocation("clock_in", "Clock In Location", clockIn),
+    parseLocation("clock_out", "Clock Out Location", clockOut),
+  ].filter((location): location is AuditLocation => location !== null);
+}
+
+const selectedLocations = computed<AuditLocation[]>(() =>
+  resolveLocations(selectedLog.value),
+);
+
+function formatLocationName(location: AuditLocation): string {
+  const parts = [location.workLocationName, location.pinName].filter(
+    (part, index, all): part is string =>
+      part !== null && all.indexOf(part) === index,
+  );
+  return parts.length ? parts.join(" · ") : "—";
+}
+
+function formatMeters(value: number | null): string {
+  if (value === null) return "—";
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} m`;
+}
+
 function openShow(row: AuditLogRow): void {
   selectedLog.value = row;
   showDetailModal.value = true;
@@ -318,15 +541,11 @@ function openShow(row: AuditLogRow): void {
 
 async function load(): Promise<void> {
   loading.value = true;
-  error.value = "";
+  clearErrors();
   try {
     const res = await fetchAuditLogs({
-      search: search.value || null,
-      from: filters.from,
-      to: filters.to,
+      ...listParams(),
       per_page: filters.per_page,
-      sort: filters.sort,
-      direction: filters.direction,
       page: meta.current_page,
     });
     data.value = res.data;
@@ -341,7 +560,7 @@ async function load(): Promise<void> {
 onMounted(async () => {
   if (typeof route.query.from === "string") filters.from = route.query.from;
   if (typeof route.query.to === "string") filters.to = route.query.to;
-  await load();
+  await Promise.all([load(), loadActionOptions()]);
   ready.value = true;
 });
 </script>
@@ -392,6 +611,14 @@ onMounted(async () => {
         </UAlert>
 
         <template v-else>
+          <UAlert
+            v-if="filterError"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            title="Filter tidak valid"
+            :description="filterError"
+          />
           <ReportDataToolbar
             :total="meta.total"
             :rows="data"
@@ -406,15 +633,33 @@ onMounted(async () => {
             v-model:from="filters.from"
             v-model:to="filters.to"
             v-model:per-page="filters.per_page"
-            search-placeholder="Search action, resource, or actor…"
+            search-placeholder="Search ID, action, actor, resource, IP…"
             :display-items="displayItems"
             show-date-range
             show-per-page
-          />
+          >
+            <template #filters>
+              <USelect
+                v-model="filters.action"
+                :items="actionOptions"
+                value-key="value"
+                label-key="label"
+                class="w-56"
+                aria-label="Filter by action"
+              />
+              <USelect
+                v-model="filters.actor_kind"
+                :items="actorKindOptions"
+                value-key="value"
+                label-key="label"
+                class="w-36"
+                aria-label="Filter by actor type"
+              />
+            </template>
+          </DataTableToolbar>
 
           <DataTable
             v-model:sorting="sorting"
-            v-model:column-filters="columnFilters"
             v-model:column-visibility="columnVisibility"
             :data="data"
             :columns="columns"
@@ -489,6 +734,91 @@ onMounted(async () => {
             </dd>
           </div>
         </dl>
+
+        <div
+          v-for="location in selectedLocations"
+          :key="location.key"
+          class="rounded-md border border-[var(--ui-border)] p-3"
+        >
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <p class="text-xs font-medium text-[var(--ui-text-muted)]">
+              {{ location.title }}
+            </p>
+            <UBadge
+              v-if="location.gps && location.gps.geofence_passed !== null"
+              :color="location.gps.geofence_passed ? 'success' : 'error'"
+              variant="subtle"
+              size="sm"
+            >
+              {{
+                location.gps.geofence_passed
+                  ? "Inside geofence"
+                  : "Outside geofence"
+              }}
+            </UBadge>
+          </div>
+
+          <dl class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <dt class="text-xs text-[var(--ui-text-muted)]">Location</dt>
+              <dd class="mt-0.5 break-words">
+                {{ formatLocationName(location) }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-xs text-[var(--ui-text-muted)]">Time</dt>
+              <dd class="mt-0.5">
+                {{ formatCreatedAt(location.occurredAt) }}
+              </dd>
+            </div>
+            <div v-if="location.pinAddress" class="sm:col-span-2">
+              <dt class="text-xs text-[var(--ui-text-muted)]">Address</dt>
+              <dd class="mt-0.5 break-words">{{ location.pinAddress }}</dd>
+            </div>
+          </dl>
+
+          <dl
+            v-if="location.gps"
+            class="mt-3 grid grid-cols-2 gap-3 border-t border-[var(--ui-border)] pt-3 sm:grid-cols-4"
+          >
+            <div>
+              <dt class="text-xs text-[var(--ui-text-muted)]">Latitude</dt>
+              <dd class="mt-0.5 font-mono">{{ location.gps.latitude }}</dd>
+            </div>
+            <div>
+              <dt class="text-xs text-[var(--ui-text-muted)]">Longitude</dt>
+              <dd class="mt-0.5 font-mono">{{ location.gps.longitude }}</dd>
+            </div>
+            <div>
+              <dt class="text-xs text-[var(--ui-text-muted)]">Accuracy</dt>
+              <dd class="mt-0.5">
+                {{ formatMeters(location.gps.accuracy_meters) }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-xs text-[var(--ui-text-muted)]">
+                Distance to location
+              </dt>
+              <dd class="mt-0.5">
+                {{ formatMeters(location.gps.distance_meters) }}
+              </dd>
+            </div>
+          </dl>
+
+          <UButton
+            v-if="location.mapUrl"
+            :to="location.mapUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            color="neutral"
+            variant="link"
+            size="xs"
+            icon="i-lucide-map-pin"
+            class="mt-2 px-0"
+          >
+            Open in Google Maps
+          </UButton>
+        </div>
 
         <div>
           <p class="mb-1 text-xs font-medium text-[var(--ui-text-muted)]">

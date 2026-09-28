@@ -10,6 +10,7 @@ use App\Domain\Attendance\Exceptions\AttendanceBlockedByPolicyException;
 use App\Domain\Attendance\Exceptions\InvalidLocationException;
 use App\Domain\Attendance\Exceptions\NoOpenAttendanceSessionException;
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
+use App\Domain\Attendance\Services\AttendanceAuditLocation;
 use App\DTO\VerifyResult;
 use App\Enums\AttendanceEventType;
 use App\Enums\AttendanceStatus;
@@ -33,6 +34,7 @@ class CheckOutEmployee
         protected AttendanceEngine $engine,
         protected RecordAuditAction $audit,
         protected VerifyFaceAction $verifyFace,
+        protected AttendanceAuditLocation $auditLocation = new AttendanceAuditLocation,
     ) {}
 
     /**
@@ -107,7 +109,8 @@ class CheckOutEmployee
             $actorId,
             $request,
             $verificationResult,
-            $context
+            $context,
+            $operationData
         ) {
             $record = $domainResult->attendanceRecord;
             $session = $domainResult->session;
@@ -154,7 +157,11 @@ class CheckOutEmployee
                     'attendance_record_status' => $record->status,
                 ],
                 $request,
-                ['record_id' => $record->id]
+                [
+                    'record_id' => $record->id,
+                    'clock_in' => $this->auditLocation->clockInForSession($session),
+                    'clock_out' => $this->auditLocation->fromOperation($operationData, $domainResult),
+                ]
             );
 
             return ['record' => $record, 'session' => $session];

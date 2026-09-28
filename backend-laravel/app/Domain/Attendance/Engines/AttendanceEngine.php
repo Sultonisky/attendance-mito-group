@@ -149,6 +149,9 @@ class AttendanceEngine
             geofence: $geofenceResult,
             policy: $policyResult,
             message: 'Check-in recorded successfully.',
+            event: $event,
+            workLocation: $workLocation,
+            pin: $pin,
         );
     }
 
@@ -263,6 +266,9 @@ class AttendanceEngine
             geofence: $geofenceResult,
             policy: $policyResult,
             message: 'Check-out recorded successfully.',
+            event: $event,
+            workLocation: $workLocation,
+            pin: $pin,
         );
     }
 

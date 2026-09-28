@@ -15,3 +15,8 @@ export async function fetchAuditLogs(
   const query = search.toString()
   return apiFetch<AuditLogListResponse>(`/audit-logs${query ? `?${query}` : ''}`)
 }
+
+export async function fetchAuditLogActions(): Promise<string[]> {
+  const res = await apiFetch<{ success: boolean; data: string[] }>('/audit-logs/actions')
+  return Array.isArray(res.data) ? res.data : []
+}
