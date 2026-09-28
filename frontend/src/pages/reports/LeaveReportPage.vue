@@ -18,7 +18,7 @@ import type { LeaveReportRow } from '../../types/reports'
 import { defaultReportDates } from '../../types/reportDates'
 
 const route = useRoute()
-const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
 const toast = useAppToast()
 
 const data = ref<LeaveReportRow[]>([])
@@ -149,7 +149,7 @@ const ready = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
+  clearErrors()
   try {
     const res = await fetchLeaveReport({
       from: filters.from,
@@ -253,6 +253,15 @@ onMounted(async () => {
         </UAlert>
 
         <template v-else>
+          <UAlert
+            v-if="filterError"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            title="Filter tidak valid"
+            :description="filterError"
+          />
+
           <ReportDataToolbar :total="meta.total" :rows="data" filename="leave-report" :loading="loading" />
           <DataTableToolbar
             v-model:search="search"

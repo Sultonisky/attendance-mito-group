@@ -22,7 +22,7 @@ import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
 import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../utils/dataTable'
 
-const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
 const { can } = usePermission()
 const toast = useAppToast()
 
@@ -201,7 +201,7 @@ const ready = ref(false)
 // ── Load ──────────────────────────────────────────────────────────────────────
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
+  clearErrors()
   try {
     const res = await fetchEmployees({
       ...filters,
@@ -384,6 +384,15 @@ onMounted(async () => {
         </UAlert>
 
         <template v-else>
+          <UAlert
+            v-if="filterError"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            title="Filter tidak valid"
+            :description="filterError"
+          />
+
           <DataTableToolbar
             v-model:search="searchInput"
             search-placeholder="Search employee code or name…"

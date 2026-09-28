@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import type { DataTableFilterOption } from '../utils/dataTable'
 
@@ -31,6 +32,23 @@ const to = defineModel<string>('to', { default: '' })
 const employeeId = defineModel<string>('employeeId', { default: '' })
 const perPage = defineModel<number>('perPage', { default: 25 })
 
+// API rejects from > to (422); pull the other bound along so the range stays valid.
+const fromInput = computed({
+  get: () => from.value,
+  set: (value: string) => {
+    from.value = value
+    if (value && to.value && value > to.value) to.value = value
+  },
+})
+
+const toInput = computed({
+  get: () => to.value,
+  set: (value: string) => {
+    to.value = value
+    if (value && from.value && value < from.value) from.value = value
+  },
+})
+
 const emit = defineEmits<{
   delete: []
 }>()
@@ -54,15 +72,17 @@ const emit = defineEmits<{
         >
           <UInput
             v-if="showDateRange"
-            v-model="from"
+            v-model="fromInput"
             type="date"
+            :max="to || undefined"
             class="min-w-0 flex-1 basis-[9rem] sm:w-36 sm:flex-none"
             :ui="{ base: 'ps-2.5' }"
           />
           <UInput
             v-if="showDateRange"
-            v-model="to"
+            v-model="toInput"
             type="date"
+            :min="from || undefined"
             class="min-w-0 flex-1 basis-[9rem] sm:w-36 sm:flex-none"
             :ui="{ base: 'ps-2.5' }"
           />
