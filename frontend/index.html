@@ -5,7 +5,19 @@
     <!-- Favicon: MITO logo, shared by every page (pages only override the title) -->
     <link rel="icon" type="image/png" href="/images/mito.png" />
     <link rel="apple-touch-icon" href="/images/mito.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Manifest is chosen by path before first paint so installing from /outsource
+         gets the outsource app; must match src/utils/pwaManifest.ts -->
+    <script>
+      (function () {
+        var path = window.location.pathname;
+        var isOutsource = path === "/outsource" || path.indexOf("/outsource/") === 0;
+        var link = document.createElement("link");
+        link.rel = "manifest";
+        link.id = "pwa-manifest";
+        link.href = isOutsource ? "/manifest-outsource.webmanifest" : "/manifest.webmanifest";
+        document.head.appendChild(link);
+      })();
+    </script>
     <meta name="theme-color" content="#eb1c24" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

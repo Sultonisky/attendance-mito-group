@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { usePortalAnchor } from '../composables/usePortalAnchor'
 import { isMaintenanceFlagActive } from '../services/maintenanceFlag'
+import { syncPwaManifest } from '../utils/pwaManifest'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -139,6 +140,7 @@ router.afterEach((to) => {
   document.title = typeof to.meta.title === 'string' && to.meta.title
     ? `${to.meta.title} | MITO Group`
     : 'MITO Group Attendance'
+  syncPwaManifest(to.path)
 })
 
 /**
