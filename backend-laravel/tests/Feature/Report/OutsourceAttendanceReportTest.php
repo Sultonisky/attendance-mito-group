@@ -128,6 +128,18 @@ class OutsourceAttendanceReportTest extends TestCase
             ->assertJson(['success' => true]);
     }
 
+    public function test_inverted_date_range_returns_readable_validation_error(): void
+    {
+        $admin = $this->makeUser('ADMIN');
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/v1/reports/outsource-attendance?from=2026-09-28&to=2026-09-27')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors([
+                'from' => 'Tanggal mulai tidak boleh setelah tanggal akhir.',
+            ]);
+    }
+
     // ========================
     // Data Isolation
     // ========================

@@ -17,6 +17,7 @@ class AuditController extends Controller
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date', 'after_or_equal:from'],
             'action' => ['nullable', 'string', 'max:255'],
+            'actor_kind' => ['nullable', 'string', 'in:user,outsource,system'],
             'actor_id' => ['nullable', 'integer', 'exists:users,id'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
             'page' => ['nullable', 'integer', 'min:1'],
@@ -27,25 +28,16 @@ class AuditController extends Controller
         $query = AuditLog::query()->with('actor:id,name,email');
 
         if (!empty($filters['search'])) {
-            $search = $filters['search'];
-            $query->where(function ($q) use ($search) {
-                $q->where('action', 'like', "%{$search}%")
-                    ->orWhere('auditable_type', 'like', "%{$search}%")
-                    ->orWhereHas('actor', function ($q2) use ($search) {
-                        $q2->whereRaw('LOWER(name) LIKE LOWER(?)', ["%{$search}%"])
-                            ->orWhereRaw('LOWER(email) LIKE LOWER(?)', ["%{$search}%"]);
-                    });
-            });
+            $query->search($filters['search']);
         }
 
-        if (!empty($filters['from'])) {
-            $query->whereDate('created_at', '>=', $filters['from']);
-        }
-        if (!empty($filters['to'])) {
-            $query->whereDate('created_at', '<=', $filters['to']);
-        }
+        $query->createdBetweenDates($filters['from'] ?? null, $filters['to'] ?? null);
+
         if (!empty($filters['action'])) {
             $query->where('action', $filters['action']);
+        }
+        if (!empty($filters['actor_kind'])) {
+            $query->actorKind($filters['actor_kind']);
         }
         if (!empty($filters['actor_id'])) {
             $query->where('actor_id', $filters['actor_id']);
@@ -69,6 +61,21 @@ class AuditController extends Controller
                 'from' => $auditLogs->firstItem(),
                 'to' => $auditLogs->lastItem(),
             ],
+        ]);
+    }
+
+    /**
+     * Distinct recorded action names for the audit log action filter.
+     */
+    public function actions(): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => AuditLog::query()
+                ->distinct()
+                ->orderBy('action')
+                ->pluck('action')
+                ->values(),
         ]);
     }
 }

@@ -52,8 +52,16 @@ const BULK_ALLOWED_FROM: Record<MonthlyRecapTransitionAction, string[]> = {
 const route = useRoute();
 const { can } = usePermission();
 const toast = useAppToast();
-const { loading, error, meta, handleApiError, applyMeta, goToPage } =
-  useReportPage();
+const {
+  loading,
+  error,
+  filterError,
+  meta,
+  clearErrors,
+  handleApiError,
+  applyMeta,
+  goToPage,
+} = useReportPage();
 
 const data = ref<MonthlyRecapRow[]>([]);
 const actionBusyId = ref<number | null>(null);
@@ -616,7 +624,7 @@ const ready = ref(false);
 
 async function load(): Promise<void> {
   loading.value = true;
-  error.value = "";
+  clearErrors();
   try {
     const params: Record<string, string | number | null | undefined> = {
       page: meta.current_page,
@@ -854,6 +862,15 @@ onMounted(async () => {
         </UAlert>
 
         <template v-else>
+          <UAlert
+            v-if="filterError"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            title="Filter tidak valid"
+            :description="filterError"
+          />
+
           <UAlert
             v-if="actionError"
             color="warning"

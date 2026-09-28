@@ -24,7 +24,7 @@ import type { AttendanceReportRow } from '../../types/reports'
 import { defaultReportDates } from '../../types/reportDates'
 
 const route = useRoute()
-const { loading, error, meta, handleApiError, applyMeta, goToPage } = useReportPage()
+const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
 const toast = useAppToast()
 const { can } = usePermission()
 
@@ -184,7 +184,7 @@ const ready = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
+  clearErrors()
   try {
     const res = await fetchAttendanceReport({
       from: filters.from,
@@ -407,6 +407,15 @@ onMounted(async () => {
         </UAlert>
 
         <template v-else>
+          <UAlert
+            v-if="filterError"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            title="Filter tidak valid"
+            :description="filterError"
+          />
+
           <ReportDataToolbar
             :total="meta.total"
             :rows="data"
