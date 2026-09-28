@@ -18,8 +18,9 @@ export type ReportApiErrorKind = 'auth' | 'forbidden' | 'validation' | 'network'
 export function useReportPage() {
   const router = useRouter()
 
-  const loading = ref(false)
-  const error   = ref('')
+  const loading     = ref(false)
+  const error       = ref('')
+  const filterError = ref('')
 
   const meta = reactive<ReportMeta>({
     current_page: 1,
@@ -59,6 +60,11 @@ export function useReportPage() {
     return 'other'
   }
 
+  function clearErrors() {
+    error.value = ''
+    filterError.value = ''
+  }
+
   function applyMeta(responseMeta: Partial<ReportMeta>) {
     if (responseMeta.current_page !== undefined) meta.current_page = responseMeta.current_page
     if (responseMeta.per_page     !== undefined) meta.per_page     = responseMeta.per_page
@@ -72,5 +78,5 @@ export function useReportPage() {
     load()
   }
 
-  return { loading, error, meta, handleApiError, applyMeta, goToPage }
+  return { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage }
 }
