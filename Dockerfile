@@ -100,7 +100,7 @@ COPY --from=composer /build/vendor ./vendor
 # SPA shell is stored as spa.html and served by routes/web.php.
 COPY --from=frontend /build/frontend/dist/assets ./public/assets
 COPY --from=frontend /build/frontend/dist/images ./public/images
-COPY --from=frontend /build/frontend/dist/manifest.webmanifest ./public/manifest.webmanifest
+COPY --from=frontend /build/frontend/dist/*.webmanifest ./public/
 COPY --from=frontend /build/frontend/dist/index.html ./public/spa.html
 
 # Default SPA maintenance probe (gitignored runtime file). mito:maintenance
@@ -158,7 +158,7 @@ RUN printf '%s\n' \
 '        add_header Cache-Control "public";' \
 '    }' \
 '' \
-'    location = /manifest.webmanifest {' \
+'    location ~* ^/[^/]+\.webmanifest$ {' \
 '        default_type application/manifest+json;' \
 '        try_files $uri =404;' \
 '    }' \
