@@ -67,11 +67,6 @@ export function useReportPage() {
     return 'other'
   }
 
-  function clearErrors() {
-    error.value = ''
-    filterError.value = ''
-  }
-
   function applyMeta(responseMeta: Partial<ReportMeta>) {
     if (responseMeta.current_page !== undefined) meta.current_page = responseMeta.current_page
     if (responseMeta.per_page     !== undefined) meta.per_page     = responseMeta.per_page

@@ -551,14 +551,7 @@ async function load(): Promise<void> {
     data.value = res.data;
     applyMeta(res.meta);
   } catch (err) {
-    const kind = await handleApiError(
-      err,
-      "Unable to load audit logs. Please try again.",
-    );
-    if (kind === "validation") {
-      filterError.value = error.value;
-      error.value = "";
-    }
+    await handleApiError(err, "Unable to load audit logs. Please try again.");
   } finally {
     loading.value = false;
   }
