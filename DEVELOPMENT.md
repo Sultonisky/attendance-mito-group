@@ -183,6 +183,17 @@ RBAC uses spatie/laravel-permission with roles SUPER_ADMIN, ADMIN, and USER:
 * ADMIN and USER require explicitly assigned permissions.
 * Permissions use the module.action naming convention and are seeded by
   Database\Seeders\RolesAndPermissionsSeeder (idempotent).
+* Access is **per user**: only a user's own (direct) permissions authorize.
+  Role permissions are a *template* — `User::assignRole()` copies the role's
+  template onto the user when they are created or their role changes (a role
+  change resets to the new template; SUPER_ADMIN gets every permission). After
+  that each user is edited independently in Permissions → User permissions, so
+  two ADMINs can have different access. Templates are edited in Permissions →
+  Role templates and only affect future assignments.
+* `ROLE_PERMISSIONS` in that seeder seed the templates once. On later deploys
+  the seeder only hands out permissions newly introduced in that release (to
+  the template and to current holders of the role); it never re-syncs or
+  removes dashboard edits.
 
 Initial dashboard login accounts (seeded by `DatabaseSeeder` in every
 environment — idempotent; default password: `Mahakarya2026`, override via
@@ -602,18 +613,66 @@ Do not blindly clear individual caches if optimize:clear is already used appropr
 
 After a successful CI run on `main`, [`.github/workflows/DEPLOY.yml`](.github/workflows/DEPLOY.yml) on the VPS:
 
-1. Builds the image (bundles `data/stores.json` at `/opt/seed-data/`).
-2. Recreates the attendance container and waits until `php artisan about` responds.
-3. Verifies `/opt/seed-data/stores.json` exists inside the container.
+1. Builds the image.
+2. Takes a `pg_dump` backup to `/opt/attendance/backups/pre-deploy-<utc>-<sha>.dump` (keeps the 14 newest). A failed backup aborts the deploy while prod is still up.
+3. Recreates the attendance container and waits until `php artisan about` responds.
 4. Runs `php artisan migrate --force`.
-5. Seeds **roles and permissions only** (`RolesAndPermissionsSeeder`, idempotent).
-6. Imports outsource cabang/kota + people + pins (`outsource:import /opt/seed-data/stores.json --require-min=1 --allow-partial`) — deploy fails if zero outsources remain.
+5. Runs `php artisan db:seed --force` (RBAC baseline + initial dashboard accounts on an empty `users` table).
+
+**Deploys never touch outsource master data** (persons, cabang, pins,
+allowlists). The production PostgreSQL database — managed via the dashboard —
+is the only source of truth. `data/stores.json` is a **local/dev seed only**; it
+is not bundled into the image and is never imported into production
+automatically.
+
+`php artisan outsource:import` is a full re-sync: it restores deleted rows,
+forces `status=active`, renames persons, resets pin names/allowlists and
+creates duplicate default pins for pins whose coordinates were edited. In
+production it asks for confirmation (`--force` skips it) — do not run it there
+unless you intend to overwrite dashboard data. Recover data from the
+pre-deploy `pg_dump` backups, not from `stores.json`.
+
+#### Snapshot prod data to stores.json (manual)
+
+`php artisan outsource:export-stores` writes the current outsource persons,
+cabang and pins **from the DB** to `storage/app/private/outsource/stores.json`
+(read-only against the DB). The previous file is moved to
+`outsource/backups/stores-<utc>.json`; if nothing changed, no file is written.
+Login PINs are never exported (the DB stores hashes only). Rows use the
+`stores.json` schema plus `status` and `pin_scope` (`pin` = explicit allowlist,
+`all_cabang_pins` = empty allowlist).
+
+```bash
+cd /opt/attendance
+docker compose exec -T -u www-data attendance php artisan outsource:export-stores </dev/null
+# Host path (storage bind mount):
+#   /opt/attendance/data/app-storage/app/private/outsource/stores.json
+#   /opt/attendance/data/app-storage/app/private/outsource/backups/
+```
+
+Run it as `www-data` so new directories under `storage/` stay writable by the
+app. To use prod data locally, copy the file down and import it into your
+local DB with `php artisan outsource:import <file>`.
+
+Restore a pre-deploy backup (overwrites current data):
+
+```bash
+cd /opt/attendance
+docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < backups/<file>.dump
+```
 
 Production seeding: the deploy runs the full `php artisan db:seed --force`,
 which seeds roles & permissions **and** the initial dashboard accounts
 (hisar.hesti@ ADMIN, reginald.hirawan@ SUPER_ADMIN, plus demo
 superadmin@ / admin@ / user@mito.co.id). Dummy demo data
-(`DevelopmentDataSeeder`) is skipped outside `APP_ENV=local`. Set a strong
+(`DevelopmentDataSeeder`) is skipped outside `APP_ENV=local`. Dashboard
+accounts are seeded **only while the `users` table is empty**; after that the
+Users page (PostgreSQL) is the source of truth, so redeploys never reset roles,
+permissions, names or passwords, and never recreate deleted accounts.
+Lockout guard: every seed run (even when the bootstrap fails) checks for at
+least one **active SUPER_ADMIN**; if none exists, `superadmin@mito.co.id` is
+created or restored (role SUPER_ADMIN, status active, existing password kept).
+Set a strong
 `SEED_USER_PASSWORD` in the deployment environment before the first seed,
 or rotate the seeded passwords immediately afterwards.
 
