@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Normalize outsource Excel into data/stores.json (single source of truth).
+"""Normalize outsource Excel into data/stores.json (local/dev seed input).
+
+Not a source of truth for production: deploys never import this file; the
+production PostgreSQL database (managed via the dashboard) is authoritative.
 
 One JSON file drives `php artisan outsource:import`:
   - city/cabang + employee (always)

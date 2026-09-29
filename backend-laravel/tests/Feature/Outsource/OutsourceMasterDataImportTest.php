@@ -244,4 +244,31 @@ class OutsourceMasterDataImportTest extends TestCase
         $this->assertSame(1, $exitCode);
         $this->assertStringContainsString('Import guard failed', Artisan::output());
     }
+
+    public function test_production_import_requires_force(): void
+    {
+        $path = $this->fixturePath('outsource_sample.csv');
+        $this->app['env'] = 'production';
+
+        $exitCode = Artisan::call('outsource:import', ['file' => $path, '--no-interaction' => true]);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertDatabaseCount('outsources', 0);
+
+        $exitCode = Artisan::call('outsource:import', ['file' => $path, '--force' => true]);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertDatabaseCount('outsources', 8);
+    }
+
+    public function test_production_dry_run_needs_no_confirmation(): void
+    {
+        $path = $this->fixturePath('outsource_sample.csv');
+        $this->app['env'] = 'production';
+
+        $exitCode = Artisan::call('outsource:import', ['file' => $path, '--dry-run' => true, '--no-interaction' => true]);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertDatabaseCount('outsources', 0);
+    }
 }

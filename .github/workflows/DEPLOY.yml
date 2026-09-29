@@ -124,6 +124,26 @@ jobs:
             -t hris-attendance:latest \
             /opt/attendance-src
 
+          cd /opt/attendance
+
+          echo "==> Pre-deploy database backup (pg_dump)"
+          # Runs before maintenance mode: if the backup fails the deploy aborts
+          # while prod is still UP on the old version. pg_dump reads one
+          # consistent snapshot, so concurrent writes are safe.
+          # Restore (overwrites current data!):
+          #   docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < backups/<file>.dump
+          BACKUP_DIR=/opt/attendance/backups
+          mkdir -p "$BACKUP_DIR"
+          chmod 700 "$BACKUP_DIR"
+          BACKUP_FILE="$BACKUP_DIR/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)-${TESTED_SHA:0:12}.dump"
+          docker compose exec -T postgres \
+            sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' </dev/null > "$BACKUP_FILE"
+          test -s "$BACKUP_FILE"
+          chmod 600 "$BACKUP_FILE"
+          echo "Backup written: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
+          # Keep the 14 most recent pre-deploy dumps.
+          ls -1t "$BACKUP_DIR"/pre-deploy-*.dump | tail -n +15 | xargs -r rm -f --
+
           echo "==> Enabling maintenance mode"
           # storage is a bind mount — down flag survives container recreate.
           # Do NOT call mito:maintenance on the OLD image (chicken-and-egg).
@@ -131,7 +151,6 @@ jobs:
           # If this script exits before "Disabling maintenance mode", prod stays
           # DOWN on purpose. Bring it up manually:
           #   docker compose exec -T attendance php artisan up </dev/null
-          cd /opt/attendance
           docker compose exec -T attendance php artisan down --retry=60 </dev/null
 
           echo "==> Recreating attendance container"
@@ -176,10 +195,6 @@ jobs:
             echo "WARNING: mito:maintenance missing from image — deploy continues with native artisan up/down only."
           fi
 
-          echo "==> Verifying seed data files in image"
-          docker compose exec -T attendance \
-            test -f /opt/seed-data/stores.json </dev/null
-
           echo "==> Running database migrations"
           docker compose exec -T attendance \
             php artisan migrate --force </dev/null
@@ -187,29 +202,21 @@ jobs:
           echo "==> Seeding roles, permissions and initial dashboard users (idempotent)"
           # Full DatabaseSeeder: RBAC baseline + initial dashboard accounts
           # (hisar.hesti@ ADMIN, reginald.hirawan@ SUPER_ADMIN, plus demo
-          # superadmin@ / admin@ / user@mito.co.id). Dummy demo data
+          # superadmin@ / admin@ / user@mito.co.id). Accounts are seeded only
+          # while the users table is empty; afterwards the Users page (DB) owns
+          # them. Access is per user (role = template); dashboard edits are kept
+          # and the seeder only adds permissions new in this release. If no active
+          # SUPER_ADMIN exists, superadmin@ is restored (lockout guard). Dummy demo data
           # (DevelopmentDataSeeder) is skipped outside APP_ENV=local.
           # Set SEED_USER_PASSWORD in the container .env to override the
           # default seeded password.
           docker compose exec -T attendance \
             php artisan db:seed --force </dev/null
 
-          echo "==> Importing outsource cabang + pins from stores.json (idempotent)"
-          docker compose exec -T attendance \
-            php artisan outsource:import /opt/seed-data/stores.json \
-              --require-min=1 \
-              --require-min-cabangs=1 \
-              --require-min-pins=1 \
-              --allow-partial </dev/null
-
-          echo "==> Spot-check: sample cabang + pin (must not be empty)"
-          docker compose exec -T attendance php artisan tinker --execute="
-            \$c = \App\Models\WorkLocation::query()->orderBy('id')->first();
-            \$p = \App\Models\WorkLocationPin::query()->orderBy('id')->first();
-            echo 'sample_cabang=' . (\$c?->name ?? 'NULL') . PHP_EOL;
-            echo 'sample_pin=' . (\$p?->name ?? 'NULL') . PHP_EOL;
-            if (!\$c || !\$p) { throw new RuntimeException('Post-import spot-check failed: missing cabang or pin'); }
-          " </dev/null
+          # Outsource master data (persons, cabang, pins, allowlists) is NOT
+          # touched by deploys. PostgreSQL — managed via the dashboard — is the
+          # only source of truth; data/stores.json is a local/dev seed and is
+          # never imported into production automatically.
 
           echo "==> Waiting for nginx container health (not Laravel readiness)"
           for i in $(seq 1 12); do
