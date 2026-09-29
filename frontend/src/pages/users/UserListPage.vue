@@ -16,7 +16,6 @@ import {
   toggleUserStatus,
   deleteUser,
   fetchUserPermissions,
-  syncUserPermissions,
   fetchPermissions,
   type UserRow,
   type UserFilters,
@@ -114,14 +113,22 @@ const deleteTarget    = ref<UserRow | null>(null)
 const deleteBusy      = ref(false)
 const deleteError     = ref('')
 
-// ── Modal — assign permissions ────────────────────────────────────────────────
+// ── Modal — view permissions (read-only; granting lives in the Permissions menu)
 const showPermissionsModal = ref(false)
 const permissionsTarget    = ref<UserRow | null>(null)
 const permissionsBusy      = ref(false)
 const permissionsError     = ref('')
-interface PermissionOption { id: number; name: string; description: string | null }
-const allPermissions       = ref<PermissionOption[]>([])
-const selectedPermissions  = ref<string[]>([])
+const permissionDescriptions = ref<Record<string, string | null>>({})
+const userPermissions      = ref<string[]>([])
+const permissionsRole      = ref<string | null>(null)
+const superAdminBypass     = ref(false)
+
+const effectivePermissions = computed(() =>
+  [...userPermissions.value].sort().map((name) => ({
+    name,
+    description: permissionDescriptions.value[name] ?? null,
+  })),
+)
 
 // ── Columns ───────────────────────────────────────────────────────────────────
 const columns = computed<TableColumn<UserRow>[]>(() => [
@@ -180,8 +187,8 @@ const columns = computed<TableColumn<UserRow>[]>(() => [
           icon: 'i-lucide-pencil',
           onSelect: () => openEdit(user),
         },
-        can('user.update') && {
-          label: 'Permissions',
+        can('user.view') && {
+          label: 'View permissions',
           icon: 'i-lucide-shield-check',
           onSelect: () => openPermissions(user),
         },
@@ -380,38 +387,30 @@ async function executeDelete(): Promise<void> {
   }
 }
 
-// ── Permissions assignment ────────────────────────────────────────────────────
+// ── Permissions (read-only) ───────────────────────────────────────────────────
 async function openPermissions(user: UserRow): Promise<void> {
   permissionsTarget.value = user
-  selectedPermissions.value = []
+  userPermissions.value = []
+  permissionsRole.value = null
+  superAdminBypass.value = false
   permissionsError.value = ''
   permissionsBusy.value = true
   showPermissionsModal.value = true
 
   try {
+    // Descriptions come from the Permissions module, which needs its own grant.
     const [userPerms, allPerms] = await Promise.all([
       fetchUserPermissions(user.id),
-      fetchPermissions(),
+      can('permission.view') ? fetchPermissions() : Promise.resolve(null),
     ])
-    selectedPermissions.value = userPerms.data
-    allPermissions.value = allPerms.data
+    userPermissions.value = userPerms.data
+    permissionsRole.value = userPerms.role ?? null
+    superAdminBypass.value = userPerms.super_admin_bypass === true
+    if (allPerms) {
+      permissionDescriptions.value = Object.fromEntries(allPerms.data.map((p) => [p.name, p.description]))
+    }
   } catch (e: unknown) {
     permissionsError.value = e instanceof Error ? e.message : 'Failed to load permissions.'
-  } finally {
-    permissionsBusy.value = false
-  }
-}
-
-async function submitPermissions(): Promise<void> {
-  if (!permissionsTarget.value) return
-  permissionsBusy.value = true
-  permissionsError.value = ''
-  try {
-    await syncUserPermissions(permissionsTarget.value.id, selectedPermissions.value)
-    showPermissionsModal.value = false
-    toast.success('Permissions updated')
-  } catch (e: unknown) {
-    permissionsError.value = e instanceof Error ? e.message : 'Failed to save permissions.'
   } finally {
     permissionsBusy.value = false
   }
@@ -604,59 +603,68 @@ onMounted(async () => {
     </template>
   </UModal>
 
-  <!-- ── Assign permissions modal ────────────────────────────────────────────── -->
+  <!-- ── View permissions modal (read-only) ─────────────────────────────────── -->
   <UModal v-model:open="showPermissionsModal" :title="`Permissions: ${permissionsTarget?.name ?? ''}`">
     <template #body>
       <div class="space-y-4">
-        <p class="text-sm text-muted">
-          Select the permissions to assign to this user.
-        </p>
-
         <div v-if="permissionsBusy" class="space-y-2">
           <div v-for="n in 6" :key="n" class="h-8 animate-pulse rounded bg-[var(--ui-bg-elevated)]" />
         </div>
 
+        <UAlert v-else-if="permissionsError" color="error" variant="subtle" :description="permissionsError" />
+
+        <UAlert
+          v-else-if="superAdminBypass"
+          color="info"
+          variant="subtle"
+          icon="i-lucide-shield-check"
+          description="Super Admin has full access to every module."
+        />
+
         <template v-else>
-          <div class="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-[var(--ui-border)] p-3">
-            <label
-              v-for="item in allPermissions"
-              :key="item.id"
-              class="flex items-start gap-3 rounded-md px-2 py-2 hover:bg-[var(--ui-bg-elevated)]"
+          <p class="text-sm text-muted">
+            <strong class="text-highlighted">{{ effectivePermissions.length }}</strong>
+            permission{{ effectivePermissions.length !== 1 ? 's' : '' }} for this user
+            (role <span class="font-medium">{{ permissionsRole ?? '—' }}</span>).
+            Access is per user and is edited in Permissions → User permissions.
+          </p>
+
+          <div class="max-h-80 divide-y divide-[var(--ui-border)] overflow-y-auto rounded-lg border border-[var(--ui-border)]">
+            <div
+              v-for="item in effectivePermissions"
+              :key="item.name"
+              class="flex items-start justify-between gap-3 px-3 py-2"
             >
-              <UCheckbox
-                :model-value="selectedPermissions.includes(item.name)"
-                @update:model-value="(checked: boolean) => {
-                  selectedPermissions = checked
-                    ? [...selectedPermissions, item.name]
-                    : selectedPermissions.filter((p) => p !== item.name)
-                }"
-                class="mt-0.5"
-              />
-              <span class="flex flex-col gap-0.5">
-                <span class="text-sm font-mono">{{ item.name }}</span>
+              <span class="flex min-w-0 flex-col gap-0.5">
+                <span class="truncate text-sm font-mono">{{ item.name }}</span>
                 <span v-if="item.description" class="text-xs text-[var(--ui-text-muted)]">
                   {{ item.description }}
                 </span>
               </span>
-            </label>
+            </div>
 
-            <p v-if="!allPermissions.length" class="text-sm text-muted">
-              No permissions available.
+            <p v-if="!effectivePermissions.length" class="px-3 py-4 text-center text-sm text-muted">
+              This user has no permissions.
             </p>
           </div>
-
-          <UAlert v-if="permissionsError" color="error" variant="subtle" :description="permissionsError" />
         </template>
       </div>
     </template>
 
     <template #footer>
       <div class="flex justify-end gap-2">
-        <UButton color="neutral" variant="outline" :disabled="permissionsBusy" @click="showPermissionsModal = false">
-          Cancel
+        <UButton
+          v-if="can('permission.view')"
+          color="neutral"
+          variant="ghost"
+          icon="i-lucide-external-link"
+          to="/dashboard/permissions"
+          @click="showPermissionsModal = false"
+        >
+          Manage in Permissions
         </UButton>
-        <UButton color="primary" :loading="permissionsBusy" @click="submitPermissions">
-          Save permissions
+        <UButton color="neutral" variant="outline" @click="showPermissionsModal = false">
+          Close
         </UButton>
       </div>
     </template>

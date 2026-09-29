@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Actions\Permission\GrantUserPermission;
+use App\Actions\Permission\RevokeUserPermission;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Permission\StorePermissionRequest;
 use App\Http\Requests\Permission\UpdatePermissionRequest;
 use App\Http\Resources\Permission\PermissionResource;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\Permission\Models\Permission;
@@ -92,23 +95,55 @@ class PermissionController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /**
+     * Users holding this permission. Access is per user; SUPER_ADMIN always
+     * has it (Gate::before) and is not `removable`.
+     */
     public function users(Request $request, Permission $permission): JsonResponse
     {
-        $users = \App\Models\User::query()
+        $users = User::query()
             ->select('users.id', 'users.name', 'users.email', 'users.status')
-            ->whereHas('permissions', fn ($q) => $q->where('permissions.id', $permission->id))
-            ->orWhereHas('roles.permissions', fn ($q) => $q->where('permissions.id', $permission->id))
-            ->distinct()
+            ->with('roles:id,name')
+            ->where(fn ($q) => $q
+                ->whereHas('permissions', fn ($p) => $p->where('permissions.id', $permission->id))
+                ->orWhereHas('roles', fn ($r) => $r->where('name', 'SUPER_ADMIN')))
+            ->orderBy('users.name')
             ->get();
 
         return response()->json([
             'success' => true,
-            'data' => $users->map(fn ($user) => [
-                'id'      => $user->id,
-                'name'    => $user->name,
-                'email'   => $user->email,
-                'status'  => $user->status,
-            ])->values()->all(),
+            'data' => $users->map(function (User $user) {
+                $role = $user->roles->first()?->name;
+                $superAdmin = $role === 'SUPER_ADMIN';
+
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'status' => $user->status,
+                    'role' => $role,
+                    'source' => $superAdmin ? 'super_admin' : 'direct',
+                    'removable' => ! $superAdmin,
+                ];
+            })->values()->all(),
         ]);
+    }
+
+    public function assignUser(Request $request, Permission $permission, GrantUserPermission $grant): JsonResponse
+    {
+        $validated = $request->validate([
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+        ]);
+
+        $grant->execute($permission, User::findOrFail($validated['user_id']), $request->user(), $request);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function revokeUser(Request $request, Permission $permission, User $user, RevokeUserPermission $revoke): JsonResponse
+    {
+        $revoke->execute($permission, $user, $request->user(), $request);
+
+        return response()->json(['success' => true]);
     }
 }

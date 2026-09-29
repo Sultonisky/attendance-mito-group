@@ -7,7 +7,6 @@ use App\Models\Employee;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class AttendanceRecordPolicyTest extends TestCase
@@ -84,18 +83,7 @@ class AttendanceRecordPolicyTest extends TestCase
         ]);
 
         // Remove attendance.view to test employee-scoped access
-        $role = Role::findByName('USER');
-        $role->syncPermissions([
-            'dashboard.view',
-            'penalty.view',
-            'leave.view',
-            'leave.create',
-            'leave.cancel',
-            'overtime.view',
-            'overtime.create',
-            'overtime.cancel',
-            'monthly_recap.view',
-        ]);
+        $userA->revokePermissionTo('attendance.view');
 
         $this->assertFalse($userA->can('view', $record));
     }
@@ -103,19 +91,8 @@ class AttendanceRecordPolicyTest extends TestCase
     public function test_user_without_attendance_view_can_view_own_record(): void
     {
         $user = $this->userWithRole('USER');
-        // Remove attendance.view from USER role for this test
-        $role = Role::findByName('USER');
-        $role->syncPermissions([
-            'dashboard.view',
-            'penalty.view',
-            'leave.view',
-            'leave.create',
-            'leave.cancel',
-            'overtime.view',
-            'overtime.create',
-            'overtime.cancel',
-            'monthly_recap.view',
-        ]);
+        // Remove attendance.view from this user for the test
+        $user->revokePermissionTo('attendance.view');
 
         $employee = $this->makeEmployee(['user_id' => $user->id]);
         $record = AttendanceRecord::create([

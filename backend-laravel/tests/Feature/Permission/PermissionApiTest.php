@@ -241,6 +241,165 @@ class PermissionApiTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_users_list_reports_access_source(): void
+    {
+        $permission = Permission::where('name', 'user.view')->first();
+        $direct = User::factory()->create(['name' => 'A Direct']);
+        $direct->assignRole('USER');
+        $direct->givePermissionTo('user.view');
+        $superAdmin = $this->superAdmin();
+
+        $data = collect($this->actingAs($superAdmin, 'sanctum')
+            ->getJson("/api/v1/permissions/{$permission->id}/users")
+            ->assertOk()
+            ->json('data'))->keyBy('id');
+
+        $this->assertSame('direct', $data[$direct->id]['source']);
+        $this->assertTrue($data[$direct->id]['removable']);
+        $this->assertSame('super_admin', $data[$superAdmin->id]['source']);
+        $this->assertFalse($data[$superAdmin->id]['removable']);
+
+        // Template-copied access is per user too, so it is removable.
+        $templateAccess = Permission::where('name', 'attendance.view')->first();
+        $admin = $this->admin();
+        $row = collect($this->actingAs($superAdmin, 'sanctum')
+            ->getJson("/api/v1/permissions/{$templateAccess->id}/users")
+            ->json('data'))->firstWhere('id', $admin->id);
+
+        $this->assertSame('direct', $row['source']);
+        $this->assertSame('ADMIN', $row['role']);
+        $this->assertTrue($row['removable']);
+    }
+
+    // ========================
+    // Assign / revoke user
+    // ========================
+
+    public function test_super_admin_can_assign_permission_to_user(): void
+    {
+        $permission = Permission::where('name', 'user.view')->first();
+        $target = $this->admin();
+        $actor = $this->superAdmin();
+
+        $this->actingAs($actor, 'sanctum')
+            ->postJson("/api/v1/permissions/{$permission->id}/users", ['user_id' => $target->id])
+            ->assertOk()
+            ->assertJson(['success' => true]);
+
+        $this->assertTrue($target->fresh()->hasDirectPermission('user.view'));
+        $this->assertDatabaseHas('audit_logs', [
+            'actor_id' => $actor->id,
+            'action' => 'user.permission_granted',
+            'auditable_type' => User::class,
+            'auditable_id' => $target->id,
+        ]);
+    }
+
+    public function test_assign_is_idempotent(): void
+    {
+        $permission = Permission::where('name', 'attendance.view')->first();
+        $target = $this->admin();
+
+        $this->actingAs($this->superAdmin(), 'sanctum')
+            ->postJson("/api/v1/permissions/{$permission->id}/users", ['user_id' => $target->id])
+            ->assertOk();
+
+        $this->assertTrue($target->fresh()->hasDirectPermission('attendance.view'));
+        $this->assertDatabaseMissing('audit_logs', ['action' => 'user.permission_granted']);
+    }
+
+    public function test_assign_rejects_super_admin_target(): void
+    {
+        $permission = Permission::where('name', 'user.view')->first();
+        $target = $this->superAdmin();
+
+        $this->actingAs($this->superAdmin(), 'sanctum')
+            ->postJson("/api/v1/permissions/{$permission->id}/users", ['user_id' => $target->id])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('user_id');
+    }
+
+    public function test_assign_validates_user_exists(): void
+    {
+        $permission = Permission::where('name', 'user.view')->first();
+
+        $this->actingAs($this->superAdmin(), 'sanctum')
+            ->postJson("/api/v1/permissions/{$permission->id}/users", ['user_id' => 999999])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('user_id');
+    }
+
+    public function test_assign_requires_permission_update(): void
+    {
+        $permission = Permission::where('name', 'user.view')->first();
+        $actor = User::factory()->create();
+        Role::findByName('USER')->syncPermissions(['dashboard.view', 'permission.view', 'user.update']);
+        $actor->assignRole('USER');
+
+        $this->actingAs($actor, 'sanctum')
+            ->postJson("/api/v1/permissions/{$permission->id}/users", ['user_id' => $actor->id])
+            ->assertForbidden();
+
+        $this->assertFalse($actor->fresh()->hasDirectPermission('user.view'));
+    }
+
+    public function test_super_admin_can_revoke_direct_grant(): void
+    {
+        $permission = Permission::where('name', 'user.view')->first();
+        $target = $this->admin();
+        $target->givePermissionTo('user.view');
+        $actor = $this->superAdmin();
+
+        $this->actingAs($actor, 'sanctum')
+            ->deleteJson("/api/v1/permissions/{$permission->id}/users/{$target->id}")
+            ->assertOk();
+
+        $this->assertFalse($target->fresh()->hasDirectPermission('user.view'));
+        $this->assertDatabaseHas('audit_logs', [
+            'actor_id' => $actor->id,
+            'action' => 'user.permission_revoked',
+            'auditable_id' => $target->id,
+        ]);
+    }
+
+    public function test_revoke_removes_template_copied_permission_for_that_user_only(): void
+    {
+        $permission = Permission::where('name', 'attendance.view')->first();
+        $target = $this->admin();
+        $other = $this->admin();
+
+        $this->actingAs($this->superAdmin(), 'sanctum')
+            ->deleteJson("/api/v1/permissions/{$permission->id}/users/{$target->id}")
+            ->assertOk();
+
+        $this->assertFalse($target->fresh()->can('attendance.view'));
+        $this->assertTrue($other->fresh()->can('attendance.view'));
+    }
+
+    public function test_revoke_rejects_user_without_permission(): void
+    {
+        $permission = Permission::where('name', 'audit.view')->first();
+        $target = $this->admin();
+
+        $this->actingAs($this->superAdmin(), 'sanctum')
+            ->deleteJson("/api/v1/permissions/{$permission->id}/users/{$target->id}")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('user');
+    }
+
+    public function test_revoke_requires_permission_update(): void
+    {
+        $permission = Permission::where('name', 'user.view')->first();
+        $target = $this->admin();
+        $target->givePermissionTo('user.view');
+
+        $this->actingAs($this->admin(), 'sanctum')
+            ->deleteJson("/api/v1/permissions/{$permission->id}/users/{$target->id}")
+            ->assertForbidden();
+
+        $this->assertTrue($target->fresh()->hasDirectPermission('user.view'));
+    }
+
     // ========================
     // Destroy
     // ========================

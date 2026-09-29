@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\OutsourcePersonController;
 use App\Http\Controllers\Api\V1\OutsourceWorkLocationController;
 use App\Http\Controllers\Api\V1\OutsourceWorkLocationPinController;
 use App\Http\Controllers\Api\V1\PermissionController;
+use App\Http\Controllers\Api\V1\RoleController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\PenaltyController;
 use App\Http\Controllers\Api\V1\ReportController;
@@ -234,8 +235,8 @@ Route::prefix('v1')->group(function () {
             Route::patch('/{user}',          [UserController::class, 'update'])       ->middleware('can:user.update');
             Route::post('/{user}/toggle-status', [UserController::class, 'toggleStatus'])->middleware('can:user.update');
             Route::delete('/{user}',         [UserController::class, 'destroy'])      ->middleware('can:user.delete');
-            Route::post('/{user}/permissions', [UserController::class, 'permissions']) ->middleware('can:user.update');
             Route::get('/{user}/permissions', [UserController::class, 'listPermissions']) ->middleware('can:user.view');
+            Route::put('/{user}/permissions', [UserController::class, 'updatePermissions']) ->middleware('can:permission.update');
         });
 
         // ── Employees (admin CRUD) ────────────────────────────────────────────────
@@ -254,8 +255,16 @@ Route::prefix('v1')->group(function () {
             Route::post('/',                    [PermissionController::class, 'store'])   ->middleware('can:permission.create');
             Route::get('/{permission}',         [PermissionController::class, 'show'])    ->middleware('can:permission.view');
             Route::get('/{permission}/users',   [PermissionController::class, 'users'])   ->middleware('can:permission.view');
+            Route::post('/{permission}/users',  [PermissionController::class, 'assignUser'])->middleware('can:permission.update');
+            Route::delete('/{permission}/users/{user}', [PermissionController::class, 'revokeUser'])->middleware('can:permission.update');
             Route::put('/{permission}',         [PermissionController::class, 'update'])  ->middleware('can:permission.update');
             Route::delete('/{permission}',      [PermissionController::class, 'destroy']) ->middleware('can:permission.delete');
+        });
+
+        // ── Role default permissions ────────────────────────────────────────────
+        Route::prefix('roles')->group(function () {
+            Route::get('/',                     [RoleController::class, 'index'])             ->middleware('can:permission.view');
+            Route::put('/{role}/permissions',   [RoleController::class, 'updatePermissions']) ->middleware('can:permission.update');
         });
 
         // ── Outsource persons (admin CRUD) ─────────────────────────────────────

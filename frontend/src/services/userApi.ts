@@ -117,24 +117,34 @@ export async function deleteUser(
 }
 
 export async function fetchPermissions(): Promise<{ success: boolean; data: { id: number; name: string; description: string | null }[] }> {
-  return apiFetch<{ success: boolean; data: { id: number; name: string; description: string | null }[] }>('/permissions')
+  return apiFetch<{ success: boolean; data: { id: number; name: string; description: string | null }[] }>('/permissions?per_page=100')
+}
+
+/**
+ * `data` = everything the user can do. Access is per user; the role is only a
+ * label + starting template.
+ */
+export type UserPermissionsResponse = {
+  success: boolean
+  data: string[]
+  role: string | null
+  super_admin_bypass: boolean
 }
 
 export async function fetchUserPermissions(
   id: number,
-): Promise<{ success: boolean; data: string[] }> {
-  return apiFetch<{ success: boolean; data: string[] }>(`/users/${id}/permissions`, {
+): Promise<UserPermissionsResponse> {
+  return apiFetch<UserPermissionsResponse>(`/users/${id}/permissions`, {
     method: 'GET',
   })
 }
 
-export async function syncUserPermissions(
+export async function updateUserPermissions(
   id: number,
   permissions: string[],
-): Promise<{ success: boolean; data: string[] }> {
-  return apiFetch<{ success: boolean; data: string[] }>(`/users/${id}/permissions`, {
-    method: 'POST',
+): Promise<UserPermissionsResponse> {
+  return apiFetch<UserPermissionsResponse>(`/users/${id}/permissions`, {
+    method: 'PUT',
     body: JSON.stringify({ permissions }),
   })
 }
-
