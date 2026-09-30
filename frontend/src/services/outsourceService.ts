@@ -116,7 +116,10 @@ export interface OutsourcePeriodHistorySession {
   check_out_location: OutsourceHistoryLocation | null
 }
 
-export interface OutsourcePeriodHistoryItem extends OutsourceHistoryItem {
+/** One item per day; days without a clock-in are "absent" (today: "pending"). */
+export interface OutsourcePeriodHistoryItem extends Omit<OutsourceHistoryItem, 'attendance_id'> {
+  attendance_id: number | null
+  attended: boolean
   has_open_session: boolean
   check_out_date: string | null
   /** Days between attendance_date (clock-in day) and the last clock-out day. */
@@ -136,10 +139,10 @@ export interface OutsourcePeriodHistory {
     next_key: string | null
   }
   summary: {
-    /** Max counted days per period (default 26); later days are not returned. */
-    max_days: number
+    /** Days listed: period start up to today (or period end). */
+    days_listed: number
     days_attended: number
-    days_remaining: number
+    days_absent: number
     days_complete: number
     days_incomplete: number
     days_cross_midnight: number

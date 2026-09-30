@@ -29,7 +29,7 @@ const emit = defineEmits<{
 const periodHistory = ref<OutsourcePeriodHistory | null>(null);
 const isLoading = ref(false);
 const errorMessage = ref("");
-const expandedIds = ref<Set<number>>(new Set());
+const expandedDates = ref<Set<string>>(new Set());
 
 const periodRangeFormatter = new Intl.DateTimeFormat("id-ID", {
   timeZone: ATTENDANCE_TIMEZONE,
@@ -78,15 +78,22 @@ function formatDayOffset(offset: number | null | undefined): string {
 }
 
 function isItemOpen(item: OutsourcePeriodHistoryItem): boolean {
-  return item.has_open_session || item.status === "incomplete";
+  return item.attended && (item.has_open_session || item.status === "incomplete");
 }
 
 function formatStatus(item: OutsourcePeriodHistoryItem): string {
+  if (!item.attended) return item.status === "pending" ? "Belum absen" : "Tidak hadir";
   if (isItemOpen(item)) return "Belum clock out";
   const normalized = item.status.trim().toLowerCase();
   if (normalized === "present" || normalized === "completed") return "Selesai";
-  if (normalized === "absent") return "Tidak hadir";
   return item.status || "—";
+}
+
+function statusClass(item: OutsourcePeriodHistoryItem): string {
+  if (!item.attended) {
+    return item.status === "pending" ? "os-history__status--pending" : "os-history__status--absent";
+  }
+  return isItemOpen(item) ? "os-history__status--open" : "os-history__status--ok";
 }
 
 function sessionLegs(session: OutsourcePeriodHistorySession) {
@@ -111,25 +118,28 @@ function sessionLegs(session: OutsourcePeriodHistorySession) {
 }
 
 function isExpanded(item: OutsourcePeriodHistoryItem): boolean {
-  return expandedIds.value.has(item.attendance_id);
+  return item.attended && expandedDates.value.has(item.attendance_date);
 }
 
 function toggleItem(item: OutsourcePeriodHistoryItem): void {
-  const next = new Set(expandedIds.value);
-  if (next.has(item.attendance_id)) next.delete(item.attendance_id);
-  else next.add(item.attendance_id);
-  expandedIds.value = next;
+  if (!item.attended) return;
+  const next = new Set(expandedDates.value);
+  if (next.has(item.attendance_date)) next.delete(item.attendance_date);
+  else next.add(item.attendance_date);
+  expandedDates.value = next;
 }
 
-/** Newest day open by default; a refresh of the same period keeps the user's choice. */
+/** Newest attended day open by default; a refresh of the same period keeps the user's choice. */
 function syncExpanded(previousKey: string | null, history: OutsourcePeriodHistory): void {
-  const ids = new Set(history.items.map((item) => item.attendance_id));
+  const attendedDates = new Set(
+    history.items.filter((item) => item.attended).map((item) => item.attendance_date),
+  );
   if (previousKey === history.period.key) {
-    expandedIds.value = new Set([...expandedIds.value].filter((id) => ids.has(id)));
+    expandedDates.value = new Set([...expandedDates.value].filter((date) => attendedDates.has(date)));
     return;
   }
-  const newest = history.items[0];
-  expandedIds.value = newest ? new Set([newest.attendance_id]) : new Set();
+  const newest = history.items.find((item) => item.attended);
+  expandedDates.value = newest ? new Set([newest.attendance_date]) : new Set();
 }
 
 async function loadPeriod(period?: string | null): Promise<void> {
@@ -227,6 +237,10 @@ onUnmounted(() => {
             <strong>{{ periodHistory.summary.days_attended }} hari</strong>
           </div>
           <div class="os-history__stat">
+            <span>Tidak Hadir</span>
+            <strong>{{ periodHistory.summary.days_absent }} hari</strong>
+          </div>
+          <div class="os-history__stat">
             <span>Selesai</span>
             <strong>{{ periodHistory.summary.days_complete }} hari</strong>
           </div>
@@ -234,11 +248,11 @@ onUnmounted(() => {
             <span>Belum Clock Out</span>
             <strong>{{ periodHistory.summary.days_incomplete }} hari</strong>
           </div>
-          <div class="os-history__stat">
+          <div class="os-history__stat os-history__stat--footer">
             <span>Rata-rata / Hari</span>
             <strong>{{ formatDurationLong(periodHistory.summary.average_duration_minutes) }}</strong>
           </div>
-          <div class="os-history__stat os-history__stat--full">
+          <div class="os-history__stat os-history__stat--footer">
             <span>Total Durasi Bekerja</span>
             <strong class="os-history__total">
               {{ formatDurationLong(periodHistory.summary.total_duration_minutes) }}
@@ -253,15 +267,30 @@ onUnmounted(() => {
         <ul v-else class="os-history__list">
           <li
             v-for="item in periodHistory.items"
-            :key="item.attendance_id"
+            :key="item.attendance_date"
             class="os-history__day"
-            :class="{ 'os-history__day--open': isExpanded(item) }"
+            :class="{
+              'os-history__day--open': isExpanded(item),
+              'os-history__day--missing': !item.attended,
+            }"
           >
+            <div v-if="!item.attended" class="os-history__day-toggle os-history__day-toggle--static">
+              <span class="os-history__day-main">
+                <strong>{{ formatDay(item.attendance_date) }}</strong>
+              </span>
+              <span class="os-history__day-meta">
+                <span class="os-history__status" :class="statusClass(item)">
+                  {{ formatStatus(item) }}
+                </span>
+              </span>
+            </div>
+
             <button
+              v-else
               type="button"
               class="os-history__day-toggle"
               :aria-expanded="isExpanded(item)"
-              :aria-controls="`os-history-day-${item.attendance_id}`"
+              :aria-controls="`os-history-day-${item.attendance_date}`"
               @click="toggleItem(item)"
             >
               <span class="os-history__day-main">
@@ -275,10 +304,7 @@ onUnmounted(() => {
                 </small>
               </span>
               <span class="os-history__day-meta">
-                <span
-                  class="os-history__status"
-                  :class="isItemOpen(item) ? 'os-history__status--open' : 'os-history__status--ok'"
-                >
+                <span class="os-history__status" :class="statusClass(item)">
                   {{ formatStatus(item) }}
                 </span>
                 <AppIcon
@@ -291,8 +317,9 @@ onUnmounted(() => {
             </button>
 
             <div
+              v-if="item.attended"
               v-show="isExpanded(item)"
-              :id="`os-history-day-${item.attendance_id}`"
+              :id="`os-history-day-${item.attendance_date}`"
               class="os-history__day-body"
             >
               <div class="os-history__times">
@@ -529,8 +556,7 @@ onUnmounted(() => {
   color: var(--text);
 }
 
-.os-history__stat--full {
-  grid-column: span 2;
+.os-history__stat--footer {
   padding-top: 0.6rem;
   border-top: 1px solid var(--os-border);
 }
@@ -591,6 +617,20 @@ onUnmounted(() => {
 
 .os-history__day--open .os-history__day-toggle {
   border-bottom: 1px solid var(--os-border);
+}
+
+.os-history__day--missing,
+.os-history__day--missing .os-history__day-toggle {
+  background: #fafafa;
+}
+
+.os-history__day-toggle--static {
+  cursor: default;
+}
+
+.os-history__day--missing .os-history__day-main strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .os-history__day-main {
@@ -660,6 +700,16 @@ onUnmounted(() => {
 .os-history__status--open {
   background: #fff7ed;
   color: #c2410c;
+}
+
+.os-history__status--absent {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.os-history__status--pending {
+  background: #f4f4f5;
+  color: #52525b;
 }
 
 .os-history__times {

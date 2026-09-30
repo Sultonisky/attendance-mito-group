@@ -109,7 +109,7 @@ class OutsourceHistoryPeriodApiTest extends TestCase
             ->getJson("/api/v1/outsource/attendance/history/period{$query}");
     }
 
-    public function test_returns_only_records_inside_the_25th_to_24th_period(): void
+    public function test_lists_every_day_of_the_25th_to_24th_period(): void
     {
         $outsource = $this->createAssignedOutsource();
         $this->createRecord($outsource, '2026-08-24');
@@ -126,21 +126,30 @@ class OutsourceHistoryPeriodApiTest extends TestCase
         $response->assertJsonPath('data.period.is_current', false);
         $response->assertJsonPath('data.period.previous_key', null);
         $response->assertJsonPath('data.period.next_key', '2026-10');
-        $response->assertJsonCount(2, 'data.items');
+        $response->assertJsonCount(31, 'data.items');
+        $response->assertJsonPath('data.items.0.attendance_date', '2026-09-24');
         $response->assertJsonPath('data.items.0.attendance_id', $last->id);
-        $response->assertJsonPath('data.items.1.attendance_id', $first->id);
-        $response->assertJsonPath('data.items.1.sessions.0.check_in_location.pin_name', 'Gate A');
-        $response->assertJsonPath('data.items.1.sessions.0.check_out_location', null);
-        $response->assertJsonPath('data.items.1.sessions.0.crosses_midnight', false);
-        $response->assertJsonPath('data.summary.max_days', 26);
+        $response->assertJsonPath('data.items.0.attended', true);
+        $response->assertJsonPath('data.items.1.attendance_date', '2026-09-23');
+        $response->assertJsonPath('data.items.1.attendance_id', null);
+        $response->assertJsonPath('data.items.1.status', 'absent');
+        $response->assertJsonPath('data.items.1.attended', false);
+        $response->assertJsonPath('data.items.1.sessions', []);
+        $response->assertJsonPath('data.items.30.attendance_date', '2026-08-25');
+        $response->assertJsonPath('data.items.30.attendance_id', $first->id);
+        $response->assertJsonPath('data.items.30.sessions.0.check_in_location.pin_name', 'Gate A');
+        $response->assertJsonPath('data.items.30.sessions.0.check_out_location', null);
+        $response->assertJsonPath('data.items.30.sessions.0.crosses_midnight', false);
+        $response->assertJsonPath('data.summary.days_listed', 31);
         $response->assertJsonPath('data.summary.days_attended', 2);
-        $response->assertJsonPath('data.summary.days_remaining', 24);
+        $response->assertJsonPath('data.summary.days_absent', 29);
         $response->assertJsonPath('data.summary.days_complete', 1);
         $response->assertJsonPath('data.summary.days_incomplete', 1);
         $response->assertJsonPath('data.summary.total_duration_minutes', 480);
+        $response->assertJsonMissingPath('data.summary.max_days');
     }
 
-    public function test_only_first_max_days_with_clock_in_are_counted_and_returned(): void
+    public function test_attended_days_are_not_limited_by_the_recap_quota(): void
     {
         config(['attendance.outsource_period_max_attendance_days' => 3]);
 
@@ -152,24 +161,26 @@ class OutsourceHistoryPeriodApiTest extends TestCase
             'attendance_date' => '2026-08-26',
             'status' => 'absent',
         ]);
-        $day1 = $this->createRecord($outsource, '2026-08-27');
+        $this->createRecord($outsource, '2026-08-27');
         $this->createRecord($outsource, '2026-08-28', closed: false);
-        $day3 = $this->createRecord($outsource, '2026-09-01');
+        $this->createRecord($outsource, '2026-09-01');
         $this->createRecord($outsource, '2026-09-02');
-        $this->createRecord($outsource, '2026-09-10');
+        $latest = $this->createRecord($outsource, '2026-09-10');
 
         $response = $this->getPeriod($this->loginCookie($outsource), '2026-09');
 
         $response->assertOk();
-        $response->assertJsonCount(3, 'data.items');
-        $response->assertJsonPath('data.items.0.attendance_id', $day3->id);
-        $response->assertJsonPath('data.items.2.attendance_id', $day1->id);
-        $response->assertJsonPath('data.summary.max_days', 3);
-        $response->assertJsonPath('data.summary.days_attended', 3);
-        $response->assertJsonPath('data.summary.days_remaining', 0);
+        $response->assertJsonCount(31, 'data.items');
+        $response->assertJsonPath('data.items.14.attendance_date', '2026-09-10');
+        $response->assertJsonPath('data.items.14.attendance_id', $latest->id);
+        $response->assertJsonPath('data.items.29.attendance_date', '2026-08-26');
+        $response->assertJsonPath('data.items.29.attendance_id', null);
+        $response->assertJsonPath('data.items.29.status', 'absent');
+        $response->assertJsonPath('data.summary.days_attended', 5);
+        $response->assertJsonPath('data.summary.days_absent', 26);
         $response->assertJsonPath('data.summary.days_incomplete', 1);
-        $response->assertJsonPath('data.summary.total_sessions', 3);
-        $response->assertJsonPath('data.summary.total_duration_minutes', 960);
+        $response->assertJsonPath('data.summary.total_sessions', 5);
+        $response->assertJsonPath('data.summary.total_duration_minutes', 1920);
     }
 
     public function test_cross_midnight_session_stays_in_clock_in_period_with_locations(): void
@@ -219,7 +230,8 @@ class OutsourceHistoryPeriodApiTest extends TestCase
 
         $response = $this->getPeriod($cookie, '2026-09');
         $response->assertOk();
-        $response->assertJsonCount(1, 'data.items');
+        $response->assertJsonCount(31, 'data.items');
+        $response->assertJsonPath('data.summary.days_attended', 1);
         $response->assertJsonPath('data.items.0.attendance_date', '2026-09-24');
         $response->assertJsonPath('data.items.0.check_out_date', '2026-09-25');
         $response->assertJsonPath('data.items.0.check_out_day_offset', 1);
@@ -236,13 +248,15 @@ class OutsourceHistoryPeriodApiTest extends TestCase
         $response->assertJsonPath('data.summary.days_cross_midnight', 1);
         $response->assertJsonPath('data.summary.total_duration_minutes', 490);
 
-        $this->getPeriod($cookie, '2026-10')->assertOk()->assertJsonCount(0, 'data.items');
+        $this->getPeriod($cookie, '2026-10')
+            ->assertOk()
+            ->assertJsonPath('data.summary.days_attended', 0);
     }
 
-    public function test_defaults_to_current_period_without_next(): void
+    public function test_current_period_lists_days_up_to_today_only(): void
     {
         $outsource = $this->createAssignedOutsource();
-        $this->createRecord($outsource, '2026-09-29');
+        $record = $this->createRecord($outsource, '2026-09-29');
 
         $response = $this->getPeriod($this->loginCookie($outsource));
 
@@ -253,7 +267,15 @@ class OutsourceHistoryPeriodApiTest extends TestCase
         $response->assertJsonPath('data.period.is_current', true);
         $response->assertJsonPath('data.period.next_key', null);
         $response->assertJsonPath('data.period.previous_key', '2026-09');
-        $response->assertJsonCount(1, 'data.items');
+        // 25..30 Sep; today (30 Sep, no clock-in yet) is pending, not absent.
+        $response->assertJsonCount(6, 'data.items');
+        $response->assertJsonPath('data.items.0.attendance_date', '2026-09-30');
+        $response->assertJsonPath('data.items.0.status', 'pending');
+        $response->assertJsonPath('data.items.1.attendance_id', $record->id);
+        $response->assertJsonPath('data.items.5.attendance_date', '2026-09-25');
+        $response->assertJsonPath('data.items.5.status', 'absent');
+        $response->assertJsonPath('data.summary.days_attended', 1);
+        $response->assertJsonPath('data.summary.days_absent', 4);
     }
 
     public function test_rejects_periods_before_first_period(): void
@@ -273,8 +295,9 @@ class OutsourceHistoryPeriodApiTest extends TestCase
         $response = $this->getPeriod($this->loginCookie($outsource), '2026-09');
 
         $response->assertOk();
-        $response->assertJsonCount(0, 'data.items');
+        $response->assertJsonCount(31, 'data.items');
         $response->assertJsonPath('data.summary.days_attended', 0);
+        $response->assertJsonPath('data.summary.days_absent', 31);
     }
 
     public function test_rejects_invalid_and_future_periods(): void

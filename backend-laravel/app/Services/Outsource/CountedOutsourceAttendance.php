@@ -7,8 +7,9 @@ use App\Support\OutsourceAttendancePeriod;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * Single source of the outsource "counted days" rule, shared by the outsource
- * history and the monthly recap so both always agree:
+ * Single source of the outsource "counted days" rule used by the monthly recap
+ * (and the optional admin report quota flag). The outsource history lists every
+ * day and is not limited by it.
  *
  * - days belong to the period by attendance_date (the clock-in business day);
  * - only days with at least one clock-in are counted (open sessions included);
