@@ -9,12 +9,17 @@ use App\Enums\AttendanceStatus;
 use App\Models\AttendanceEvent;
 use App\Models\AttendanceRecord;
 use App\Models\AttendanceSession;
+use App\Services\Outsource\CountedOutsourceAttendance;
 use App\Support\AttendanceDateTime;
 use App\Support\OutsourceAttendancePeriod;
 use Carbon\CarbonImmutable;
 
 class ListOutsourceAttendanceHistoryByPeriod implements Action
 {
+    public function __construct(
+        private CountedOutsourceAttendance $countedAttendance,
+    ) {}
+
     /**
      * Own attendance for one monthly period (start-day cutoff), with a summary.
      *
@@ -37,15 +42,7 @@ class ListOutsourceAttendanceHistoryByPeriod implements Action
         $current = OutsourceAttendancePeriod::current();
         $maxDays = OutsourceAttendancePeriod::maxAttendanceDays();
 
-        $records = AttendanceRecord::query()
-            ->where('outsource_id', $outsourceId)
-            ->where('attendable_type', 'outsource')
-            ->where('attendance_date', '>=', $period->startDate->toDateString())
-            ->where('attendance_date', '<', $period->endDate->addDay()->toDateString())
-            ->whereHas('sessions', fn ($query) => $query->whereNotNull('check_in_at'))
-            ->orderBy('attendance_date')
-            ->orderBy('id')
-            ->limit($maxDays)
+        $records = $this->countedAttendance->query($outsourceId, $period)
             ->with([
                 'sessions' => fn ($query) => $query->orderBy('check_in_at'),
                 'sessions.events' => fn ($query) => $query
