@@ -29,6 +29,7 @@ const emit = defineEmits<{
 const periodHistory = ref<OutsourcePeriodHistory | null>(null);
 const isLoading = ref(false);
 const errorMessage = ref("");
+const expandedIds = ref<Set<number>>(new Set());
 
 const periodRangeFormatter = new Intl.DateTimeFormat("id-ID", {
   timeZone: ATTENDANCE_TIMEZONE,
@@ -109,11 +110,36 @@ function sessionLegs(session: OutsourcePeriodHistorySession) {
   ];
 }
 
+function isExpanded(item: OutsourcePeriodHistoryItem): boolean {
+  return expandedIds.value.has(item.attendance_id);
+}
+
+function toggleItem(item: OutsourcePeriodHistoryItem): void {
+  const next = new Set(expandedIds.value);
+  if (next.has(item.attendance_id)) next.delete(item.attendance_id);
+  else next.add(item.attendance_id);
+  expandedIds.value = next;
+}
+
+/** Newest day open by default; a refresh of the same period keeps the user's choice. */
+function syncExpanded(previousKey: string | null, history: OutsourcePeriodHistory): void {
+  const ids = new Set(history.items.map((item) => item.attendance_id));
+  if (previousKey === history.period.key) {
+    expandedIds.value = new Set([...expandedIds.value].filter((id) => ids.has(id)));
+    return;
+  }
+  const newest = history.items[0];
+  expandedIds.value = newest ? new Set([newest.attendance_id]) : new Set();
+}
+
 async function loadPeriod(period?: string | null): Promise<void> {
   isLoading.value = true;
   errorMessage.value = "";
   try {
-    periodHistory.value = await fetchOutsourcePeriodHistory(period);
+    const previousKey = periodHistory.value?.period.key ?? null;
+    const history = await fetchOutsourcePeriodHistory(period);
+    syncExpanded(previousKey, history);
+    periodHistory.value = history;
   } catch (e: unknown) {
     if (e instanceof ApiError && e.status === 401) {
       errorMessage.value = "Sesi telah berakhir. Silakan login kembali untuk melihat riwayat.";
@@ -198,17 +224,7 @@ onUnmounted(() => {
         <section class="os-history__summary" aria-label="Ringkasan periode">
           <div class="os-history__stat">
             <span>Hari Hadir</span>
-            <strong>
-              {{ periodHistory.summary.days_attended }} / {{ periodHistory.summary.max_days }} hari
-            </strong>
-            <small v-if="periodHistory.summary.days_remaining > 0">
-              Sisa {{ periodHistory.summary.days_remaining }} hari
-            </small>
-            <small v-else class="os-history__quota-full">Kuota periode terpenuhi</small>
-          </div>
-          <div class="os-history__stat">
-            <span>Total Sesi</span>
-            <strong>{{ periodHistory.summary.total_sessions }}</strong>
+            <strong>{{ periodHistory.summary.days_attended }} hari</strong>
           </div>
           <div class="os-history__stat">
             <span>Selesai</span>
@@ -219,10 +235,6 @@ onUnmounted(() => {
             <strong>{{ periodHistory.summary.days_incomplete }} hari</strong>
           </div>
           <div class="os-history__stat">
-            <span>Lewat Tengah Malam</span>
-            <strong>{{ periodHistory.summary.days_cross_midnight }} hari</strong>
-          </div>
-          <div class="os-history__stat">
             <span>Rata-rata / Hari</span>
             <strong>{{ formatDurationLong(periodHistory.summary.average_duration_minutes) }}</strong>
           </div>
@@ -231,10 +243,6 @@ onUnmounted(() => {
             <strong class="os-history__total">
               {{ formatDurationLong(periodHistory.summary.total_duration_minutes) }}
             </strong>
-            <small>
-              Maksimal {{ periodHistory.summary.max_days }} hari per periode; absensi setelah itu
-              tidak dihitung. Sesi lewat tengah malam dihitung ke tanggal clock in.
-            </small>
           </div>
         </section>
 
@@ -243,82 +251,109 @@ onUnmounted(() => {
         </p>
 
         <ul v-else class="os-history__list">
-          <li v-for="item in periodHistory.items" :key="item.attendance_id" class="os-history__day">
-            <div class="os-history__day-head">
-              <strong>{{ formatDay(item.attendance_date) }}</strong>
-              <span
-                class="os-history__status"
-                :class="isItemOpen(item) ? 'os-history__status--open' : 'os-history__status--ok'"
-              >
-                {{ formatStatus(item) }}
-              </span>
-            </div>
-
-            <div class="os-history__times">
-              <div class="os-history__stat">
-                <span>Jam Masuk</span>
-                <strong>{{ formatTime(item.check_in_at) }}</strong>
-              </div>
-              <div class="os-history__stat">
-                <span>Jam Keluar</span>
-                <strong>
-                  {{ formatTime(item.check_out_at) }}
-                  <sup v-if="formatDayOffset(item.check_out_day_offset)" class="os-history__offset">
+          <li
+            v-for="item in periodHistory.items"
+            :key="item.attendance_id"
+            class="os-history__day"
+            :class="{ 'os-history__day--open': isExpanded(item) }"
+          >
+            <button
+              type="button"
+              class="os-history__day-toggle"
+              :aria-expanded="isExpanded(item)"
+              :aria-controls="`os-history-day-${item.attendance_id}`"
+              @click="toggleItem(item)"
+            >
+              <span class="os-history__day-main">
+                <strong>{{ formatDay(item.attendance_date) }}</strong>
+                <small v-if="!isExpanded(item)" class="os-history__day-brief">
+                  {{ formatTime(item.check_in_at) }} – {{ formatTime(item.check_out_at) }}
+                  <span v-if="formatDayOffset(item.check_out_day_offset)" class="os-history__offset">
                     {{ formatDayOffset(item.check_out_day_offset) }}
-                  </sup>
-                </strong>
-                <small v-if="formatDayOffset(item.check_out_day_offset)">
-                  {{ formatShortDay(item.check_out_date) }}
+                  </span>
+                  · {{ formatDurationLong(item.duration_minutes) }}
                 </small>
-              </div>
-              <div class="os-history__stat">
-                <span>Durasi</span>
-                <strong>{{ formatDurationLong(item.duration_minutes) }}</strong>
-              </div>
-            </div>
-
-            <div v-for="(session, index) in item.sessions" :key="index" class="os-history__session">
-              <div
-                v-if="item.sessions.length > 1 || session.crosses_midnight"
-                class="os-history__session-head"
-              >
-                <span v-if="item.sessions.length > 1" class="os-history__session-no">
-                  Sesi {{ index + 1 }} · {{ formatDurationLong(session.duration_minutes) }}
+              </span>
+              <span class="os-history__day-meta">
+                <span
+                  class="os-history__status"
+                  :class="isItemOpen(item) ? 'os-history__status--open' : 'os-history__status--ok'"
+                >
+                  {{ formatStatus(item) }}
                 </span>
-                <span v-if="session.crosses_midnight" class="os-history__midnight">
-                  <AppIcon name="Moon" :size="12" :stroke-width="2.4" aria-hidden="true" />
-                  Lewat tengah malam
-                </span>
+                <AppIcon
+                  :name="isExpanded(item) ? 'ChevronUp' : 'ChevronDown'"
+                  :size="18"
+                  :stroke-width="2.2"
+                  aria-hidden="true"
+                />
+              </span>
+            </button>
+
+            <div
+              v-show="isExpanded(item)"
+              :id="`os-history-day-${item.attendance_id}`"
+              class="os-history__day-body"
+            >
+              <div class="os-history__times">
+                <div class="os-history__stat">
+                  <span>Jam Masuk</span>
+                  <strong>{{ formatTime(item.check_in_at) }}</strong>
+                </div>
+                <div class="os-history__stat">
+                  <span>Jam Keluar</span>
+                  <strong>
+                    {{ formatTime(item.check_out_at) }}
+                    <sup v-if="formatDayOffset(item.check_out_day_offset)" class="os-history__offset">
+                      {{ formatDayOffset(item.check_out_day_offset) }}
+                    </sup>
+                  </strong>
+                  <small v-if="formatDayOffset(item.check_out_day_offset)">
+                    {{ formatShortDay(item.check_out_date) }}
+                  </small>
+                </div>
+                <div class="os-history__stat">
+                  <span>Durasi</span>
+                  <strong>{{ formatDurationLong(item.duration_minutes) }}</strong>
+                </div>
               </div>
 
-              <div
-                v-for="leg in sessionLegs(session)"
-                :key="leg.key"
-                class="os-history__leg"
-                :class="`os-history__leg--${leg.key}`"
-              >
-                <span class="os-history__leg-dot" aria-hidden="true" />
-                <div class="os-history__leg-body">
-                  <p class="os-history__leg-time">
-                    <strong>{{ leg.label }}</strong>
-                    <template v-if="leg.at">
-                      {{ formatShortDay(leg.date) }}, {{ formatTime(leg.at) }}
-                      <span v-if="formatDayOffset(leg.offset)" class="os-history__offset">
-                        {{ formatDayOffset(leg.offset) }}
-                      </span>
+              <div v-for="(session, index) in item.sessions" :key="index" class="os-history__session">
+                <div v-if="item.sessions.length > 1" class="os-history__session-head">
+                  <span class="os-history__session-no">
+                    Sesi {{ index + 1 }} · {{ formatDurationLong(session.duration_minutes) }}
+                  </span>
+                </div>
+
+                <div
+                  v-for="leg in sessionLegs(session)"
+                  :key="leg.key"
+                  class="os-history__leg"
+                  :class="`os-history__leg--${leg.key}`"
+                >
+                  <span class="os-history__leg-dot" aria-hidden="true" />
+                  <div class="os-history__leg-body">
+                    <p class="os-history__leg-time">
+                      <strong>{{ leg.label }}</strong>
+                      <template v-if="leg.at">
+                        {{ formatShortDay(leg.date) }}, {{ formatTime(leg.at) }}
+                        <span v-if="formatDayOffset(leg.offset)" class="os-history__offset">
+                          {{ formatDayOffset(leg.offset) }}
+                        </span>
+                      </template>
+                      <em v-else>Belum clock out</em>
+                    </p>
+                    <template v-if="leg.location">
+                      <p class="os-history__leg-pin">
+                        <AppIcon name="MapPinned" :size="12" :stroke-width="2.2" aria-hidden="true" />
+                        {{ leg.location.pin_name ?? "Pin tidak tercatat" }}
+                      </p>
+                      <p v-if="leg.location.pin_address" class="os-history__leg-meta">
+                        {{ leg.location.pin_address }}
+                      </p>
                     </template>
-                    <em v-else>Belum clock out</em>
-                  </p>
-                  <template v-if="leg.location">
-                    <p class="os-history__leg-pin">
-                      <AppIcon name="MapPinned" :size="12" :stroke-width="2.2" aria-hidden="true" />
-                      {{ leg.location.pin_name ?? "Pin tidak tercatat" }}
-                    </p>
-                    <p v-if="leg.location.pin_address" class="os-history__leg-meta">
-                      {{ leg.location.pin_address }}
-                    </p>
-                  </template>
-                  <p v-else-if="leg.at" class="os-history__leg-meta">Lokasi tidak tercatat</p>
+                    <p v-else-if="leg.at" class="os-history__leg-meta">Lokasi tidak tercatat</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -494,11 +529,6 @@ onUnmounted(() => {
   color: var(--text);
 }
 
-.os-history__quota-full {
-  color: #15803d !important;
-  font-weight: 700;
-}
-
 .os-history__stat--full {
   grid-column: span 2;
   padding-top: 0.6rem;
@@ -527,22 +557,88 @@ onUnmounted(() => {
 }
 
 .os-history__day {
-  padding: 0.85rem 0.9rem;
+  overflow: hidden;
   border-radius: 12px;
   border: 1px solid var(--os-border);
   background: #fff;
+  transition: box-shadow 160ms ease;
 }
 
-.os-history__day-head {
+.os-history__day--open {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+
+.os-history__day-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.65rem;
-  margin-bottom: 0.65rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border: 0;
+  background: #fff;
+  color: var(--text-h);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.os-history__day-head strong {
+.os-history__day-toggle:focus-visible {
+  outline: 3px solid rgba(235, 28, 36, 0.18);
+  outline-offset: -3px;
+}
+
+.os-history__day--open .os-history__day-toggle {
+  border-bottom: 1px solid var(--os-border);
+}
+
+.os-history__day-main {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.os-history__day-main strong {
   font-size: 0.88rem;
+}
+
+.os-history__day-brief {
+  overflow: hidden;
+  font-size: 0.74rem;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.os-history__day-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  color: var(--text);
+}
+
+.os-history__day-body {
+  padding: 0.75rem 0.9rem 0.85rem;
+  animation: os-history-day-open 180ms ease-out;
+}
+
+@keyframes os-history-day-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .os-history__day-body {
+    animation: none;
+  }
 }
 
 .os-history__status {
@@ -610,18 +706,6 @@ onUnmounted(() => {
   font-size: 0.74rem;
   font-weight: 700;
   color: var(--text-h);
-}
-
-.os-history__midnight {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.12rem 0.5rem;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: #4338ca;
-  font-size: 0.66rem;
-  font-weight: 700;
 }
 
 .os-history__leg {
