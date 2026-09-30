@@ -54,6 +54,106 @@ class OutsourceLoginAndPinApiTest extends TestCase
         $this->assertNotNull($response->getCookie($this->cookieName(), false));
     }
 
+    private function makeLoginableOutsource(): Outsource
+    {
+        $store = WorkLocation::factory()->create(['status' => 'active']);
+        WorkLocationPin::factory()->forLocation($store)->create(['status' => 'active']);
+        $outsource = Outsource::factory()->create([
+            'status' => 'active',
+            'password' => '123456',
+        ]);
+        OutsourceStoreAssignment::factory()
+            ->forOutsource($outsource)
+            ->forStore($store)
+            ->create(['status' => 'active']);
+
+        return $outsource;
+    }
+
+    private function makeFinishedSession(Outsource $outsource, string $date, string $status): \App\Models\AttendanceRecord
+    {
+        $record = \App\Models\AttendanceRecord::factory()->create([
+            'employee_id' => null,
+            'outsource_id' => $outsource->id,
+            'attendable_type' => 'outsource',
+            'attendance_date' => $date,
+            'status' => $status === 'closed' ? 'present' : 'incomplete',
+        ]);
+
+        \App\Models\AttendanceSession::factory()->forRecord($record)->create([
+            'check_in_at' => "{$date} 01:00:00",
+            'check_out_at' => $status === 'closed' ? "{$date} 02:00:00" : null,
+            'duration_minutes' => $status === 'closed' ? 60 : null,
+            'status' => $status,
+        ]);
+
+        return $record;
+    }
+
+    private function login(Outsource $outsource): \Illuminate\Testing\TestResponse
+    {
+        return $this->postJson('/api/v1/outsource/login', [
+            'outsource_code' => $outsource->outsource_code,
+            'password' => '123456',
+            'device_fingerprint' => self::DEVICE_FINGERPRINT,
+        ]);
+    }
+
+    public function test_login_returns_completed_when_today_attendance_is_closed(): void
+    {
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-09-27 08:00:00', 'UTC'));
+        $outsource = $this->makeLoginableOutsource();
+        $record = $this->makeFinishedSession($outsource, '2026-09-27', 'closed');
+
+        $response = $this->login($outsource);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.status', 'COMPLETED');
+        $response->assertJsonPath('data.can_clock_in', false);
+        $response->assertJsonPath('data.can_clock_out', false);
+        $response->assertJsonPath('data.attendance.attendance_id', $record->id);
+        $response->assertJsonPath('data.attendance.session_status', 'closed');
+        $response->assertJsonPath('data.attendance.duration_minutes', 60);
+
+        $cookie = $response->getCookie($this->cookieName(), false);
+        $current = $this->withCredentials()
+            ->withUnencryptedCookie($this->cookieName(), $cookie->getValue())
+            ->getJson('/api/v1/outsource/session/current');
+
+        $current->assertOk();
+        $current->assertJsonPath('data.status', 'COMPLETED');
+        $current->assertJsonPath('data.attendance.attendance_id', $record->id);
+    }
+
+    public function test_login_returns_completed_when_today_session_expired(): void
+    {
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-09-27 08:00:00', 'UTC'));
+        $outsource = $this->makeLoginableOutsource();
+        $this->makeFinishedSession($outsource, '2026-09-27', 'expired');
+
+        $response = $this->login($outsource);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.status', 'COMPLETED');
+        $response->assertJsonPath('data.can_clock_in', false);
+        $response->assertJsonPath('data.attendance.session_status', 'expired');
+        $response->assertJsonPath('data.attendance.check_out_at', null);
+    }
+
+    public function test_login_returns_ready_when_only_previous_day_is_completed(): void
+    {
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-09-27 08:00:00', 'UTC'));
+        $outsource = $this->makeLoginableOutsource();
+        $this->makeFinishedSession($outsource, '2026-09-26', 'closed');
+
+        $response = $this->login($outsource);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.status', 'READY');
+        $response->assertJsonPath('data.can_clock_in', true);
+        $response->assertJsonPath('data.attendance', null);
+    }
+
     public function test_login_rejects_bad_password(): void
     {
         $store = WorkLocation::factory()->create(['status' => 'active']);
