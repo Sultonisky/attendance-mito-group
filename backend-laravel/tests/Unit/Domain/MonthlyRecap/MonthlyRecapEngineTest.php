@@ -8,7 +8,10 @@ use App\Domain\MonthlyRecap\Exceptions\ScheduleEngineException;
 use App\Domain\Schedule\DTOs\ScheduleResolutionData;
 use App\Domain\Schedule\Engines\ScheduleEngine;
 use App\Models\AttendanceRecord;
+use App\Models\AttendanceSession;
 use App\Models\Employee;
+use App\Models\LeaveRequest;
+use App\Models\LeaveType;
 use App\Models\Outsource;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\Policy;
@@ -17,6 +20,8 @@ use App\Models\ScheduleAssignment;
 use App\Models\Shift;
 use App\Models\WorkLocation;
 use App\Models\WorkSchedule;
+use App\Services\Outsource\CountedOutsourceAttendance;
+use App\Support\OutsourceAttendancePeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -56,7 +61,16 @@ class MonthlyRecapEngineTest extends TestCase
 
     private function engine(): MonthlyRecapEngine
     {
-        return new MonthlyRecapEngine(app(ScheduleEngine::class));
+        return new MonthlyRecapEngine(app(ScheduleEngine::class), app(CountedOutsourceAttendance::class));
+    }
+
+    private function makeOutsourceAttendance(Outsource $outsource, string $date, string $status, bool $open = false): AttendanceRecord
+    {
+        $record = AttendanceRecord::factory()->forOutsource($outsource)->onDate($date)->status($status)->create();
+        $factory = AttendanceSession::factory()->forRecord($record);
+        ($open ? $factory : $factory->closed())->create(['check_in_at' => "{$date} 01:00:00"]);
+
+        return $record;
     }
 
     public function test_empty_month_returns_zero_counts(): void
@@ -131,9 +145,9 @@ class MonthlyRecapEngineTest extends TestCase
         $this->makeScheduleAndPolicy($employee);
 
         // Leave exists but attendance-only recap does not consume LeaveEngine.
-        \App\Models\LeaveRequest::create([
+        LeaveRequest::create([
             'employee_id' => $employee->id,
-            'leave_type_id' => \App\Models\LeaveType::factory()->create()->id,
+            'leave_type_id' => LeaveType::factory()->create()->id,
             'start_date' => '2026-09-01',
             'end_date' => '2026-09-05',
             'status' => 'approved',
@@ -150,7 +164,7 @@ class MonthlyRecapEngineTest extends TestCase
         $this->assertCount(5, $data->details);
     }
 
-    public function test_outsource_calendar_aggregation(): void
+    public function test_outsource_uses_cutoff_period_and_26_day_quota(): void
     {
         $outsource = Outsource::factory()->create(['status' => 'active']);
         $store = WorkLocation::factory()->create(['status' => 'active']);
@@ -158,19 +172,41 @@ class MonthlyRecapEngineTest extends TestCase
             'status' => 'active',
         ]);
 
-        AttendanceRecord::factory()->forOutsource($outsource)->onDate('2026-09-01')->status('present')->create();
-        AttendanceRecord::factory()->forOutsource($outsource)->onDate('2026-09-02')->status('incomplete')->create();
+        $this->makeOutsourceAttendance($outsource, '2026-08-24', 'present'); // previous period
+        $this->makeOutsourceAttendance($outsource, '2026-08-25', 'present');
+        $this->makeOutsourceAttendance($outsource, '2026-09-02', 'incomplete', open: true);
+        $this->makeOutsourceAttendance($outsource, '2026-09-24', 'present');
+        $this->makeOutsourceAttendance($outsource, '2026-09-25', 'present'); // next period
+        AttendanceRecord::factory()->forOutsource($outsource)->onDate('2026-09-10')->status('present')->create(); // no clock-in
 
-        $start = CarbonImmutable::create(2026, 9, 1);
-        $end = CarbonImmutable::create(2026, 9, 3);
-        $data = $this->engine()->generateForOutsource($outsource, $start, $end);
+        $data = $this->engine()->generateForOutsource($outsource, OutsourceAttendancePeriod::fromKey('2026-09'));
 
         $this->assertSame('outsource', $data->source);
         $this->assertSame($outsource->id, $data->outsourceId);
-        $this->assertSame(3, $data->scheduledDays);
+        $this->assertSame('2026-08-25', $data->periodStart->toDateString());
+        $this->assertSame('2026-09-24', $data->periodEnd->toDateString());
+        $this->assertSame(26, $data->scheduledDays);
+        $this->assertSame(2, $data->presentDays);
+        $this->assertSame(1, $data->incompleteDays);
+        $this->assertSame(23, $data->absentDays);
+    }
+
+    public function test_outsource_days_beyond_quota_are_not_counted(): void
+    {
+        config(['attendance.outsource_period_max_attendance_days' => 2]);
+
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        $this->makeOutsourceAttendance($outsource, '2026-08-26', 'present');
+        $this->makeOutsourceAttendance($outsource, '2026-08-27', 'incomplete');
+        $this->makeOutsourceAttendance($outsource, '2026-08-28', 'present');
+        $this->makeOutsourceAttendance($outsource, '2026-09-01', 'present');
+
+        $data = $this->engine()->generateForOutsource($outsource, OutsourceAttendancePeriod::fromKey('2026-09'));
+
+        $this->assertSame(2, $data->scheduledDays);
         $this->assertSame(1, $data->presentDays);
         $this->assertSame(1, $data->incompleteDays);
-        $this->assertSame(1, $data->absentDays);
+        $this->assertSame(0, $data->absentDays);
     }
 
     public function test_invalid_period_throws_exception(): void
