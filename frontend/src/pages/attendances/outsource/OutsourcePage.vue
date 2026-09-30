@@ -5072,7 +5072,7 @@ onUnmounted(() => {
   place-items: center;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgba(235, 28, 36, 0.14);
+  /* border: 1px solid rgba(235, 28, 36, 0.14); */
   background: #fff;
   color: var(--accent);
   cursor: pointer;

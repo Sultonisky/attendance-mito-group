@@ -431,7 +431,7 @@ onUnmounted(() => {
   border-radius: 10px;
   border: 1px solid var(--os-border);
   background: #fff;
-  color: var(--text-h);
+  color: var(--mito-red);
   cursor: pointer;
 }
 
