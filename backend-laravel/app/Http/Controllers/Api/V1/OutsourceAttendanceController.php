@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\Outsource\InitializeOutsourceAttendanceSession;
 use App\Actions\Outsource\ListOutsourceAttendanceHistory;
+use App\Actions\Outsource\ListOutsourceAttendanceHistoryByPeriod;
 use App\Actions\Outsource\LoginOutsourceAttendanceSession;
 use App\Actions\Outsource\OutsourceCheckIn;
 use App\Actions\Outsource\OutsourceCheckOut;
@@ -27,6 +28,7 @@ use App\Models\OutsourceStoreAssignment;
 use App\Models\WorkLocation;
 use App\Actions\Audit\RecordAuditAction;
 use App\Support\AttendanceDateTime;
+use App\Support\OutsourceAttendancePeriod;
 use App\Services\Outsource\Session\OutsourceSessionCookie;
 use App\Services\Outsource\Session\OutsourceSessionStoreUnavailableException;
 use App\Services\Outsource\ResolveOutsourceAllowedPins;
@@ -43,6 +45,7 @@ class OutsourceAttendanceController
         protected ResolveOutsourceSession $resolveSession,
         protected ResolveOutsourceOpenAttendance $resolveOpenAttendance,
         protected ListOutsourceAttendanceHistory $listAttendanceHistory,
+        protected ListOutsourceAttendanceHistoryByPeriod $listAttendanceHistoryByPeriod,
         protected OutsourceCheckIn $checkIn,
         protected OutsourceCheckOut $checkOut,
         protected OutsourceSessionCookie $sessionCookie,
@@ -342,6 +345,71 @@ class OutsourceAttendanceController
      */
     public function history(Request $request): JsonResponse
     {
+        $outsource = $this->resolveActiveSessionOutsource($request);
+        if ($outsource instanceof JsonResponse) {
+            return $outsource;
+        }
+
+        $limit = (int) $request->query('limit', 14);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->listAttendanceHistory->execute((int) $outsource->id, $limit),
+        ]);
+    }
+
+    /**
+     * Own attendance for one monthly period (e.g. 25 Aug .. 24 Sep) for the current session.
+     */
+    public function historyByPeriod(Request $request): JsonResponse
+    {
+        $outsource = $this->resolveActiveSessionOutsource($request);
+        if ($outsource instanceof JsonResponse) {
+            return $outsource;
+        }
+
+        $current = OutsourceAttendancePeriod::current();
+        $key = $request->query('period');
+
+        try {
+            $period = is_string($key) && $key !== ''
+                ? OutsourceAttendancePeriod::fromKey($key)
+                : $current;
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => 'INVALID_PERIOD',
+            ], 422);
+        }
+
+        if ($period->isAfter($current)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Period is in the future.',
+                'code' => 'INVALID_PERIOD',
+            ], 422);
+        }
+
+        if ($period->isBefore(OutsourceAttendancePeriod::first())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Period is before the first available period.',
+                'code' => 'INVALID_PERIOD',
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->listAttendanceHistoryByPeriod->execute((int) $outsource->id, $period),
+        ]);
+    }
+
+    /**
+     * Resolve the active outsource behind the session cookie, or an error response.
+     */
+    private function resolveActiveSessionOutsource(Request $request): Outsource|JsonResponse
+    {
         $sessionId = $this->sessionCookie->read($request);
         if ($sessionId === null) {
             return response()->json([
@@ -373,12 +441,7 @@ class OutsourceAttendanceController
             ], 422);
         }
 
-        $limit = (int) $request->query('limit', 14);
-
-        return response()->json([
-            'success' => true,
-            'data' => $this->listAttendanceHistory->execute((int) $outsource->id, $limit),
-        ]);
+        return $outsource;
     }
 
     public function checkIn(CheckInRequest $request): JsonResponse
