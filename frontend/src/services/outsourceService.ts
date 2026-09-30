@@ -97,6 +97,59 @@ export interface OutsourceHistoryItem {
   session_count: number
 }
 
+export interface OutsourceHistoryLocation {
+  pin_name: string | null
+  pin_address: string | null
+}
+
+export interface OutsourcePeriodHistorySession {
+  status: string
+  check_in_at: string | null
+  check_out_at: string | null
+  /** Business dates (Asia/Jakarta, YYYY-MM-DD). */
+  check_in_date: string | null
+  check_out_date: string | null
+  crosses_midnight: boolean
+  check_out_day_offset: number | null
+  duration_minutes: number | null
+  check_in_location: OutsourceHistoryLocation | null
+  check_out_location: OutsourceHistoryLocation | null
+}
+
+export interface OutsourcePeriodHistoryItem extends OutsourceHistoryItem {
+  has_open_session: boolean
+  check_out_date: string | null
+  /** Days between attendance_date (clock-in day) and the last clock-out day. */
+  check_out_day_offset: number | null
+  sessions: OutsourcePeriodHistorySession[]
+}
+
+/** Monthly period keyed by end month: "2026-09" = 25 Aug – 24 Sep 2026 (cutoff set on the server). */
+export interface OutsourcePeriodHistory {
+  period: {
+    key: string
+    start_date: string
+    end_date: string
+    is_current: boolean
+    /** null on the first available period (25 Aug – 24 Sep 2026). */
+    previous_key: string | null
+    next_key: string | null
+  }
+  summary: {
+    /** Max counted days per period (default 26); later days are not returned. */
+    max_days: number
+    days_attended: number
+    days_remaining: number
+    days_complete: number
+    days_incomplete: number
+    days_cross_midnight: number
+    total_sessions: number
+    total_duration_minutes: number
+    average_duration_minutes: number | null
+  }
+  items: OutsourcePeriodHistoryItem[]
+}
+
 export interface OutsourceSessionResponse {
   success: boolean
   data: OutsourceSessionPayload
@@ -148,6 +201,17 @@ export async function fetchOutsourceAttendanceHistory(
     `/outsource/attendance/history?limit=${limit}`,
   )
   return Array.isArray(response?.data) ? response.data : []
+}
+
+/** Own attendance for one monthly period; omit `period` for the current one. */
+export async function fetchOutsourcePeriodHistory(
+  period?: string | null,
+): Promise<OutsourcePeriodHistory> {
+  const query = period ? `?period=${encodeURIComponent(period)}` : ''
+  const response = await apiFetch<{ success: boolean; data: OutsourcePeriodHistory }>(
+    `/outsource/attendance/history/period${query}`,
+  )
+  return response.data
 }
 
 export async function loginOutsourceSession(
