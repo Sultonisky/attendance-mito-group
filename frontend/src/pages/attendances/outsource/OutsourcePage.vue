@@ -4,6 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import AppButton from "../../../components/AppButton.vue";
 import AppIcon from "../../../components/AppIcon.vue";
+import HistoryOutsourcePage from "./HistoryOutsourcePage.vue";
 import { ApiError } from "../../../services/apiClient";
 import {
   fetchOutsourceCities,
@@ -177,6 +178,25 @@ const ENABLE_OUTSOURCE_ATTENDANCE_HISTORY = false;
 // Disabled history state (inactive while flag is false)
 const attendanceHistory = ref<OutsourceHistoryItem[]>([]);
 const isLoadingHistory = ref(false);
+
+/** Monthly history panel (period cutoff decided by the server, e.g. 25 → 24). */
+const isHistoryOpen = ref(false);
+
+const canOpenHistory = computed(
+  () =>
+    hasServerSession.value &&
+    selectedOutsource.value !== null &&
+    step.value !== "login" &&
+    step.value !== "completed",
+);
+
+function openHistory(): void {
+  isHistoryOpen.value = true;
+}
+
+function closeHistory(): void {
+  isHistoryOpen.value = false;
+}
 
 const selectedOutsourceLabel = computed(() => {
   if (!selectedOutsource.value) return "";
@@ -2054,6 +2074,12 @@ watch(isSessionActive, (active) => {
   }
 });
 
+watch(canOpenHistory, (allowed) => {
+  if (!allowed) {
+    isHistoryOpen.value = false;
+  }
+});
+
 watch(selectedPinId, async (nextId, prevId) => {
   if (nextId === prevId) return;
   await onPinSelected();
@@ -2170,6 +2196,16 @@ onUnmounted(() => {
       </div>
 
       <div class="header-meta">
+        <button
+          v-if="canOpenHistory"
+          type="button"
+          class="history-trigger"
+          aria-label="Riwayat absensi"
+          title="Riwayat absensi"
+          @click="openHistory"
+        >
+          <AppIcon name="History" :size="18" :stroke-width="2.2" aria-hidden="true" />
+        </button>
         <div
           v-if="(isSessionActive || step === 'completed' || step === 'greet') && selectedOutsource"
           class="user-badge"
@@ -2293,6 +2329,14 @@ onUnmounted(() => {
           </button>
         </section>
       </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <HistoryOutsourcePage
+        v-if="isHistoryOpen"
+        :outsource-name="selectedOutsource?.name ?? ''"
+        @close="closeHistory"
+      />
     </Teleport>
 
     <template v-if="step === 'greet' && selectedOutsource">
@@ -5018,6 +5062,25 @@ onUnmounted(() => {
   color: var(--accent);
   font-size: 1.1rem !important;
   font-weight: 700;
+}
+
+/* Monthly history */
+.history-trigger {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(235, 28, 36, 0.14);
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(24, 24, 28, 0.06);
+}
+
+.history-trigger:hover {
+  background: #fff5f5;
 }
 
 /* Responsive Container on Larger Displays (Desktop/Tablet) */
