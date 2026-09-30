@@ -68,6 +68,10 @@ class OutsourceAttendanceReportResource extends JsonResource
             'check_out_at' => AttendanceDateTime::toApi($this->last_check_out),
             'duration_minutes' => $this->total_duration ? (int) $this->total_duration : null,
             'session_count' => isset($this->session_count) ? (int) $this->session_count : null,
+            $this->mergeWhen((bool) config('attendance.outsource_report_quota_flag'), fn () => [
+                'quota_period' => $this->quota_period,
+                'counted_in_quota' => $this->counted_in_quota === null ? null : (bool) $this->counted_in_quota,
+            ]),
         ];
     }
 

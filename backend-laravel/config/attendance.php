@@ -30,6 +30,11 @@ return [
      */
     'outsource_period_max_attendance_days' => (int) env('OUTSOURCE_PERIOD_MAX_ATTENDANCE_DAYS', 26),
     /**
+     * Admin outsource attendance report: mark rows beyond the period quota
+     * (quota_period / counted_in_quota). Disabled for now; the report stays unchanged.
+     */
+    'outsource_report_quota_flag' => (bool) env('OUTSOURCE_REPORT_QUOTA_FLAG', false),
+    /**
      * Business / display timezone for attendance (calendar day + wall clock).
      * Instant storage remains UTC (PostgreSQL timestamptz + app.timezone UTC).
      */
