@@ -23,6 +23,7 @@ import {
   type OutsourcePin,
   type OutsourceAttendanceResponse,
   type OutsourceAttendanceLocation,
+  type OutsourceAttendanceSnapshot,
   // Disabled: riwayat presensi
   type OutsourceHistoryItem,
   type OutsourceSessionPayload,
@@ -96,6 +97,8 @@ function onLoginPinInput(event: Event): void {
 const allowedPins = ref<OutsourcePin[]>([]);
 const selectedPinId = ref<number | null>(null);
 const hasServerSession = ref(false);
+/** Today's finished attendance (status COMPLETED); summary is shown only when Clock In is tapped. */
+const todayCompleted = ref<OutsourceAttendanceSnapshot | null>(null);
 const mapContainer = ref<HTMLElement | null>(null);
 const mapError = ref("");
 const currentMapLocation = ref<{
@@ -187,8 +190,7 @@ const canOpenHistory = computed(
   () =>
     hasServerSession.value &&
     selectedOutsource.value !== null &&
-    step.value !== "login" &&
-    step.value !== "completed",
+    step.value !== "login",
 );
 
 function openHistory(): void {
@@ -218,6 +220,9 @@ const greetStatusLabel = computed(() =>
 const greetHint = computed(() => {
   if (checkInAt.value) {
     return "Sesi masih terbuka. Lanjutkan clock out di pin point yang sesuai saat Anda selesai.";
+  }
+  if (todayCompleted.value) {
+    return "Presensi hari ini sudah selesai. Anda tetap bisa melihat riwayat presensi.";
   }
   return "Lanjut ke langkah berikutnya untuk memilih pin point, cek jarak GPS, lalu clock in.";
 });
@@ -1491,6 +1496,7 @@ function invalidateSessionState(): void {
   followDistance.value = false;
   isRefreshingDistance.value = false;
   hasServerSession.value = false;
+  todayCompleted.value = null;
   expiresAt.value = null;
   attendanceId.value = null;
   attendanceStatus.value = null;
@@ -1594,6 +1600,7 @@ function goToStep(target: Step): void {
     selectedOutsource.value = null;
     outsources.value = [];
     hasServerSession.value = false;
+    todayCompleted.value = null;
     expiresAt.value = null;
     attendanceId.value = null;
     attendanceStatus.value = null;
@@ -1615,6 +1622,7 @@ function goToStep(target: Step): void {
     selectedOutsource.value = null;
     outsources.value = [];
     hasServerSession.value = false;
+    todayCompleted.value = null;
     expiresAt.value = null;
     attendanceId.value = null;
     attendanceStatus.value = null;
@@ -1700,6 +1708,10 @@ async function submitLogin(): Promise<void> {
 }
 
 function startClockInFromGreet(): void {
+  if (todayCompleted.value) {
+    showTodayCompletedSummary(todayCompleted.value);
+    return;
+  }
   void enterAttendanceStep("session");
 }
 
@@ -1802,6 +1814,37 @@ function showCompletedSummary(): void {
   step.value = "completed";
 }
 
+function showTodayCompletedSummary(snapshot: OutsourceAttendanceSnapshot): void {
+  attendanceId.value = snapshot.attendance_id;
+  attendanceStatus.value = snapshot.status;
+  attendanceDate.value = snapshot.attendance_date;
+  checkInAt.value = snapshot.check_in_at;
+  checkOutAt.value = snapshot.check_out_at;
+  durationMinutes.value = snapshot.duration_minutes;
+  checkInLocation.value = snapshot.check_in_location ?? null;
+  checkOutLocation.value = snapshot.check_out_location ?? null;
+  error.value = "";
+  message.value = "";
+  showCompletedSummary();
+}
+
+/** Back to greet (history stays reachable) while the server session is still alive. */
+async function backToGreetFromCompleted(): Promise<void> {
+  attendanceId.value = null;
+  attendanceStatus.value = null;
+  attendanceDate.value = null;
+  checkInAt.value = null;
+  checkOutAt.value = null;
+  durationMinutes.value = null;
+  error.value = "";
+  message.value = "";
+  step.value = "greet";
+  await nextTick();
+  if (selectedMapLocation.value) {
+    await ensureCartoMapReady();
+  }
+}
+
 /** Server says today is already done (e.g. check-in rejected) — show its summary. */
 async function showCompletedFromServer(): Promise<boolean> {
   try {
@@ -1810,7 +1853,11 @@ async function showCompletedFromServer(): Promise<boolean> {
       return false;
     }
     applySessionPayload(response.data);
-    return step.value === "completed";
+    if (!todayCompleted.value) {
+      return false;
+    }
+    showTodayCompletedSummary(todayCompleted.value);
+    return true;
   } catch {
     return false;
   }
@@ -1868,6 +1915,9 @@ function applySessionPayload(payload: OutsourceSessionPayload): void {
   expiresAt.value = payload.expires_at;
 
   const attendance = payload.attendance;
+  todayCompleted.value =
+    payload.status === "COMPLETED" && attendance ? attendance : null;
+
   if (payload.status === "ACTIVE" && attendance?.check_in_at) {
     attendanceId.value = attendance.attendance_id;
     attendanceStatus.value = attendance.status;
@@ -1878,19 +1928,6 @@ function applySessionPayload(payload: OutsourceSessionPayload): void {
     checkInLocation.value = attendance.check_in_location ?? null;
     checkOutLocation.value = null;
     step.value = "greet";
-    return;
-  }
-
-  if (payload.status === "COMPLETED" && attendance) {
-    attendanceId.value = attendance.attendance_id;
-    attendanceStatus.value = attendance.status;
-    attendanceDate.value = attendance.attendance_date;
-    checkInAt.value = attendance.check_in_at;
-    checkOutAt.value = attendance.check_out_at;
-    durationMinutes.value = attendance.duration_minutes;
-    checkInLocation.value = attendance.check_in_location ?? null;
-    checkOutLocation.value = attendance.check_out_location ?? null;
-    showCompletedSummary();
     return;
   }
 
@@ -3223,7 +3260,11 @@ onUnmounted(() => {
           <AppIcon name="CircleCheckBig" :size="40" :stroke-width="2.3" />
         </div>
         <h2>Presensi Hari Ini Selesai</h2>
-        <p class="completed-sub">
+        <p v-if="hasServerSession" class="completed-sub">
+          Terima kasih atas kerja keras Anda hari ini. Clock in berikutnya bisa
+          dilakukan besok.
+        </p>
+        <p v-else class="completed-sub">
           Terima kasih atas kerja keras Anda hari ini. Clock in berikutnya bisa
           dilakukan besok. Tekan Selesai &amp; Tutup untuk kembali ke halaman login.
         </p>
@@ -3270,6 +3311,17 @@ onUnmounted(() => {
         </div>
 
         <AppButton
+          v-if="hasServerSession"
+          type="button"
+          class="btn-primary"
+          variant="primary"
+          icon="ArrowLeft"
+          @click="backToGreetFromCompleted"
+        >
+          Kembali
+        </AppButton>
+        <AppButton
+          v-else
           type="button"
           class="btn-primary"
           variant="primary"
