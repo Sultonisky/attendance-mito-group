@@ -2204,7 +2204,7 @@ onUnmounted(() => {
           title="Riwayat absensi"
           @click="openHistory"
         >
-          <AppIcon name="History" :size="18" :stroke-width="2.2" aria-hidden="true" />
+          <AppIcon name="History" :size="18" :stroke-width="2" aria-hidden="true" />
         </button>
         <div
           v-if="(isSessionActive || step === 'completed' || step === 'greet') && selectedOutsource"
