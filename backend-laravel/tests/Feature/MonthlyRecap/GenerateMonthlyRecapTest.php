@@ -8,8 +8,11 @@ use App\Actions\MonthlyRecap\GenerateMonthlyRecap;
 use App\Actions\MonthlyRecap\ReopenMonthlyRecap;
 use App\Actions\MonthlyRecap\ReviewMonthlyRecap;
 use App\Domain\MonthlyRecap\Exceptions\MonthlyRecapException;
+use App\Models\AttendanceRecord;
+use App\Models\AttendanceSession;
 use App\Models\Employee;
 use App\Models\MonthlyRecap;
+use App\Models\Outsource;
 use App\Models\Policy;
 use App\Models\PolicyAssignment;
 use App\Models\ScheduleAssignment;
@@ -108,12 +111,17 @@ class GenerateMonthlyRecapTest extends TestCase
         $admin = $this->makeUser('ADMIN');
         $admin->givePermissionTo('monthly_recap.generate');
 
-        $outsource = \App\Models\Outsource::factory()->create(['status' => 'active']);
-        \App\Models\AttendanceRecord::factory()
-            ->forOutsource($outsource)
-            ->onDate('2026-09-01')
-            ->status('present')
-            ->create();
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+        foreach (['2026-08-25', '2026-09-01', '2026-09-28'] as $date) {
+            $record = AttendanceRecord::factory()
+                ->forOutsource($outsource)
+                ->onDate($date)
+                ->status('present')
+                ->create();
+            AttendanceSession::factory()->closed()->forRecord($record)->create([
+                'check_in_at' => "{$date} 01:00:00",
+            ]);
+        }
 
         $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/generate', [
             'source' => 'outsource',
@@ -125,9 +133,37 @@ class GenerateMonthlyRecapTest extends TestCase
             ->assertJsonPath('data.status', 'draft')
             ->assertJsonPath('data.source', 'outsource')
             ->assertJsonPath('data.outsource_id', $outsource->id)
-            ->assertJsonPath('data.summary.present_days', 1);
+            ->assertJsonPath('data.period', '2026-09')
+            ->assertJsonPath('data.period_start', '2026-08-25')
+            ->assertJsonPath('data.period_end', '2026-09-24')
+            ->assertJsonPath('data.summary.scheduled_days', 26)
+            ->assertJsonPath('data.summary.present_days', 2)
+            ->assertJsonPath('data.summary.absent_days', 24);
 
         $this->assertSame(1, MonthlyRecap::where('outsource_id', $outsource->id)->where('period', '2026-09')->count());
+    }
+
+    public function test_outsource_recap_before_first_period_is_rejected(): void
+    {
+        $admin = $this->makeUser('ADMIN');
+        $admin->givePermissionTo('monthly_recap.generate');
+        $outsource = Outsource::factory()->create(['status' => 'active']);
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/generate', [
+            'source' => 'outsource',
+            'outsource_id' => $outsource->id,
+            'year' => 2026,
+            'month' => 8,
+        ])->assertUnprocessable()
+            ->assertJsonPath('message', 'Outsource monthly recap is not available before period 2026-09.');
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/v1/monthly-recaps/generate-bulk', [
+            'source' => 'outsource',
+            'year' => 2026,
+            'month' => 8,
+        ])->assertUnprocessable();
+
+        $this->assertSame(0, MonthlyRecap::where('source', 'outsource')->count());
     }
 
     public function test_generate_outsource_requires_outsource_id(): void
