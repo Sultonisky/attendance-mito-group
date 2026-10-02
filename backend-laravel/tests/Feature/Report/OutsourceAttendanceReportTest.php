@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Report;
 
+use App\Models\AttendanceEvent;
 use App\Models\AttendanceRecord;
 use App\Models\AttendanceSession;
 use App\Models\City;
@@ -10,10 +11,12 @@ use App\Models\Outsource;
 use App\Models\OutsourceStoreAssignment;
 use App\Models\User;
 use App\Models\WorkLocation;
+use App\Models\WorkLocationPin;
+use App\Support\AttendanceDateTime;
+use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class OutsourceAttendanceReportTest extends TestCase
@@ -65,7 +68,7 @@ class OutsourceAttendanceReportTest extends TestCase
         ]);
 
         if ($checkInMinutes !== null) {
-            $checkIn = \Carbon\Carbon::create($date.' 08:00:00');
+            $checkIn = Carbon::create($date.' 08:00:00');
             $checkOut = $checkIn->copy()->addMinutes($checkInMinutes);
 
             AttendanceSession::factory()->forRecord($record)->closed()->create([
@@ -207,6 +210,52 @@ class OutsourceAttendanceReportTest extends TestCase
         $response->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.attendance_date', '2026-09-10');
+    }
+
+    public function test_quota_flag_is_disabled_by_default(): void
+    {
+        $user = $this->makeUser('USER');
+        $user->givePermissionTo('outsource_attendance.view');
+
+        $outsource = Outsource::factory()->create();
+        $this->makeOutsourceRecord($outsource, '2026-09-01');
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/reports/outsource-attendance?from=2026-08-25&to=2026-09-30')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonMissingPath('data.0.quota_period')
+            ->assertJsonMissingPath('data.0.counted_in_quota');
+    }
+
+    public function test_rows_beyond_period_quota_are_flagged_but_still_listed(): void
+    {
+        config([
+            'attendance.outsource_report_quota_flag' => true,
+            'attendance.outsource_period_max_attendance_days' => 2,
+        ]);
+
+        $user = $this->makeUser('USER');
+        $user->givePermissionTo('outsource_attendance.view');
+
+        $outsource = Outsource::factory()->create();
+        $this->makeOutsourceRecord($outsource, '2026-08-25');
+        $this->makeOutsourceRecord($outsource, '2026-09-01');
+        $this->makeOutsourceRecord($outsource, '2026-09-10');
+        $this->makeOutsourceRecord($outsource, '2026-09-25');
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/reports/outsource-attendance?from=2026-08-25&to=2026-09-30&sort=attendance_date&direction=asc');
+
+        $response->assertOk()
+            ->assertJsonCount(4, 'data')
+            ->assertJsonPath('data.0.quota_period', '2026-09')
+            ->assertJsonPath('data.0.counted_in_quota', true)
+            ->assertJsonPath('data.1.counted_in_quota', true)
+            ->assertJsonPath('data.2.attendance_date', '2026-09-10')
+            ->assertJsonPath('data.2.counted_in_quota', false)
+            ->assertJsonPath('data.3.quota_period', '2026-10')
+            ->assertJsonPath('data.3.counted_in_quota', true);
     }
 
     public function test_outsource_filter(): void
@@ -431,8 +480,8 @@ class OutsourceAttendanceReportTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.0.attendance_date', '2026-09-14')
-            ->assertJsonPath('data.0.check_in_at', \App\Support\AttendanceDateTime::toApi($session->check_in_at))
-            ->assertJsonPath('data.0.check_out_at', \App\Support\AttendanceDateTime::toApi($session->check_out_at))
+            ->assertJsonPath('data.0.check_in_at', AttendanceDateTime::toApi($session->check_in_at))
+            ->assertJsonPath('data.0.check_out_at', AttendanceDateTime::toApi($session->check_out_at))
             ->assertJsonPath('data.0.duration_minutes', 480);
     }
 
@@ -472,7 +521,7 @@ class OutsourceAttendanceReportTest extends TestCase
         $outsource = Outsource::factory()->create();
         $this->makeActiveAssignment($outsource, $store);
 
-        $checkInPin = \App\Models\WorkLocationPin::factory()
+        $checkInPin = WorkLocationPin::factory()
             ->forLocation($store)
             ->atCoordinates(-6.200123, 106.816456, 150)
             ->create([
@@ -481,7 +530,7 @@ class OutsourceAttendanceReportTest extends TestCase
                 'status' => 'active',
             ]);
 
-        $checkOutPin = \App\Models\WorkLocationPin::factory()
+        $checkOutPin = WorkLocationPin::factory()
             ->forLocation($store)
             ->atCoordinates(-6.210500, 106.820900, 120)
             ->create([
@@ -493,7 +542,7 @@ class OutsourceAttendanceReportTest extends TestCase
         $record = $this->makeOutsourceRecord($outsource, '2026-09-10', 'present', 480);
         $session = $record->sessions()->first();
 
-        \App\Models\AttendanceEvent::factory()->create([
+        AttendanceEvent::factory()->create([
             'employee_id' => null,
             'outsource_id' => $outsource->id,
             'work_location_pin_id' => $checkInPin->id,
@@ -506,7 +555,7 @@ class OutsourceAttendanceReportTest extends TestCase
             'accuracy_meters' => 8.5,
         ]);
 
-        \App\Models\AttendanceEvent::factory()->create([
+        AttendanceEvent::factory()->create([
             'employee_id' => null,
             'outsource_id' => $outsource->id,
             'work_location_pin_id' => $checkOutPin->id,

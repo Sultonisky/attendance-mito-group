@@ -302,6 +302,21 @@ function subjectLabel(row: MonthlyRecapRow): string {
   );
 }
 
+function formatPeriodDate(value: string): string {
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function periodRangeLabel(row: MonthlyRecapRow): string {
+  if (!row.period_start || !row.period_end) return "";
+  return `${formatPeriodDate(row.period_start)} – ${formatPeriodDate(row.period_end)}`;
+}
+
 function asRecapRow(row: unknown): MonthlyRecapRow {
   return row as MonthlyRecapRow;
 }
@@ -334,6 +349,8 @@ const csvColumns = computed<ReportCsvColumn[]>(() => [
   },
   { header: "Name", value: (row) => asRecapRow(row).subject_name ?? "" },
   { header: "Period", value: (row) => asRecapRow(row).period ?? "" },
+  { header: "Period Start", value: (row) => asRecapRow(row).period_start ?? "" },
+  { header: "Period End", value: (row) => asRecapRow(row).period_end ?? "" },
   { header: "Status", value: (row) => formatCsvStatus(asRecapRow(row).status) },
   {
     header: "Scheduled Days",
@@ -532,6 +549,22 @@ const columns = computed<TableColumn<MonthlyRecapRow>[]>(() => [
   {
     accessorKey: "period",
     header: ({ column }) => createSortableHeader(column, "Period"),
+    cell: ({ row }) => {
+      const range =
+        row.original.source === "outsource"
+          ? periodRangeLabel(row.original)
+          : "";
+      return h("div", { class: "min-w-0" }, [
+        h("div", { class: "font-mono text-xs" }, row.original.period),
+        range
+          ? h(
+              "div",
+              { class: "truncate text-xs text-[var(--ui-text-muted)]" },
+              range,
+            )
+          : null,
+      ]);
+    },
   },
   {
     accessorKey: "status",
@@ -1026,7 +1059,15 @@ onMounted(async () => {
             class="w-full"
           />
         </UFormField>
-        <UFormField label="Period" required hint="Bulan yang akan digenerate">
+        <UFormField
+          label="Period"
+          required
+          :hint="
+            genForm.source === 'outsource'
+              ? 'Cutoff: tgl 25 bulan lalu – 24 bulan ini'
+              : 'Bulan yang akan digenerate'
+          "
+        >
           <UInput
             v-model="genForm.period"
             type="month"

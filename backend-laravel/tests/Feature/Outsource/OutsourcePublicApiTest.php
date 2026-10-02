@@ -580,6 +580,12 @@ class OutsourcePublicApiTest extends TestCase
         $response->assertJson(['success' => true]);
         $this->assertNull($this->sessionStore()->find($sessionId));
 
+        foreach (['check_in_location', 'check_out_location'] as $key) {
+            $response->assertJsonPath("data.{$key}.pin.id", $this->defaultPin($store)->id);
+            $response->assertJsonPath("data.{$key}.work_location.id", $store->id);
+            $this->assertArrayNotHasKey('latitude', $response->json("data.{$key}"));
+        }
+
         $log = AuditLog::where('action', 'outsource.attendance.check_out')->latest('id')->first();
         $this->assertNotNull($log);
         $this->assertNull($log->actor_id);
@@ -739,7 +745,9 @@ class OutsourcePublicApiTest extends TestCase
 
         $init2 = $this->postJson('/api/v1/outsource/session/init', $this->initPayload($city, $store, $outsource));
         $sid2 = (string) $init2->getCookie($this->cookieName(), false)?->getValue();
-        $init2->assertJsonPath('data.status', 'READY');
+        $init2->assertJsonPath('data.status', 'COMPLETED');
+        $init2->assertJsonPath('data.attendance.check_in_location.pin.id', $this->defaultPin($store)->id);
+        $init2->assertJsonPath('data.attendance.check_out_location.pin.id', $this->defaultPin($store)->id);
 
         $in2 = $this->withOutsourceSession($sid2)->postJson('/api/v1/outsource/attendance/check-in', $this->attendancePayload($store, -6.2001, 106.8001, 10));
         $in2->assertStatus(422);

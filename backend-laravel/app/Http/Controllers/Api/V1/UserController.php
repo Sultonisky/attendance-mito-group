@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Actions\Permission\SyncUserPermissions;
 use App\Actions\User\CreateUser;
 use App\Actions\User\DeleteUser;
 use App\Actions\User\ToggleUserStatus;
@@ -13,6 +14,7 @@ use App\Http\Resources\User\UserResource;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Spatie\Permission\Models\Permission;
 
 class UserController extends Controller
 {
@@ -153,22 +155,43 @@ class UserController extends Controller
     {
         return response()->json([
             'success' => true,
-            'data' => $user->getDirectPermissions()->pluck('name')->values()->all(),
+            ...$this->permissionPayload($user),
         ]);
     }
 
-    public function permissions(Request $request, User $user): JsonResponse
+    public function updatePermissions(Request $request, User $user, SyncUserPermissions $sync): JsonResponse
     {
-        $request->validate([
-            'permissions' => ['required', 'array'],
-            'permissions.*' => ['string', 'exists:permissions,name'],
+        $validated = $request->validate([
+            'permissions' => ['present', 'array'],
+            'permissions.*' => ['string', 'distinct', 'exists:permissions,name'],
         ]);
 
-        $user->syncPermissions($request->input('permissions', []));
+        $user = $sync->execute($user, $validated['permissions'], $request->user(), $request);
 
         return response()->json([
             'success' => true,
-            'data' => $user->getDirectPermissions()->pluck('name')->values()->all(),
+            ...$this->permissionPayload($user),
         ]);
+    }
+
+    /**
+     * `data` = everything the user can do. Access is per user (the role is a
+     * label + template); SUPER_ADMIN bypasses every check via Gate::before.
+     *
+     * @return array{data: list<string>, role: string|null, super_admin_bypass: bool}
+     */
+    private function permissionPayload(User $user): array
+    {
+        $bypass = $user->hasRole('SUPER_ADMIN');
+
+        $permissions = $bypass
+            ? Permission::query()->orderBy('name')->pluck('name')
+            : $user->getDirectPermissions()->pluck('name')->sort();
+
+        return [
+            'data' => $permissions->values()->all(),
+            'role' => $user->getRoleNames()->first(),
+            'super_admin_bypass' => $bypass,
+        ];
     }
 }

@@ -2,15 +2,23 @@
 
 namespace App\Console\Commands;
 
+use App\Models\City;
+use App\Models\Outsource;
+use App\Models\WorkLocation;
+use App\Models\WorkLocationPin;
 use App\Services\Import\OutsourceMasterDataImportService;
 use Illuminate\Console\Command;
+use Illuminate\Console\ConfirmableTrait;
 use RuntimeException;
 
 class ImportOutsourceMasterData extends Command
 {
+    use ConfirmableTrait;
+
     protected $signature = 'outsource:import
                             {file : Path to data/stores.json (preferred) or legacy CSV/XLSX}
                             {--dry-run : Validate and report without saving changes}
+                            {--force : Run in production without the confirmation prompt}
                             {--allow-partial : Skip invalid rows instead of failing the whole import}
                             {--radius=150 : Pin attendance radius in meters}
                             {--require-min=0 : Fail after import when outsource count is below this (deploy guard)}
@@ -29,7 +37,14 @@ class ImportOutsourceMasterData extends Command
         $requireMinCabangs = max(0, (int) $this->option('require-min-cabangs'));
         $requireMinPins = max(0, (int) $this->option('require-min-pins'));
 
-        // JSON SOT tolerates incomplete pin rows; legacy CSV stays strict unless flagged.
+        // Production DB is the source of truth; a full import restores deleted
+        // rows, forces status=active, renames persons, resets pin names and
+        // allowlists, and duplicates pins whose coordinates were edited.
+        if (! $dryRun && ! $this->confirmToProceed('Production DB is the source of truth — this overwrites dashboard edits.')) {
+            return self::FAILURE;
+        }
+
+        // JSON seed tolerates incomplete pin rows; legacy CSV stays strict unless flagged.
         $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
         if ($extension === 'json' && ! $this->input->hasParameterOption('--allow-partial')) {
             $allowPartial = true;
@@ -79,10 +94,10 @@ class ImportOutsourceMasterData extends Command
             return self::SUCCESS;
         }
 
-        $dbCities = \App\Models\City::query()->count();
-        $dbCabangs = \App\Models\WorkLocation::query()->count();
-        $dbPins = \App\Models\WorkLocationPin::query()->count();
-        $dbOutsources = \App\Models\Outsource::query()->count();
+        $dbCities = City::query()->count();
+        $dbCabangs = WorkLocation::query()->count();
+        $dbPins = WorkLocationPin::query()->count();
+        $dbOutsources = Outsource::query()->count();
 
         $this->line('');
         $this->info('Database counts after import:');

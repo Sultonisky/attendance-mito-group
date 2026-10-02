@@ -81,7 +81,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'user.delete' => 'Delete users.',
         'permission.view' => 'View available permissions.',
         'permission.create' => 'Create new permissions.',
-        'permission.update' => 'Edit permission names.',
+        'permission.update' => 'Edit permissions and assign them to roles and users.',
         'permission.delete' => 'Delete permissions.',
         'audit.view' => 'View system audit log records.',
     ];
@@ -231,21 +231,41 @@ class RolesAndPermissionsSeeder extends Seeder
     {
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
+        $newPermissions = [];
         foreach (self::PERMISSIONS as $permission) {
-            Permission::updateOrCreate(
+            $model = Permission::updateOrCreate(
                 ['name' => $permission, 'guard_name' => 'web'],
                 ['description' => self::PERMISSION_DESCRIPTIONS[$permission] ?? null],
             );
+
+            if ($model->wasRecentlyCreated) {
+                $newPermissions[] = $permission;
+            }
         }
 
         $superAdminRole = Role::firstOrCreate(['name' => 'SUPER_ADMIN']);
-        $adminRole = Role::firstOrCreate(['name' => 'ADMIN']);
-        $userRole = Role::firstOrCreate(['name' => 'USER']);
 
-        // ADMIN gets only explicitly listed permissions (no Permission::all() wildcard).
-        // New permissions must be added to ROLE_PERMISSIONS['ADMIN'] or assigned per user.
-        $adminRole->syncPermissions(self::ROLE_PERMISSIONS['ADMIN']);
-        $userRole->syncPermissions(self::ROLE_PERMISSIONS['USER']);
+        // Role permissions are templates (copied onto users when the role is
+        // attached — see User::assignRole). ROLE_PERMISSIONS seed the template
+        // once; afterwards templates and per-user grants are edited in the
+        // dashboard. This seeder runs on every deploy, so it only hands out
+        // permissions introduced in this run — to the template and to current
+        // holders of that role — and never re-syncs or removes dashboard edits.
+        foreach (self::ROLE_PERMISSIONS as $roleName => $defaults) {
+            $role = Role::firstOrCreate(['name' => $roleName]);
+
+            if ($role->wasRecentlyCreated) {
+                $role->givePermissionTo($defaults);
+
+                continue;
+            }
+
+            $grant = array_values(array_intersect($defaults, $newPermissions));
+            if ($grant !== []) {
+                $role->givePermissionTo($grant);
+                User::role($role)->each(fn (User $user) => $user->givePermissionTo($grant));
+            }
+        }
 
         // SUPER_ADMIN bypasses checks via Gate::before — role stays empty.
         // Still refresh direct grants on SUPER_ADMIN users so /auth/me permission

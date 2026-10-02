@@ -58,17 +58,26 @@ export function formatCityCabangLabel(
   return city || cabang
 }
 
+export interface OutsourceAttendanceLocation {
+  occurred_at: string | null
+  pin: { id: number; name: string; address: string | null } | null
+  work_location: { id: number; name: string } | null
+}
+
 export interface OutsourceAttendanceSnapshot {
   attendance_id: number
   status: string
+  session_status?: 'open' | 'closed' | 'expired' | string
   attendance_date: string
   check_in_at: string | null
   check_out_at: string | null
   duration_minutes: number | null
+  check_in_location?: OutsourceAttendanceLocation | null
+  check_out_location?: OutsourceAttendanceLocation | null
 }
 
 export interface OutsourceSessionPayload {
-  status: 'NONE' | 'READY' | 'ACTIVE' | string
+  status: 'NONE' | 'READY' | 'ACTIVE' | 'COMPLETED' | string
   expires_at: string | null
   outsource: Outsource | null
   store: (Pick<Store, 'id' | 'name' | 'latitude' | 'longitude'> & {
@@ -97,6 +106,62 @@ export interface OutsourceHistoryItem {
   session_count: number
 }
 
+export interface OutsourceHistoryLocation {
+  pin_name: string | null
+  pin_address: string | null
+}
+
+export interface OutsourcePeriodHistorySession {
+  status: string
+  check_in_at: string | null
+  check_out_at: string | null
+  /** Business dates (Asia/Jakarta, YYYY-MM-DD). */
+  check_in_date: string | null
+  check_out_date: string | null
+  crosses_midnight: boolean
+  check_out_day_offset: number | null
+  duration_minutes: number | null
+  check_in_location: OutsourceHistoryLocation | null
+  check_out_location: OutsourceHistoryLocation | null
+}
+
+/** One item per day; days without a clock-in are "absent" (today: "pending"). */
+export interface OutsourcePeriodHistoryItem extends Omit<OutsourceHistoryItem, 'attendance_id'> {
+  attendance_id: number | null
+  attended: boolean
+  has_open_session: boolean
+  check_out_date: string | null
+  /** Days between attendance_date (clock-in day) and the last clock-out day. */
+  check_out_day_offset: number | null
+  sessions: OutsourcePeriodHistorySession[]
+}
+
+/** Monthly period keyed by end month: "2026-09" = 25 Aug – 24 Sep 2026 (cutoff set on the server). */
+export interface OutsourcePeriodHistory {
+  period: {
+    key: string
+    start_date: string
+    end_date: string
+    is_current: boolean
+    /** null on the first available period (25 Aug – 24 Sep 2026). */
+    previous_key: string | null
+    next_key: string | null
+  }
+  summary: {
+    /** Days listed: period start up to today (or period end). */
+    days_listed: number
+    days_attended: number
+    days_absent: number
+    days_complete: number
+    days_incomplete: number
+    days_cross_midnight: number
+    total_sessions: number
+    total_duration_minutes: number
+    average_duration_minutes: number | null
+  }
+  items: OutsourcePeriodHistoryItem[]
+}
+
 export interface OutsourceSessionResponse {
   success: boolean
   data: OutsourceSessionPayload
@@ -111,6 +176,8 @@ export interface OutsourceAttendanceResponse {
     check_in_at: string | null
     check_out_at: string | null
     duration_minutes: number | null
+    check_in_location?: OutsourceAttendanceLocation | null
+    check_out_location?: OutsourceAttendanceLocation | null
   }
 }
 
@@ -148,6 +215,17 @@ export async function fetchOutsourceAttendanceHistory(
     `/outsource/attendance/history?limit=${limit}`,
   )
   return Array.isArray(response?.data) ? response.data : []
+}
+
+/** Own attendance for one monthly period; omit `period` for the current one. */
+export async function fetchOutsourcePeriodHistory(
+  period?: string | null,
+): Promise<OutsourcePeriodHistory> {
+  const query = period ? `?period=${encodeURIComponent(period)}` : ''
+  const response = await apiFetch<{ success: boolean; data: OutsourcePeriodHistory }>(
+    `/outsource/attendance/history/period${query}`,
+  )
+  return response.data
 }
 
 export async function loginOutsourceSession(

@@ -8,6 +8,7 @@ use App\Models\AttendanceSession;
 use App\Models\City;
 use App\Models\Outsource;
 use App\Models\WorkLocation;
+use App\Services\Outsource\OutsourceAttendanceLocationSummary;
 use App\Services\Outsource\ResolveOutsourceAllowedPins;
 use App\Support\AttendanceDateTime;
 use Carbon\CarbonImmutable;
@@ -17,12 +18,14 @@ class ResolveOutsourceOpenAttendance
     public function __construct(
         protected OutsourceSessionExpiry $sessionExpiry,
         protected ResolveOutsourceAllowedPins $resolveAllowedPins,
+        protected OutsourceAttendanceLocationSummary $locationSummary,
     ) {}
 
     /**
      * @return array{
      *   attendance_id: int,
      *   status: string,
+     *   session_status: string,
      *   attendance_date: string,
      *   check_in_at: string|null,
      *   check_out_at: string|null,
@@ -49,15 +52,76 @@ class ResolveOutsourceOpenAttendance
             return null;
         }
 
-        $record = $open->attendanceRecord;
+        return $this->toSnapshot($open);
+    }
+
+    /**
+     * Today's finished outsource attendance (closed or expired session).
+     * Outsource allows one session per business date, so this means no new clock-in today.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function executeCompletedToday(int $outsourceId, ?CarbonImmutable $now = null): ?array
+    {
+        $today = AttendanceDateTime::toBusinessDate($now ?? CarbonImmutable::now('UTC'));
+
+        $finished = AttendanceSession::query()
+            ->whereIn('status', [
+                AttendanceSessionStatus::Closed->value,
+                AttendanceSessionStatus::Expired->value,
+            ])
+            ->whereHas('attendanceRecord', function ($query) use ($outsourceId, $today) {
+                $query->where('outsource_id', $outsourceId)
+                    ->where('attendable_type', 'outsource')
+                    ->whereDate('attendance_date', $today);
+            })
+            ->with('attendanceRecord')
+            ->orderByDesc('check_in_at')
+            ->first();
+
+        if ($finished === null || $finished->attendanceRecord === null) {
+            return null;
+        }
+
+        return $this->toSnapshot($finished);
+    }
+
+    /**
+     * Session UI state: ACTIVE (open IN), COMPLETED (today already done), or READY.
+     *
+     * @return array{status: 'ACTIVE'|'COMPLETED'|'READY', attendance: array<string, mixed>|null}
+     */
+    public function resolveState(int $outsourceId): array
+    {
+        $open = $this->execute($outsourceId);
+        if ($open !== null) {
+            return ['status' => 'ACTIVE', 'attendance' => $open];
+        }
+
+        $completed = $this->executeCompletedToday($outsourceId);
+        if ($completed !== null) {
+            return ['status' => 'COMPLETED', 'attendance' => $completed];
+        }
+
+        return ['status' => 'READY', 'attendance' => null];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function toSnapshot(AttendanceSession $session): array
+    {
+        $record = $session->attendanceRecord;
 
         return [
             'attendance_id' => $record->id,
             'status' => (string) $record->status,
+            'session_status' => (string) $session->status,
             'attendance_date' => $record->attendance_date?->toDateString() ?? '',
-            'check_in_at' => AttendanceDateTime::toApi($open->check_in_at),
-            'check_out_at' => AttendanceDateTime::toApi($open->check_out_at),
-            'duration_minutes' => $open->duration_minutes !== null ? (int) $open->duration_minutes : null,
+            'check_in_at' => AttendanceDateTime::toApi($session->check_in_at),
+            'check_out_at' => AttendanceDateTime::toApi($session->check_out_at),
+            'duration_minutes' => $session->duration_minutes !== null ? (int) $session->duration_minutes : null,
+            ...$this->locationSummary->forSession($session),
         ];
     }
 

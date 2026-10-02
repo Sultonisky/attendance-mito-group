@@ -42,7 +42,10 @@ class UpdateUser implements Action
                 $user->update($fillable);
             }
 
-            if (!empty($input['role'])) {
+            // A role change resets access to the new role's template so a
+            // demotion never keeps old grants; the same role keeps custom grants.
+            if (!empty($input['role']) && $input['role'] !== $old['role']) {
+                $user->syncPermissions([]);
                 $user->syncRoles([$input['role']]);
             }
 

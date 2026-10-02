@@ -33,11 +33,15 @@ export type UpdatePermissionPayload = {
   name: string
 }
 
+/** Access is per user; SUPER_ADMIN always has it and is not `removable`. */
 export type PermissionUser = {
   id: number
   name: string
   email: string
   status: string
+  role: string | null
+  source: 'super_admin' | 'direct'
+  removable: boolean
 }
 
 export type PermissionUsersResponse = {
@@ -69,6 +73,49 @@ export async function fetchPermissionUsers(
   id: number,
 ): Promise<PermissionUsersResponse> {
   return apiFetch<PermissionUsersResponse>(`/permissions/${id}/users`)
+}
+
+export async function assignPermissionUser(
+  permissionId: number,
+  userId: number,
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/permissions/${permissionId}/users`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId }),
+  })
+}
+
+export async function revokePermissionUser(
+  permissionId: number,
+  userId: number,
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/permissions/${permissionId}/users/${userId}`, { method: 'DELETE' })
+}
+
+// ── ROLE DEFAULTS ─────────────────────────────────────────────────────────────
+
+export type RoleRow = {
+  id: number
+  name: string
+  users_count: number
+  /** SUPER_ADMIN bypasses every check and is never editable. */
+  editable: boolean
+  /** Template copied onto users created with / switched to this role. */
+  permissions: string[]
+}
+
+export async function fetchRoles(): Promise<{ success: boolean; data: RoleRow[] }> {
+  return apiFetch<{ success: boolean; data: RoleRow[] }>('/roles')
+}
+
+export async function updateRolePermissions(
+  roleId: number,
+  permissions: string[],
+): Promise<{ success: boolean; data: RoleRow }> {
+  return apiFetch<{ success: boolean; data: RoleRow }>(`/roles/${roleId}/permissions`, {
+    method: 'PUT',
+    body: JSON.stringify({ permissions }),
+  })
 }
 
 // ── CREATE ────────────────────────────────────────────────────────────────────

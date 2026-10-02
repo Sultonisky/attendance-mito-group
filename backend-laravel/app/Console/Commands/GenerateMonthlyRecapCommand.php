@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\MonthlyRecap;
 use App\Models\Outsource;
 use App\Models\User;
+use App\Support\OutsourceAttendancePeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 
@@ -54,12 +55,19 @@ class GenerateMonthlyRecapCommand extends Command
         $failures = 0;
 
         if ($source === 'outsource') {
+            $first = OutsourceAttendancePeriod::first();
+            if (OutsourceAttendancePeriod::fromKey($monthInput)->isBefore($first)) {
+                $this->error("Outsource monthly recap is not available before period {$first->key}.");
+
+                return 1;
+            }
+
             $query = Outsource::query()->whereNull('deleted_at');
             if ($this->option('outsource') !== null) {
                 $query->whereKey((int) $this->option('outsource'));
             }
 
-            $query->chunkById(100, function ($chunk) use ($periodStart, $periodEnd, $actor, $monthInput, $force, &$total, &$failures): void {
+            $query->chunkById(100, function ($chunk) use ($actor, $monthInput, $force, &$total, &$failures): void {
                 foreach ($chunk as $outsource) {
                     try {
                         $existing = MonthlyRecap::query()
@@ -78,7 +86,7 @@ class GenerateMonthlyRecapCommand extends Command
                             $existing->update(['status' => 'review', 'finalized_at' => null, 'exported_at' => null]);
                         }
 
-                        app(GenerateMonthlyRecap::class)->executeForOutsource($outsource, $periodStart, $periodEnd, $actor);
+                        app(GenerateMonthlyRecap::class)->executeForOutsource($outsource, OutsourceAttendancePeriod::fromKey($monthInput), $actor);
                         $this->info("Generated recap for outsource {$outsource->id} ({$monthInput}).");
                         $total++;
                     } catch (\Throwable $e) {

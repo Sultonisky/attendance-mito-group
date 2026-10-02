@@ -4,8 +4,13 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Exceptions\RoleDoesNotExist;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 class InitialUserSeederTest extends TestCase
@@ -96,5 +101,110 @@ class InitialUserSeederTest extends TestCase
             0,
             \App\Models\Employee::query()->where('user_id', $user->id)->count(),
         );
+    }
+
+    public function test_reseed_preserves_account_changes_made_after_bootstrap(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        // SUPER_ADMIN edits via the Users page between deploys.
+        $hisar = User::query()->where('email', 'hisar.hesti@mito.co.id')->firstOrFail();
+        $hisar->update(['name' => 'Hisar Hesti Updated', 'password' => 'NewSecret2026!']);
+        $hisar->syncRoles(['USER']);
+        $hisar->givePermissionTo('user.view');
+
+        User::query()->where('email', 'admin@mito.co.id')->firstOrFail()->delete();
+
+        $this->seed(DatabaseSeeder::class);
+
+        $hisar = $hisar->fresh();
+        $this->assertSame('Hisar Hesti Updated', $hisar->name);
+        $this->assertTrue(Hash::check('NewSecret2026!', $hisar->password));
+        $this->assertTrue($hisar->hasRole('USER'));
+        $this->assertFalse($hisar->hasRole('ADMIN'));
+        $this->assertTrue($hisar->hasDirectPermission('user.view'));
+
+        $this->assertDatabaseMissing('users', ['email' => 'admin@mito.co.id']);
+    }
+
+    public function test_failed_bootstrap_rolls_back_all_accounts(): void
+    {
+        $this->seed(RolesAndPermissionsSeeder::class);
+        // The last seeded account (user@) needs the USER role; removing it
+        // makes the bootstrap fail after the first accounts were inserted.
+        Role::findByName('USER')->delete();
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $seeder = new DatabaseSeeder;
+        $method = new \ReflectionMethod($seeder, 'seedDashboardUsers');
+
+        try {
+            $method->invoke($seeder);
+            $this->fail('Expected the bootstrap to fail on the missing USER role.');
+        } catch (RoleDoesNotExist) {
+            // expected
+        }
+
+        $this->assertSame(0, User::query()->count());
+    }
+
+    public function test_failed_bootstrap_still_leaves_break_glass_super_admin(): void
+    {
+        $seeder = new class extends DatabaseSeeder
+        {
+            protected function seedDashboardUsers(): void
+            {
+                throw new \RuntimeException('bootstrap failed');
+            }
+        };
+        $seeder->setContainer(app());
+
+        try {
+            $seeder->run();
+            $this->fail('Expected the bootstrap failure to propagate.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('bootstrap failed', $exception->getMessage());
+        }
+
+        $superAdmin = User::query()->where('email', 'superadmin@mito.co.id')->firstOrFail();
+        $this->assertSame(1, User::query()->count());
+        $this->assertSame('active', $superAdmin->status);
+        $this->assertTrue($superAdmin->hasRole('SUPER_ADMIN'));
+        $this->assertTrue(Hash::check('Mahakarya2026', $superAdmin->password));
+    }
+
+    public function test_reseed_restores_super_admin_when_all_were_demoted_or_deactivated(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $superAdmin = User::query()->where('email', 'superadmin@mito.co.id')->firstOrFail();
+        $superAdmin->update(['status' => 'inactive', 'password' => 'ChangedByOwner2026!']);
+        $superAdmin->syncRoles(['ADMIN']);
+
+        User::query()->where('email', 'reginald.hirawan@mito.co.id')->firstOrFail()->syncRoles(['ADMIN']);
+
+        $this->seed(DatabaseSeeder::class);
+
+        $superAdmin = $superAdmin->fresh();
+        $this->assertSame('active', $superAdmin->status);
+        $this->assertTrue($superAdmin->hasRole('SUPER_ADMIN'));
+        $this->assertFalse($superAdmin->hasRole('ADMIN'));
+        // Existing password is kept — never reset to the known default.
+        $this->assertTrue(Hash::check('ChangedByOwner2026!', $superAdmin->password));
+
+        $this->assertFalse(
+            User::query()->where('email', 'reginald.hirawan@mito.co.id')->firstOrFail()->hasRole('SUPER_ADMIN'),
+        );
+    }
+
+    public function test_break_glass_does_not_recreate_deleted_super_admin_while_another_is_active(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        User::query()->where('email', 'superadmin@mito.co.id')->firstOrFail()->delete();
+
+        $this->seed(DatabaseSeeder::class);
+
+        $this->assertDatabaseMissing('users', ['email' => 'superadmin@mito.co.id']);
     }
 }

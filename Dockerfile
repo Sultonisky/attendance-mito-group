@@ -115,10 +115,6 @@ RUN printf '%s\n' \
 
 COPY ai-service /opt/ai-service
 
-# Idempotent production bootstrap inputs (RBAC is seeded via artisan;
-# stores.json feeds unified outsource:import on deploy).
-COPY data/stores.json /opt/seed-data/stores.json
-
 RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir \
        -r /opt/ai-service/requirements.txt
