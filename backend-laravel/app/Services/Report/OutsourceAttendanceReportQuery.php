@@ -3,16 +3,21 @@
 namespace App\Services\Report;
 
 use App\Models\AttendanceRecord;
-use App\Models\City;
-use App\Models\Outsource;
 use App\Models\User;
-use App\Models\WorkLocation;
+use App\Services\Outsource\CountedOutsourceAttendance;
+use App\Support\AttendanceDateTime;
+use App\Support\OutsourceAttendancePeriod;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class OutsourceAttendanceReportQuery
 {
+    public function __construct(
+        private CountedOutsourceAttendance $countedAttendance,
+    ) {}
+
     private const ALLOWED_SORTS = [
         'attendance_date' => 'attendance_records.attendance_date',
         'outsource_name' => 'outsources.name',
@@ -131,7 +136,39 @@ class OutsourceAttendanceReportQuery
 
         $this->applySort($query, $filters['sort'] ?? 'attendance_date', $filters['direction'] ?? 'desc');
 
-        return $query->paginate($filters['per_page'] ?? 25);
+        $page = $query->paginate($filters['per_page'] ?? 25);
+        if (config('attendance.outsource_report_quota_flag')) {
+            $this->annotateQuota($page);
+        }
+
+        return $page;
+    }
+
+    /**
+     * Marks each row with its cutoff period and whether it falls within the
+     * period's counted-days quota; rows beyond the quota stay visible to admins.
+     */
+    private function annotateQuota(LengthAwarePaginator $page): void
+    {
+        $countedByGroup = [];
+
+        foreach ($page->getCollection() as $record) {
+            if ($record->attendance_date === null) {
+                continue;
+            }
+
+            $period = OutsourceAttendancePeriod::containing(
+                CarbonImmutable::parse($record->attendance_date->toDateString(), AttendanceDateTime::timezone())
+            );
+            $groupKey = $record->outsource_id.'|'.$period->key;
+
+            $countedByGroup[$groupKey] ??= array_flip(
+                $this->countedAttendance->countedIds((int) $record->outsource_id, $period)
+            );
+
+            $record->setAttribute('quota_period', $period->key);
+            $record->setAttribute('counted_in_quota', isset($countedByGroup[$groupKey][(int) $record->id]));
+        }
     }
 
     private function applySort(Builder $query, string $sort, string $direction): void

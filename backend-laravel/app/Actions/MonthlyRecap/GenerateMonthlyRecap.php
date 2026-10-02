@@ -11,6 +11,7 @@ use App\Models\MonthlyRecap;
 use App\Models\MonthlyRecapDetail;
 use App\Models\Outsource;
 use App\Models\User;
+use App\Support\OutsourceAttendancePeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -51,9 +52,15 @@ class GenerateMonthlyRecap
         });
     }
 
-    public function executeForOutsource(Outsource $outsource, CarbonImmutable $periodStart, CarbonImmutable $periodEnd, User $actor, ?Request $request = null): MonthlyRecap
+    /**
+     * Outsource recap for a cutoff period; the stored period key is the end month
+     * ("2026-09" = 25 Aug .. 24 Sep 2026), same key as the outsource history.
+     */
+    public function executeForOutsource(Outsource $outsource, OutsourceAttendancePeriod $outsourcePeriod, User $actor, ?Request $request = null): MonthlyRecap
     {
-        $period = $periodStart->format('Y-m');
+        self::guardOutsourcePeriodAvailable($outsourcePeriod);
+
+        $period = $outsourcePeriod->key;
         $existing = MonthlyRecap::query()
             ->where('source', 'outsource')
             ->where('outsource_id', $outsource->id)
@@ -62,7 +69,7 @@ class GenerateMonthlyRecap
 
         $this->guardLocked($existing);
 
-        return DB::transaction(function () use ($outsource, $periodStart, $periodEnd, $actor, $request, $period, $existing): MonthlyRecap {
+        return DB::transaction(function () use ($outsource, $outsourcePeriod, $actor, $request, $period, $existing): MonthlyRecap {
             $locked = $this->lockOrCreate($existing, [
                 'employee_id' => null,
                 'outsource_id' => $outsource->id,
@@ -70,7 +77,7 @@ class GenerateMonthlyRecap
                 'period' => $period,
             ]);
 
-            $data = $this->engine->generateForOutsource($outsource, $periodStart, $periodEnd);
+            $data = $this->engine->generateForOutsource($outsource, $outsourcePeriod);
             $this->persistAttendanceSummary($locked, $data, $existing?->status, $actor, $request, [
                 'outsource_id' => $outsource->id,
                 'source' => 'outsource',
@@ -78,6 +85,17 @@ class GenerateMonthlyRecap
 
             return $locked->fresh() ?? $locked;
         });
+    }
+
+    public static function guardOutsourcePeriodAvailable(OutsourceAttendancePeriod $outsourcePeriod): void
+    {
+        $first = OutsourceAttendancePeriod::first();
+
+        if ($outsourcePeriod->isBefore($first)) {
+            throw new MonthlyRecapException(
+                "Outsource monthly recap is not available before period {$first->key}."
+            );
+        }
     }
 
     private function guardLocked(?MonthlyRecap $existing): void

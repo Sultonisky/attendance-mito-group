@@ -6,21 +6,26 @@ use App\Domain\MonthlyRecap\DTOs\MonthlyRecapData;
 use App\Domain\MonthlyRecap\DTOs\MonthlyRecapDetailData;
 use App\Domain\MonthlyRecap\Exceptions\ScheduleEngineException;
 use App\Domain\Schedule\Engines\ScheduleEngine;
+use App\Enums\AttendanceSessionStatus;
 use App\Models\AttendanceRecord;
 use App\Models\Employee;
 use App\Models\Outsource;
+use App\Services\Outsource\CountedOutsourceAttendance;
+use App\Support\OutsourceAttendancePeriod;
 use Carbon\CarbonImmutable;
 
 /**
  * Attendance-only monthly recap.
  *
- * Employee: scheduled days via ScheduleEngine + attendance_records.
- * Outsource: calendar days in period + attendance_records (no schedule/leave/OT/penalty).
+ * Employee: calendar month, scheduled days via ScheduleEngine + attendance_records.
+ * Outsource: cutoff period (25 .. 24) capped at N counted days, identical to the
+ * outsource history (no schedule/leave/OT/penalty).
  */
 class MonthlyRecapEngine
 {
     public function __construct(
         private ScheduleEngine $scheduleEngine,
+        private CountedOutsourceAttendance $countedAttendance,
     ) {}
 
     public function generate(Employee $employee, CarbonImmutable $periodStart, CarbonImmutable $periodEnd): MonthlyRecapData
@@ -78,50 +83,44 @@ class MonthlyRecapEngine
         );
     }
 
-    public function generateForOutsource(Outsource $outsource, CarbonImmutable $periodStart, CarbonImmutable $periodEnd): MonthlyRecapData
+    /**
+     * Outsource recap over the cutoff period (e.g. 25 Aug .. 24 Sep) with the same
+     * counted-days rule as the outsource history: first N days with a clock-in
+     * (N = max attendance days, default 26). Scheduled = N, absent = N - attended.
+     */
+    public function generateForOutsource(Outsource $outsource, OutsourceAttendancePeriod $period): MonthlyRecapData
     {
-        $this->assertPeriod($periodStart, $periodEnd);
-
-        $scheduledDays = 0;
+        $scheduledDays = OutsourceAttendancePeriod::maxAttendanceDays();
         $presentDays = 0;
         $lateDays = 0;
         $incompleteDays = 0;
-        $absentDays = 0;
 
-        $records = AttendanceRecord::query()
-            ->where('outsource_id', $outsource->id)
-            ->where('attendable_type', 'outsource')
-            ->whereDate('attendance_date', '>=', $periodStart->toDateString())
-            ->whereDate('attendance_date', '<=', $periodEnd->toDateString())
-            ->get()
-            ->keyBy(fn (AttendanceRecord $r) => CarbonImmutable::parse($r->attendance_date)->toDateString());
+        $records = $this->countedAttendance->query((int) $outsource->id, $period)
+            ->with('sessions:id,attendance_record_id,status')
+            ->get();
 
-        for ($day = $periodStart; $day->lessThanOrEqualTo($periodEnd); $day = $day->addDay()) {
-            $scheduledDays++;
-            $key = $day->toDateString();
-            $record = $records->get($key);
+        foreach ($records as $record) {
+            $hasOpen = $record->sessions->contains(
+                fn ($session) => $session->status === AttendanceSessionStatus::Open->value
+            );
 
-            if ($record === null) {
-                $absentDays++;
-
-                continue;
+            if ($record->status === 'incomplete' || $hasOpen) {
+                $incompleteDays++;
+            } elseif ($record->status === 'late') {
+                $lateDays++;
+            } else {
+                $presentDays++;
             }
-
-            match ($record->status) {
-                'present' => $presentDays++,
-                'late' => $lateDays++,
-                'incomplete' => $incompleteDays++,
-                'absent' => $absentDays++,
-                default => $absentDays++,
-            };
         }
+
+        $absentDays = max(0, $scheduledDays - $presentDays - $lateDays - $incompleteDays);
 
         return $this->buildData(
             source: 'outsource',
             employeeId: null,
             outsourceId: (int) $outsource->id,
-            periodStart: $periodStart,
-            periodEnd: $periodEnd,
+            periodStart: $period->startDate,
+            periodEnd: $period->endDate,
             scheduledDays: $scheduledDays,
             presentDays: $presentDays,
             lateDays: $lateDays,

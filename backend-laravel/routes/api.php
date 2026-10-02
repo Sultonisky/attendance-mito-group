@@ -72,6 +72,10 @@ Route::prefix('v1')->group(function () {
             ->middleware('throttle:60,1')
             ->name('outsource.attendance.history');
 
+        Route::get('/attendance/history/period', [OutsourceAttendanceController::class, 'historyByPeriod'])
+            ->middleware('throttle:60,1')
+            ->name('outsource.attendance.history.period');
+
         Route::post('/attendance/check-in', [OutsourceAttendanceController::class, 'checkIn'])
             ->middleware('throttle:20,1')
             ->name('outsource.attendance.check-in');
