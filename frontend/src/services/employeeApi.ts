@@ -1,4 +1,13 @@
 import { apiFetch } from './apiClient'
+import type { WorkAreaType } from './employeeWorkLocationApi'
+
+export type EmployeeAssignedWorkLocation = {
+  id: number
+  name: string
+  city: string
+  area_type: WorkAreaType
+  area_type_label: string
+}
 
 export type EmployeeRow = {
   id: number
@@ -18,6 +27,7 @@ export type EmployeeRow = {
   direct_superior_id: number | null
   indirect_superior_id: number | null
   user_id: number | null
+  work_locations?: EmployeeAssignedWorkLocation[]
   created_at: string | null
   updated_at: string | null
 }
@@ -54,6 +64,7 @@ export type CreateEmployeePayload = {
   direct_superior_id?: number | null
   indirect_superior_id?: number | null
   user_id?: number | null
+  work_location_ids?: number[]
 }
 
 export type UpdateEmployeePayload = {
@@ -73,12 +84,14 @@ export type UpdateEmployeePayload = {
   direct_superior_id?: number | null
   indirect_superior_id?: number | null
   user_id?: number | null
+  work_location_ids?: number[]
 }
 
 // ── READ ──────────────────────────────────────────────────────────────────────
 
 export async function fetchEmployees(filters?: {
   search?: string
+  work_location_id?: number | string
   per_page?: number
   sort?: string
   direction?: 'asc' | 'desc'
@@ -86,6 +99,7 @@ export async function fetchEmployees(filters?: {
 }): Promise<EmployeeListResponse> {
   const params = new URLSearchParams()
   if (filters?.search) params.set('search', filters.search)
+  if (filters?.work_location_id) params.set('work_location_id', String(filters.work_location_id))
   if (filters?.per_page) params.set('per_page', String(filters.per_page))
   if (filters?.sort) params.set('sort', filters.sort)
   if (filters?.direction) params.set('direction', filters.direction)

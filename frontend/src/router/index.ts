@@ -26,19 +26,20 @@ const router = createRouter({
       children: [
         { path: '', name: 'dashboard', component: () => import('../pages/DashboardPage.vue'), meta: { title: 'Dashboard', permission: 'dashboard.view' } },
         { path: 'reports', name: 'reports', component: () => import('../pages/reports/ReportsPage.vue'), meta: { title: 'Admin menu' } },
-        { path: 'reports/attendance', name: 'reports.attendance', component: () => import('../pages/reports/AttendanceReportPage.vue'), meta: { title: 'Attendance', permission: 'attendance.view' } },
-        { path: 'reports/attendance-corrections', name: 'reports.attendance-corrections', component: () => import('../pages/reports/AttendanceCorrectionReportPage.vue'), meta: { title: 'Attendance corrections', permission: 'attendance.correction.view' } },
-        { path: 'reports/leave', name: 'reports.leave', component: () => import('../pages/reports/LeaveReportPage.vue'), meta: { title: 'Leave', permission: 'leave.view' } },
-        { path: 'reports/overtime', name: 'reports.overtime', component: () => import('../pages/reports/OvertimeReportPage.vue'), meta: { title: 'Overtime', permission: 'overtime.view' } },
-        { path: 'reports/penalties', name: 'reports.penalties', component: () => import('../pages/reports/PenaltyReportPage.vue'), meta: { title: 'Penalties', permission: 'penalty.view' } },
-        { path: 'outsource-attendance', name: 'outsource-attendance', component: () => import('../pages/reports/outsource/OutsourceAttendanceReportPage.vue'), meta: { title: 'Outsource attendance', permission: 'outsource_attendance.view' } },
-        { path: 'outsource-persons', name: 'outsource.persons', component: () => import('../pages/reports/outsource/OutsourcePersonListPage.vue'), meta: { title: 'Outsource persons', permission: 'outsource_attendance.view' } },
-        { path: 'outsource-work-locations', name: 'outsource.work-locations', component: () => import('../pages/reports/outsource/OutsourceWorkLocationPage.vue'), meta: { title: 'Work locations', permission: 'outsource_attendance.view' } },
+        { path: 'reports/attendance', name: 'reports.attendance', component: () => import('../pages/reports/AttendanceReportPage.vue'), meta: { section: 'Employees', title: 'Attendance', permission: 'attendance.view' } },
+        { path: 'reports/attendance-corrections', name: 'reports.attendance-corrections', component: () => import('../pages/reports/AttendanceCorrectionReportPage.vue'), meta: { section: 'Employees', title: 'Corrections', permission: 'attendance.correction.view' } },
+        { path: 'reports/leave', name: 'reports.leave', component: () => import('../pages/reports/LeaveReportPage.vue'), meta: { section: 'Employees', title: 'Leave', permission: 'leave.view' } },
+        { path: 'reports/overtime', name: 'reports.overtime', component: () => import('../pages/reports/OvertimeReportPage.vue'), meta: { section: 'Employees', title: 'Overtime', permission: 'overtime.view' } },
+        { path: 'reports/penalties', name: 'reports.penalties', component: () => import('../pages/reports/PenaltyReportPage.vue'), meta: { section: 'Employees', title: 'Penalties', permission: 'penalty.view' } },
+        { path: 'outsource-attendance', name: 'outsource-attendance', component: () => import('../pages/reports/outsource/OutsourceAttendanceReportPage.vue'), meta: { section: 'Outsource', title: 'Attendance list', permission: 'outsource_attendance.view' } },
+        { path: 'outsource-persons', name: 'outsource.persons', component: () => import('../pages/reports/outsource/OutsourcePersonListPage.vue'), meta: { section: 'Outsource', title: 'Person list', permission: 'outsource_attendance.view' } },
+        { path: 'outsource-work-locations', name: 'outsource.work-locations', component: () => import('../pages/reports/outsource/OutsourceWorkLocationPage.vue'), meta: { section: 'Outsource', title: 'Work locations', permission: 'outsource_attendance.view' } },
         { path: 'reports/monthly-recaps', name: 'reports.monthly-recaps', component: () => import('../pages/reports/MonthlyRecapsReportPage.vue'), meta: { title: 'Monthly recap', permissionAny: ['monthly_recap.view', 'monthly_recap.generate', 'monthly_recap.review', 'monthly_recap.finalize', 'monthly_recap.export'] } },
         { path: 'users', name: 'users', component: () => import('../pages/users/UserListPage.vue'), meta: { title: 'User management', permission: 'user.view' } },
         { path: 'permissions', name: 'permissions', component: () => import('../pages/users/PermissionsPage.vue'), meta: { title: 'Permissions', permission: 'permission.view' } },
         { path: 'audit-logs', name: 'audit-logs', component: () => import('../pages/reports/AuditLogsPage.vue'), meta: { title: 'Audit Logs', permission: 'audit.view' } },
-        { path: 'employees', name: 'employees', component: () => import('../pages/employees/EmployeeListPage.vue'), meta: { title: 'Employees', permission: 'employees.view' } },
+        { path: 'employees', name: 'employees', component: () => import('../pages/employees/EmployeeListPage.vue'), meta: { section: 'Employees', title: 'Person list', permission: 'employees.view' } },
+        { path: 'employee-work-locations', name: 'employee.work-locations', component: () => import('../pages/employees/EmployeeWorkLocationPage.vue'), meta: { section: 'Employees', title: 'Work locations', permission: 'employee_work_location.view' } },
         { path: 'systems', name: 'systems', component: () => import('../pages/systems/SystemsPage.vue'), meta: { title: 'Systems', superAdminOnly: true } },
       ],
     },
@@ -133,12 +134,15 @@ const router = createRouter({
  *
  * Every route declares its own `meta.title`; this hook applies it as the
  * HTML <title> so each page (and browser tab / bookmark) gets its own
- * title instead of the static one in index.html. The favicon stays
- * global (/images/mito.png, set in index.html).
+ * title instead of the static one in index.html. `meta.section` (sidebar
+ * main menu) is prefixed so same-named submenus stay distinguishable.
+ * The favicon stays global (/images/mito.png, set in index.html).
  */
 router.afterEach((to) => {
-  document.title = typeof to.meta.title === 'string' && to.meta.title
-    ? `${to.meta.title} | MITO Group`
+  const title = typeof to.meta.title === 'string' ? to.meta.title : ''
+  const section = typeof to.meta.section === 'string' ? to.meta.section : ''
+  document.title = title
+    ? `${section ? `${section} · ` : ''}${title} | MITO Group`
     : 'MITO Group Attendance'
   syncPwaManifest(to.path)
 })

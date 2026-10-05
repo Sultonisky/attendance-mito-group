@@ -18,6 +18,7 @@ import { fetchEmployees, type EmployeeRow } from '../../services/employeeApi'
 import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
 import DataTableToolbar from '../../components/DataTableToolbar.vue'
 import DataTable from '../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../components/DashboardNavbarTitle.vue'
 import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
 import { formatAttendanceDateTime, toAttendanceDatetimeLocal } from '../../utils/attendanceDateTime'
 import type { AttendanceReportRow } from '../../types/reports'
@@ -361,7 +362,10 @@ onMounted(async () => {
 <template>
   <UDashboardPanel id="attendance-report">
     <template #header>
-      <UDashboardNavbar title="Attendance">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading>
           <UDashboardSidebarCollapse />
         </template>
