@@ -64,7 +64,7 @@ const hideableColumns = [
   { id: 'address', label: 'Alamat' },
   { id: 'outsource_count', label: 'Outsource' },
   { id: 'status', label: 'Status' },
-  { id: 'pins', label: 'Pins' },
+  { id: 'pin_name', label: 'Pins' },
   { id: 'actions', label: 'Actions' },
 ]
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
@@ -168,7 +168,7 @@ const columns = computed<TableColumn<OutsourceWorkLocationRow>[]>(() => [
     },
   },
   {
-    id: 'pins',
+    id: 'pin_name',
     header: ({ column }) => createSortableHeader(column, 'Pins'),
     accessorFn: (row) => row.pin_name,
     cell: ({ row }) => {
