@@ -14,11 +14,14 @@ export type PaginatedReportResponse<T> = {
 export type AttendanceReportRow = {
   id: number
   employee_id: number
+  employee_code: string
   employee_name: string
   attendance_date: string
   status: string
   check_in_at: string | null
+  check_in_location: EmployeeAttendanceEventLocation | null
   check_out_at: string | null
+  check_out_location: EmployeeAttendanceEventLocation | null
   duration_minutes: number | null
   created_at: string
 }
@@ -115,6 +118,17 @@ export type OutsourceAttendanceLocationGps = {
 
 export type OutsourceAttendanceEventLocation = {
   pin: OutsourceAttendanceLocationPin | null
+  gps: OutsourceAttendanceLocationGps | null
+}
+
+export type EmployeeAttendanceWorkLocation = {
+  id: number | null
+  name: string | null
+  city: string | null
+}
+
+export type EmployeeAttendanceEventLocation = {
+  work_location: EmployeeAttendanceWorkLocation | null
   gps: OutsourceAttendanceLocationGps | null
 }
 
