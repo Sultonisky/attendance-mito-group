@@ -1,12 +1,16 @@
 import { apiFetch } from '../apiClient'
 import type { PaginatedReportResponse, AttendanceReportRow } from '../../types/reports'
 
-export type EmployeeAttendanceAdminPayload = {
-  employee_id: number
+type EmployeeAttendanceAdminBasePayload = {
   attendance_date: string
   check_in_at: string
   check_out_at?: string | null
 }
+
+export type EmployeeAttendanceAdminPayload = EmployeeAttendanceAdminBasePayload & (
+  | { employee_id: number; hris_employee_id?: never; nik?: never; work_location_id?: never }
+  | { employee_id?: never; hris_employee_id: string; nik: string; work_location_id: number }
+)
 
 export type EmployeeAttendanceAdminUpdatePayload = {
   check_in_at: string

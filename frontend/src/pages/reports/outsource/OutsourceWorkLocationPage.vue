@@ -24,6 +24,7 @@ import {
 import { fetchOutsourceStores } from '../../../services/outsourceService'
 import DataTableToolbar from '../../../components/DataTableToolbar.vue'
 import DataTable from '../../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../../components/DashboardNavbarTitle.vue'
 import { createSortableHeader, createStatusBadge, createTruncatedText } from '../../../utils/dataTable'
 import { ApiError } from '../../../services/apiClient'
 
@@ -64,7 +65,7 @@ const hideableColumns = [
   { id: 'address', label: 'Alamat' },
   { id: 'outsource_count', label: 'Outsource' },
   { id: 'status', label: 'Status' },
-  { id: 'pins', label: 'Pins' },
+  { id: 'pin_name', label: 'Pins' },
   { id: 'actions', label: 'Actions' },
 ]
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
@@ -168,7 +169,7 @@ const columns = computed<TableColumn<OutsourceWorkLocationRow>[]>(() => [
     },
   },
   {
-    id: 'pins',
+    id: 'pin_name',
     header: ({ column }) => createSortableHeader(column, 'Pins'),
     accessorFn: (row) => row.pin_name,
     cell: ({ row }) => {
@@ -597,7 +598,10 @@ onMounted(async () => {
 <template>
   <UDashboardPanel id="outsource-work-locations">
     <template #header>
-      <UDashboardNavbar title="Work locations">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading>
           <UDashboardSidebarCollapse />
         </template>

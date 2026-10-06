@@ -3,43 +3,55 @@ import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { TableColumn } from '@nuxt/ui'
 import type { ColumnFiltersState, VisibilityState } from '@tanstack/vue-table'
-import { useReportPage } from '../../composables/useReportPage'
-import { useDataTableSort } from '../../composables/useDataTableSort'
-import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
-import { useAppToast } from '../../composables/useAppToast'
-import { fetchLeaveReport } from '../../services/reports/leaveReportApi'
-import { approveLeaveRequest, cancelLeaveRequest, rejectLeaveRequest } from '../../services/adminCrudApi'
-import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
-import DataTableToolbar from '../../components/DataTableToolbar.vue'
-import DataTable from '../../components/DataTable.vue'
-import AdminRowActions, { type AdminRowAction } from '../../components/AdminRowActions.vue'
-import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
-import type { LeaveReportRow } from '../../types/reports'
-import { defaultReportDates } from '../../types/reportDates'
+import { useReportPage } from '../../../composables/useReportPage'
+import { useDataTableSort } from '../../../composables/useDataTableSort'
+import { useDataTableDisplay } from '../../../composables/useDataTableDisplay'
+import { useAppToast } from '../../../composables/useAppToast'
+import {
+  approveAttendanceCorrection,
+  cancelAttendanceCorrection,
+  fetchAttendanceCorrections,
+  rejectAttendanceCorrection,
+} from '../../../services/attendanceCorrectionApi'
+import ReportDataToolbar from '../../../components/ReportDataToolbar.vue'
+import DataTableToolbar from '../../../components/DataTableToolbar.vue'
+import DataTable from '../../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../../components/DashboardNavbarTitle.vue'
+import AdminRowActions, { type AdminRowAction } from '../../../components/AdminRowActions.vue'
+import { createSortableHeader, createStatusBadge } from '../../../utils/dataTable'
+import { formatAttendanceDateTime, formatAttendanceShortDate } from '../../../utils/attendanceDateTime'
+import type { AttendanceCorrectionRequest } from '../../../types/attendanceCorrection'
+import { defaultReportDates } from '../../../types/reportDates'
+
+type CorrectionRow = AttendanceCorrectionRequest & {
+  employee_name: string
+  type_label: string
+  check_in_label: string
+  check_out_label: string
+}
 
 const route = useRoute()
 const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
 const toast = useAppToast()
 
-const data = ref<LeaveReportRow[]>([])
+const data = ref<CorrectionRow[]>([])
 const actionBusyId = ref<number | null>(null)
 const columnFilters = ref<ColumnFiltersState>([])
 const columnVisibility = ref<VisibilityState>()
-const statusFilter = ref('all')
+const statusFilter = ref('pending')
 const search = ref('')
 
-// ── Reject modal ──────────────────────────────────────────────────────────────
 const showRejectModal = ref(false)
-const rejectTargetId  = ref<number | null>(null)
-const rejectReason    = ref('')
-const rejectBusy      = ref(false)
-const rejectError     = ref('')
+const rejectTargetId = ref<number | null>(null)
+const rejectReason = ref('')
+const rejectBusy = ref(false)
+const rejectError = ref('')
 
 const filters = reactive({
   ...defaultReportDates(),
   employee_id: '',
   per_page: 25,
-  sort: 'start_date',
+  sort: 'id',
   direction: 'desc' as 'asc' | 'desc',
 })
 
@@ -58,9 +70,10 @@ const statusOptions = [
 
 const hideableColumns = [
   { id: 'employee_name', label: 'Employee' },
-  { id: 'leave_type_name', label: 'Type' },
-  { id: 'start_date', label: 'Start' },
-  { id: 'end_date', label: 'End' },
+  { id: 'type_label', label: 'Type' },
+  { id: 'attendance_date', label: 'Date' },
+  { id: 'check_in_label', label: 'Clock in' },
+  { id: 'check_out_label', label: 'Clock out' },
   { id: 'status', label: 'Status' },
   { id: 'reason', label: 'Reason' },
 ]
@@ -68,40 +81,61 @@ const hideableColumns = [
 const { displayItems } = useDataTableDisplay(hideableColumns, columnVisibility)
 
 const rowActions: AdminRowAction[] = [
-  { key: 'approve', label: 'Approve', permission: 'leave.approve', icon: 'Check', variant: 'primary' },
-  { key: 'reject',  label: 'Reject',  permission: 'leave.reject',  icon: 'X', variant: 'secondary', destructive: true },
-  { key: 'cancel',  label: 'Cancel',  permission: 'leave.cancel',  icon: 'X', variant: 'ghost' },
+  { key: 'approve', label: 'Approve', permission: 'attendance.correction.approve', icon: 'Check', variant: 'primary' },
+  { key: 'reject', label: 'Reject', permission: 'attendance.correction.reject', icon: 'X', variant: 'secondary', destructive: true },
+  { key: 'cancel', label: 'Cancel', permission: 'attendance.correction.cancel', icon: 'X', variant: 'ghost' },
 ]
 
-/** Actions valid per-status — only pending requests can be actioned. */
-function leaveActionsFor(status: string): AdminRowAction[] {
+function actionsFor(status: string): AdminRowAction[] {
   if (status === 'pending') return rowActions
   return []
 }
 
 const statusColor: Record<string, 'success' | 'warning' | 'error' | 'neutral' | 'info'> = {
-  approved:  'success',
-  pending:   'warning',
-  rejected:  'error',
+  approved: 'success',
+  pending: 'warning',
+  rejected: 'error',
   cancelled: 'neutral',
 }
 
-const columns = computed<TableColumn<LeaveReportRow>[]>(() => [
+function typeLabel(type: string): string {
+  if (type === 'clock_in') return 'Clock in'
+  if (type === 'clock_out') return 'Clock out'
+  if (type === 'both') return 'Both'
+  return type
+}
+
+function mapRow(item: AttendanceCorrectionRequest): CorrectionRow {
+  return {
+    ...item,
+    employee_name: item.employee_name || `Employee #${item.employee_id}`,
+    type_label: typeLabel(item.request_type),
+    check_in_label: formatAttendanceDateTime(item.requested_check_in_at, item.attendance_date, '—'),
+    check_out_label: formatAttendanceDateTime(item.requested_check_out_at, item.attendance_date, '—'),
+  }
+}
+
+const columns = computed<TableColumn<CorrectionRow>[]>(() => [
   {
     accessorKey: 'employee_name',
     header: ({ column }) => createSortableHeader(column, 'Employee'),
   },
   {
-    accessorKey: 'leave_type_name',
+    accessorKey: 'type_label',
     header: ({ column }) => createSortableHeader(column, 'Type'),
   },
   {
-    accessorKey: 'start_date',
-    header: ({ column }) => createSortableHeader(column, 'Start'),
+    accessorKey: 'attendance_date',
+    header: ({ column }) => createSortableHeader(column, 'Date'),
+    cell: ({ row }) => formatAttendanceShortDate(row.original.attendance_date),
   },
   {
-    accessorKey: 'end_date',
-    header: ({ column }) => createSortableHeader(column, 'End'),
+    accessorKey: 'check_in_label',
+    header: ({ column }) => createSortableHeader(column, 'Clock in'),
+  },
+  {
+    accessorKey: 'check_out_label',
+    header: ({ column }) => createSortableHeader(column, 'Clock out'),
   },
   {
     accessorKey: 'status',
@@ -122,18 +156,23 @@ const columns = computed<TableColumn<LeaveReportRow>[]>(() => [
     enableSorting: false,
     enableHiding: false,
     cell: ({ row }) => h(AdminRowActions, {
-      actions: leaveActionsFor(row.original.status),
+      actions: actionsFor(row.original.status),
       busy: actionBusyId.value === row.original.id,
       onAction: (key: string) => handleRowAction(key, row.original.id),
     }),
   },
 ])
 
-watch([search, statusFilter], () => {
-  const next: ColumnFiltersState = []
-  if (search.value.trim()) next.push({ id: 'employee_name', value: search.value.trim() })
-  if (statusFilter.value !== 'all') next.push({ id: 'status', value: statusFilter.value })
-  columnFilters.value = next
+watch(search, () => {
+  columnFilters.value = search.value.trim()
+    ? [{ id: 'employee_name', value: search.value.trim() }]
+    : []
+})
+
+watch(statusFilter, () => {
+  if (!ready.value) return
+  meta.current_page = 1
+  void load()
 })
 
 watch(
@@ -141,7 +180,7 @@ watch(
   () => {
     if (!ready.value) return
     meta.current_page = 1
-    load()
+    void load()
   },
 )
 
@@ -151,31 +190,28 @@ async function load(): Promise<void> {
   loading.value = true
   clearErrors()
   try {
-    const res = await fetchLeaveReport({
+    const res = await fetchAttendanceCorrections({
       from: filters.from,
       to: filters.to,
-      employee_id: filters.employee_id || null,
+      employee_id: filters.employee_id || undefined,
       per_page: filters.per_page,
-      sort: filters.sort,
-      direction: filters.direction,
       page: meta.current_page,
+      status: statusFilter.value === 'all' ? undefined : statusFilter.value,
     })
-    data.value = res.data
+    data.value = res.data.map(mapRow)
     applyMeta(res.meta)
-  }
-  catch (err) {
-    await handleApiError(err, 'Unable to load leave report. Please try again.')
-  }
-  finally {
+  } catch (err) {
+    await handleApiError(err, 'Unable to load attendance correction requests. Please try again.')
+  } finally {
     loading.value = false
   }
 }
 
 async function handleRowAction(action: string, id: number): Promise<void> {
   if (action === 'reject') {
-    rejectTargetId.value  = id
-    rejectReason.value    = ''
-    rejectError.value     = ''
+    rejectTargetId.value = id
+    rejectReason.value = ''
+    rejectError.value = ''
     showRejectModal.value = true
     return
   }
@@ -184,19 +220,18 @@ async function handleRowAction(action: string, id: number): Promise<void> {
   error.value = ''
   try {
     if (action === 'approve') {
-      await approveLeaveRequest(id)
-      toast.success('Leave approved')
+      await approveAttendanceCorrection(id)
+      toast.success('Correction approved')
     }
     if (action === 'cancel') {
-      await cancelLeaveRequest(id)
-      toast.success('Leave cancelled')
+      await cancelAttendanceCorrection(id)
+      toast.success('Correction cancelled')
     }
     await load()
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : 'Unable to update this leave request. Please try again.'
-    toast.fromError(e, 'Unable to update this leave request.')
-  }
-  finally {
+    error.value = e instanceof Error ? e.message : 'Unable to update this correction request.'
+    toast.fromError(e, 'Unable to update this correction request.')
+  } finally {
     actionBusyId.value = null
   }
 }
@@ -208,16 +243,16 @@ async function submitReject(): Promise<void> {
   }
   if (rejectTargetId.value === null) return
 
-  rejectBusy.value  = true
+  rejectBusy.value = true
   rejectError.value = ''
   try {
-    await rejectLeaveRequest(rejectTargetId.value, rejectReason.value.trim())
+    await rejectAttendanceCorrection(rejectTargetId.value, rejectReason.value.trim())
     showRejectModal.value = false
-    rejectTargetId.value  = null
-    toast.success('Leave rejected')
+    rejectTargetId.value = null
+    toast.success('Correction rejected')
     await load()
   } catch (e: unknown) {
-    rejectError.value = e instanceof Error ? e.message : 'Unable to reject this request. Please try again.'
+    rejectError.value = e instanceof Error ? e.message : 'Unable to reject this request.'
   } finally {
     rejectBusy.value = false
   }
@@ -226,15 +261,19 @@ async function submitReject(): Promise<void> {
 onMounted(async () => {
   if (typeof route.query.from === 'string') filters.from = route.query.from
   if (typeof route.query.to === 'string') filters.to = route.query.to
+  if (typeof route.query.status === 'string') statusFilter.value = route.query.status
   await load()
   ready.value = true
 })
 </script>
 
 <template>
-  <UDashboardPanel id="leave-report">
+  <UDashboardPanel id="attendance-corrections">
     <template #header>
-      <UDashboardNavbar title="Leave">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading><UDashboardSidebarCollapse /></template>
         <template #right>
           <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-refresh-cw" :loading="loading" @click="load">
@@ -262,7 +301,7 @@ onMounted(async () => {
             :description="filterError"
           />
 
-          <ReportDataToolbar :total="meta.total" :rows="data" filename="leave-report" :loading="loading" />
+          <ReportDataToolbar :total="meta.total" :rows="data" filename="attendance-corrections" :loading="loading" />
           <DataTableToolbar
             v-model:search="search"
             v-model:status="statusFilter"
@@ -286,8 +325,8 @@ onMounted(async () => {
             :loading="loading"
             :meta="meta"
             manual-sorting
-            empty-icon="i-lucide-calendar-off"
-            empty-message="No leave records found for the selected filters."
+            empty-icon="i-lucide-file-text"
+            empty-message="No attendance correction requests found for the selected filters."
             @update:page="goToPage($event, load)"
           />
         </template>
@@ -295,11 +334,10 @@ onMounted(async () => {
     </template>
   </UDashboardPanel>
 
-  <!-- ── Reject modal ───────────────────────────────────────────────────────── -->
-  <UModal v-model:open="showRejectModal" title="Reject leave request">
+  <UModal v-model:open="showRejectModal" title="Reject correction request">
     <template #body>
       <div class="space-y-3">
-        <p class="text-sm text-muted">Provide a reason for rejecting this leave request.</p>
+        <p class="text-sm text-muted">Provide a reason for rejecting this attendance correction.</p>
         <UFormField label="Reason" required>
           <UTextarea
             v-model="rejectReason"

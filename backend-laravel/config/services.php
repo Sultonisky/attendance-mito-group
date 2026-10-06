@@ -54,4 +54,10 @@ return [
         'timeout' => (int) env('FASTAPI_TIMEOUT', 5),
     ],
 
+    'hris' => [
+        'base_url' => env('HRIS_API_BASE_URL'),
+        'employee_api_token' => env('HRIS_API_TOKEN'),
+        'timeout' => (int) env('HRIS_API_TIMEOUT', 8),
+    ],
+
 ];

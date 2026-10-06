@@ -7,6 +7,7 @@ use App\Actions\Attendance\CheckOutEmployee;
 use App\Actions\Attendance\CreateEmployeeAttendance;
 use App\Actions\Attendance\UpdateEmployeeAttendance;
 use App\Actions\Attendance\VoidEmployeeAttendance;
+use App\Enums\WorkAreaType;
 use App\Http\Requests\Attendance\CheckInRequest;
 use App\Http\Requests\Attendance\CheckOutRequest;
 use App\Http\Requests\Attendance\IndexAttendanceRequest;
@@ -15,6 +16,8 @@ use App\Http\Requests\Attendance\UpdateEmployeeAttendanceRequest;
 use App\Http\Resources\Attendance\AttendanceResource;
 use App\Models\AttendanceRecord;
 use App\Models\Employee;
+use App\Models\EmployeeWorkLocation;
+use App\Services\Attendance\ResolveEmployeeAllowedWorkLocations;
 use App\Support\AttendanceDateTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -28,6 +31,48 @@ class AttendanceController
         protected CheckInEmployee $checkIn,
         protected CheckOutEmployee $checkOut,
     ) {}
+
+    /**
+     * Work locations the authenticated employee may use for check-in/out.
+     */
+    public function workLocations(Request $request, ResolveEmployeeAllowedWorkLocations $resolver): JsonResponse
+    {
+        $employee = $request->user()->employee
+            ?? Employee::where('email', $request->user()->email)->first();
+
+        if ($employee === null) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Employee record not found for the authenticated user.',
+            ], 404);
+        }
+
+        try {
+            $locations = $resolver->execute($employee);
+            $hasAssignment = true;
+        } catch (InvalidArgumentException) {
+            $locations = collect();
+            $hasAssignment = false;
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $locations->map(fn (EmployeeWorkLocation $location) => [
+                'id' => $location->id,
+                'name' => $location->name,
+                'city' => $location->city,
+                'area_type' => $location->area_type,
+                'area_type_label' => WorkAreaType::labelFor($location->area_type),
+                'address' => $location->address,
+                'latitude' => $location->latitude,
+                'longitude' => $location->longitude,
+                'radius_meters' => $location->radius_meters ?: EmployeeWorkLocation::DEFAULT_RADIUS_METERS,
+            ])->values(),
+            'meta' => [
+                'has_assignment' => $hasAssignment,
+            ],
+        ]);
+    }
 
     /**
      * Check in the authenticated employee.

@@ -49,9 +49,9 @@ const sourceOptions = [
 ]
 
 const addItems: DropdownMenuItem[][] = [[
-  { label: 'View attendance', icon: 'i-lucide-calendar-check-2', to: '/dashboard/reports/attendance' },
-  { label: 'View leave', icon: 'i-lucide-calendar-off', to: '/dashboard/reports/leave' },
-  { label: 'View overtime', icon: 'i-lucide-bar-chart-3', to: '/dashboard/reports/overtime' },
+  { label: 'View attendance', icon: 'i-lucide-calendar-check-2', to: '/dashboard/employees/attendance' },
+  { label: 'View leave', icon: 'i-lucide-calendar-off', to: '/dashboard/employees/leave' },
+  { label: 'View overtime', icon: 'i-lucide-bar-chart-3', to: '/dashboard/employees/overtime' },
 ]]
 
 const loading = ref(true)
