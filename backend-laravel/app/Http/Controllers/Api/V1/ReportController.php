@@ -34,6 +34,8 @@ class ReportController extends Controller
         $filters['sort'] = $filters['sort'] ?? null;
         $filters['direction'] = $filters['direction'] ?? null;
         $filters['employee_id'] = $filters['employee_id'] ?? null;
+        $filters['search'] = $filters['search'] ?? null;
+        $filters['status'] = $filters['status'] ?? null;
 
         $result = $this->attendanceReportQuery->paginate($request->user(), $filters);
 
