@@ -30,7 +30,7 @@ class TransactionRollbackExpandedTest extends TestCase
 
     private function makeEmployee(array $overrides = []): Employee
     {
-        return Employee::factory()->create($overrides);
+        return Employee::factory()->withWorkLocation()->create($overrides);
     }
 
     private function userForEmployee(Employee $employee, array $overrides = []): User
@@ -91,7 +91,6 @@ class TransactionRollbackExpandedTest extends TestCase
         $initialCount = AttendanceRecord::where('employee_id', $employee->id)->count();
 
         $response = $this->postCheckIn($employee, [
-            'work_location_id' => $workLocation->id,
             'latitude' => -6.3,
             'longitude' => 106.9,
             'accuracy' => 12.5,

@@ -6,6 +6,7 @@ use App\Models\AttendanceEvent;
 use App\Models\AttendanceRecord;
 use App\Models\AttendanceSession;
 use App\Models\Employee;
+use App\Models\EmployeeWorkLocation;
 use App\Models\Outsource;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -93,6 +94,66 @@ class EmployeeAttendanceAdminCrudTest extends TestCase
             'event_type' => 'check_out',
             'source' => 'admin',
         ]);
+    }
+
+    public function test_admin_can_create_attendance_from_hris_person_and_assigned_work_location(): void
+    {
+        $admin = $this->adminWithCrud();
+        $employee = Employee::factory()->create([
+            'employee_code' => '2022031601',
+            'nik' => '1234567890123456',
+        ]);
+        $location = EmployeeWorkLocation::factory()->create();
+        $employee->workLocations()->attach($location->id, ['status' => 'active']);
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson('/api/v1/attendance', [
+                'hris_employee_id' => '2022031601',
+                'nik' => '1234567890123456',
+                'work_location_id' => $location->id,
+                'attendance_date' => '2026-09-20',
+                'check_in_at' => '2026-09-20 08:30',
+                'check_out_at' => '2026-09-20 17:00',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.employee_id', $employee->id);
+
+        $this->assertDatabaseCount('attendance_events', 2);
+        $this->assertDatabaseHas('attendance_events', [
+            'employee_id' => $employee->id,
+            'employee_work_location_id' => $location->id,
+            'event_type' => 'check_in',
+        ]);
+        $this->assertDatabaseHas('attendance_events', [
+            'employee_id' => $employee->id,
+            'employee_work_location_id' => $location->id,
+            'event_type' => 'check_out',
+        ]);
+    }
+
+    public function test_hris_attendance_create_rejects_a_work_location_not_assigned_to_the_person(): void
+    {
+        $admin = $this->adminWithCrud();
+        $employee = Employee::factory()->create([
+            'employee_code' => '2022031602',
+            'nik' => '1234567890123456',
+        ]);
+        $otherEmployee = Employee::factory()->create();
+        $location = EmployeeWorkLocation::factory()->create();
+        $otherEmployee->workLocations()->attach($location->id, ['status' => 'active']);
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson('/api/v1/attendance', [
+                'hris_employee_id' => '2022031602',
+                'nik' => '1234567890123456',
+                'work_location_id' => $location->id,
+                'attendance_date' => '2026-09-21',
+                'check_in_at' => '2026-09-21 08:30',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Selected work location is not assigned to this employee.');
+
+        $this->assertDatabaseCount('attendance_records', 0);
     }
 
     public function test_admin_can_create_incomplete_record(): void

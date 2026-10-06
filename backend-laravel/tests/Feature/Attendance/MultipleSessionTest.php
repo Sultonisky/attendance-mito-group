@@ -26,7 +26,7 @@ class MultipleSessionTest extends TestCase
 
     private function makeEmployee(array $overrides = []): Employee
     {
-        return Employee::factory()->create($overrides);
+        return Employee::factory()->withWorkLocation()->create($overrides);
     }
 
     private function makeActiveUserAndEmployee(): array
