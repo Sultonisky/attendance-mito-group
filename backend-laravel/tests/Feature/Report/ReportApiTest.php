@@ -2,8 +2,11 @@
 
 namespace Tests\Feature\Report;
 
+use App\Models\AttendanceEvent;
 use App\Models\AttendanceRecord;
+use App\Models\AttendanceSession;
 use App\Models\Employee;
+use App\Models\EmployeeWorkLocation;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use App\Models\OvertimeRecord;
@@ -409,5 +412,60 @@ class ReportApiTest extends TestCase
 
         $this->assertSame('2026-09-05', $response->json('data.0.attendance_date'));
         $this->assertSame('2026-09-15', $response->json('data.1.attendance_date'));
+    }
+
+    public function test_attendance_report_includes_clock_locations_and_filters_search_and_status(): void
+    {
+        [$user, $employee] = $this->makeActiveUserAndEmployee();
+        $employee->update([
+            'employee_code' => '2022031601',
+            'full_name' => 'Attendance Example',
+        ]);
+        $location = EmployeeWorkLocation::factory()->create([
+            'name' => 'Jakarta Head Office',
+            'city' => 'Jakarta',
+        ]);
+        $record = AttendanceRecord::create([
+            'employee_id' => $employee->id,
+            'attendance_date' => '2026-09-10',
+            'status' => 'present',
+        ]);
+        $session = AttendanceSession::factory()->closed()->create([
+            'attendance_record_id' => $record->id,
+            'check_in_at' => '2026-09-10 08:00:00',
+            'check_out_at' => '2026-09-10 17:00:00',
+        ]);
+        AttendanceEvent::factory()->checkIn()->forRecord($record)->forSession($session)->create([
+            'employee_work_location_id' => $location->id,
+            'occurred_at' => '2026-09-10 08:00:00',
+            'latitude' => -6.2,
+            'longitude' => 106.8,
+            'accuracy_meters' => 8.5,
+        ]);
+        AttendanceEvent::factory()->checkOut()->forRecord($record)->forSession($session)->create([
+            'employee_work_location_id' => $location->id,
+            'occurred_at' => '2026-09-10 17:00:00',
+            'latitude' => -6.21,
+            'longitude' => 106.81,
+            'accuracy_meters' => 10,
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/reports/attendance?from=2026-09-01&to=2026-09-30&search=2022031601&status=present')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.employee_id', $employee->id)
+            ->assertJsonPath('data.0.employee_code', '2022031601')
+            ->assertJsonPath('data.0.check_in_location.work_location.id', $location->id)
+            ->assertJsonPath('data.0.check_in_location.work_location.name', 'Jakarta Head Office')
+            ->assertJsonPath('data.0.check_in_location.work_location.city', 'Jakarta')
+            ->assertJsonPath('data.0.check_in_location.gps.latitude', -6.2)
+            ->assertJsonPath('data.0.check_in_location.gps.accuracy_meters', 8.5)
+            ->assertJsonPath('data.0.check_out_location.gps.longitude', 106.81);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/reports/attendance?from=2026-09-01&to=2026-09-30&status=absent')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
     }
 }
