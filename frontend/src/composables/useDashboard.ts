@@ -39,10 +39,10 @@ const _useDashboard = () => {
         if (gTimer) clearTimeout(gTimer)
         const nav: Record<string, string> = {
           h: '/dashboard',
-          a: '/dashboard/reports/attendance',
-          l: '/dashboard/reports/leave',
-          o: '/dashboard/reports/overtime',
-          p: '/dashboard/reports/penalties',
+          a: '/dashboard/employees/attendance',
+          l: '/dashboard/employees/leave',
+          o: '/dashboard/employees/overtime',
+          p: '/dashboard/employees/penalties',
           m: '/dashboard/reports/monthly-recaps',
         }
         if (nav[e.key]) void router.push(nav[e.key])
