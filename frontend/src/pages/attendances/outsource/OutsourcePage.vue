@@ -5,6 +5,7 @@ import "leaflet/dist/leaflet.css";
 import AppButton from "../../../components/AppButton.vue";
 import AppIcon from "../../../components/AppIcon.vue";
 import OutsourcePayrollPage from "./OutsourcePayrollPage.vue";
+import HistoryOutsourcePage from "./HistoryOutsourcePage.vue";
 import { ApiError } from "../../../services/apiClient";
 import {
   fetchOutsourceCities,
@@ -22,6 +23,8 @@ import {
   type Outsource,
   type OutsourcePin,
   type OutsourceAttendanceResponse,
+  type OutsourceAttendanceLocation,
+  type OutsourceAttendanceSnapshot,
   // Disabled: riwayat presensi
   type OutsourceHistoryItem,
   type OutsourceSessionPayload,
@@ -95,6 +98,8 @@ function onLoginPinInput(event: Event): void {
 const allowedPins = ref<OutsourcePin[]>([]);
 const selectedPinId = ref<number | null>(null);
 const hasServerSession = ref(false);
+/** Today's finished attendance (status COMPLETED); summary is shown only when Clock In is tapped. */
+const todayCompleted = ref<OutsourceAttendanceSnapshot | null>(null);
 const mapContainer = ref<HTMLElement | null>(null);
 const mapError = ref("");
 const currentMapLocation = ref<{
@@ -180,6 +185,24 @@ const ENABLE_OUTSOURCE_ATTENDANCE_HISTORY = false;
 const attendanceHistory = ref<OutsourceHistoryItem[]>([]);
 const isLoadingHistory = ref(false);
 
+/** Monthly history panel (period cutoff decided by the server, e.g. 25 → 24). */
+const isHistoryOpen = ref(false);
+
+const canOpenHistory = computed(
+  () =>
+    hasServerSession.value &&
+    selectedOutsource.value !== null &&
+    step.value !== "login",
+);
+
+function openHistory(): void {
+  isHistoryOpen.value = true;
+}
+
+function closeHistory(): void {
+  isHistoryOpen.value = false;
+}
+
 const selectedOutsourceLabel = computed(() => {
   if (!selectedOutsource.value) return "";
 
@@ -199,6 +222,9 @@ const greetStatusLabel = computed(() =>
 const greetHint = computed(() => {
   if (checkInAt.value) {
     return "Sesi masih terbuka. Lanjutkan clock out di pin point yang sesuai saat Anda selesai.";
+  }
+  if (todayCompleted.value) {
+    return "Presensi hari ini sudah selesai. Anda tetap bisa melihat riwayat presensi.";
   }
   return "Lanjut ke langkah berikutnya untuk memilih pin point, cek jarak GPS, lalu clock in.";
 });
@@ -277,6 +303,15 @@ const attendanceDate = ref<string | null>(null);
 const checkInAt = ref<string | null>(null);
 const checkOutAt = ref<string | null>(null);
 const durationMinutes = ref<number | null>(null);
+const checkInLocation = ref<OutsourceAttendanceLocation | null>(null);
+const checkOutLocation = ref<OutsourceAttendanceLocation | null>(null);
+
+watch(checkInAt, (value) => {
+  if (value === null) {
+    checkInLocation.value = null;
+    checkOutLocation.value = null;
+  }
+});
 
 const isLoading = ref(false);
 const isSubmitting = ref(false);
@@ -410,6 +445,29 @@ function openPayroll(): void {
 function closePayroll(): void {
   isPayrollOpen.value = false;
 }
+
+/** UX lock only — counted from server check_in_at against the device clock. */
+const OUTSOURCE_MIN_CLOCK_OUT_MINUTES = (() => {
+  const value = Number(
+    import.meta.env.VITE_OUTSOURCE_MIN_CLOCK_OUT_MINUTES ?? 60,
+  );
+  return Number.isFinite(value) && value >= 0 ? value : 60;
+})();
+
+const clockOutRemainingSeconds = computed(() => {
+  if (!isAttendanceOpen.value || !checkInAt.value) {
+    return 0;
+  }
+
+  const checkInTime = new Date(checkInAt.value).getTime();
+  if (!Number.isFinite(checkInTime)) {
+    return 0;
+  }
+
+  const unlockAt = checkInTime + OUTSOURCE_MIN_CLOCK_OUT_MINUTES * 60_000;
+  return Math.max(0, Math.ceil((unlockAt - now.value.getTime()) / 1000));
+});
+const isClockOutLocked = computed(() => clockOutRemainingSeconds.value > 0);
 
 const STORE_GEOFENCE_RADIUS_METERS = 150;
 
@@ -751,6 +809,9 @@ const mapDistanceLabel = computed(() => {
 
 const actionButtonLabel = computed(() => {
   if (isSubmitting.value) return "Memproses Presensi...";
+  if (isAttendanceOpen.value && isClockOutLocked.value) {
+    return `Selamat Bertugas, ${greetFirstName.value}`;
+  }
   if (isAttendanceOpen.value) return "Clock Out Sekarang";
   return "Clock In Sekarang";
 });
@@ -784,6 +845,29 @@ function formatTime(iso: string | null): string {
 
 function formatDate(iso: string | null): string {
   return formatAttendanceShortDate(iso, "--");
+}
+
+const completedLocations = computed(() =>
+  [
+    { key: "in", label: "Lokasi Clock In", location: checkInLocation.value },
+    { key: "out", label: "Lokasi Clock Out", location: checkOutLocation.value },
+  ].filter(
+    (item): item is { key: string; label: string; location: OutsourceAttendanceLocation } =>
+      item.location !== null,
+  ),
+);
+
+function formatLocationPlace(location: OutsourceAttendanceLocation): string {
+  return location.pin?.name || location.work_location?.name || "Lokasi tidak diketahui";
+}
+
+function formatLocationDetail(location: OutsourceAttendanceLocation): string | null {
+  const address = location.pin?.address?.trim();
+  if (address) return address;
+  const workLocationName = location.work_location?.name?.trim();
+  return workLocationName && workLocationName !== location.pin?.name
+    ? workLocationName
+    : null;
 }
 
 function createDivIcon(
@@ -1424,6 +1508,7 @@ function invalidateSessionState(): void {
   followDistance.value = false;
   isRefreshingDistance.value = false;
   hasServerSession.value = false;
+  todayCompleted.value = null;
   expiresAt.value = null;
   attendanceId.value = null;
   attendanceStatus.value = null;
@@ -1527,6 +1612,7 @@ function goToStep(target: Step): void {
     selectedOutsource.value = null;
     outsources.value = [];
     hasServerSession.value = false;
+    todayCompleted.value = null;
     expiresAt.value = null;
     attendanceId.value = null;
     attendanceStatus.value = null;
@@ -1548,6 +1634,7 @@ function goToStep(target: Step): void {
     selectedOutsource.value = null;
     outsources.value = [];
     hasServerSession.value = false;
+    todayCompleted.value = null;
     expiresAt.value = null;
     attendanceId.value = null;
     attendanceStatus.value = null;
@@ -1603,9 +1690,11 @@ async function submitLogin(): Promise<void> {
     // Disabled: riwayat presensi
     // await loadAttendanceHistory();
     message.value =
-      response.data.status === "ACTIVE"
-        ? `Selamat datang kembali, ${response.data.outsource?.name ?? ""}. Lanjutkan clock-out bila sudah selesai.`
-        : `Selamat datang, ${response.data.outsource?.name ?? ""}. Pilih Clock In untuk mulai.`;
+      response.data.status === "COMPLETED"
+        ? `Halo, ${response.data.outsource?.name ?? ""}. Presensi hari ini sudah selesai.`
+        : response.data.status === "ACTIVE"
+          ? `Selamat datang kembali, ${response.data.outsource?.name ?? ""}. Lanjutkan clock-out bila sudah selesai.`
+          : `Selamat datang, ${response.data.outsource?.name ?? ""}. Pilih Clock In untuk mulai.`;
   } catch (e: unknown) {
     const err = e as Error;
     if (err instanceof ApiError) {
@@ -1631,6 +1720,10 @@ async function submitLogin(): Promise<void> {
 }
 
 function startClockInFromGreet(): void {
+  if (todayCompleted.value) {
+    showTodayCompletedSummary(todayCompleted.value);
+    return;
+  }
   void enterAttendanceStep("session");
 }
 
@@ -1694,9 +1787,11 @@ async function startSession(): Promise<void> {
     expiresAt.value = response.data.expires_at;
     applySessionPayload(response.data);
     message.value =
-      response.data.status === "ACTIVE"
-        ? `Sesi aktif dipulihkan untuk ${response.data.outsource?.name ?? "personel"}. Lanjutkan clock-out bila sudah selesai.`
-        : `Sesi individu aktif untuk ${response.data.outsource?.name ?? "personel"}.`;
+      response.data.status === "COMPLETED"
+        ? `Presensi hari ini untuk ${response.data.outsource?.name ?? "personel"} sudah selesai.`
+        : response.data.status === "ACTIVE"
+          ? `Sesi aktif dipulihkan untuk ${response.data.outsource?.name ?? "personel"}. Lanjutkan clock-out bila sudah selesai.`
+          : `Sesi individu aktif untuk ${response.data.outsource?.name ?? "personel"}.`;
   } catch (e: unknown) {
     const err = e as Error;
     if (err instanceof ApiError) {
@@ -1721,6 +1816,62 @@ async function startSession(): Promise<void> {
     }
   } finally {
     isSubmitting.value = false;
+  }
+}
+
+function showCompletedSummary(): void {
+  followDistance.value = false;
+  stopProximityWatch();
+  destroyCartoMap();
+  step.value = "completed";
+}
+
+function showTodayCompletedSummary(snapshot: OutsourceAttendanceSnapshot): void {
+  attendanceId.value = snapshot.attendance_id;
+  attendanceStatus.value = snapshot.status;
+  attendanceDate.value = snapshot.attendance_date;
+  checkInAt.value = snapshot.check_in_at;
+  checkOutAt.value = snapshot.check_out_at;
+  durationMinutes.value = snapshot.duration_minutes;
+  checkInLocation.value = snapshot.check_in_location ?? null;
+  checkOutLocation.value = snapshot.check_out_location ?? null;
+  error.value = "";
+  message.value = "";
+  showCompletedSummary();
+}
+
+/** Back to greet (history stays reachable) while the server session is still alive. */
+async function backToGreetFromCompleted(): Promise<void> {
+  attendanceId.value = null;
+  attendanceStatus.value = null;
+  attendanceDate.value = null;
+  checkInAt.value = null;
+  checkOutAt.value = null;
+  durationMinutes.value = null;
+  error.value = "";
+  message.value = "";
+  step.value = "greet";
+  await nextTick();
+  if (selectedMapLocation.value) {
+    await ensureCartoMapReady();
+  }
+}
+
+/** Server says today is already done (e.g. check-in rejected) — show its summary. */
+async function showCompletedFromServer(): Promise<boolean> {
+  try {
+    const response = await fetchOutsourceSessionCurrent();
+    if (response?.data?.status !== "COMPLETED") {
+      return false;
+    }
+    applySessionPayload(response.data);
+    if (!todayCompleted.value) {
+      return false;
+    }
+    showTodayCompletedSummary(todayCompleted.value);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -1776,6 +1927,9 @@ function applySessionPayload(payload: OutsourceSessionPayload): void {
   expiresAt.value = payload.expires_at;
 
   const attendance = payload.attendance;
+  todayCompleted.value =
+    payload.status === "COMPLETED" && attendance ? attendance : null;
+
   if (payload.status === "ACTIVE" && attendance?.check_in_at) {
     attendanceId.value = attendance.attendance_id;
     attendanceStatus.value = attendance.status;
@@ -1783,6 +1937,8 @@ function applySessionPayload(payload: OutsourceSessionPayload): void {
     checkInAt.value = attendance.check_in_at;
     checkOutAt.value = attendance.check_out_at;
     durationMinutes.value = attendance.duration_minutes;
+    checkInLocation.value = attendance.check_in_location ?? null;
+    checkOutLocation.value = null;
     step.value = "greet";
     return;
   }
@@ -1850,7 +2006,7 @@ async function restoreSessionFromServer(): Promise<void> {
       }
     }
 
-    if (selectedMapLocation.value) {
+    if (step.value !== "completed" && selectedMapLocation.value) {
       await nextTick();
       await ensureCartoMapReady();
       // Safari: wait for an explicit "Aktifkan lokasi" tap — do not auto-request.
@@ -1861,9 +2017,11 @@ async function restoreSessionFromServer(): Promise<void> {
     // await loadAttendanceHistory();
 
     message.value =
-      response.data.status === "ACTIVE"
-        ? `Sesi clock-in dipulihkan untuk ${response.data.outsource?.name ?? "personel"}.`
-        : `Sesi siap presensi dipulihkan untuk ${response.data.outsource?.name ?? "personel"}.`;
+      response.data.status === "COMPLETED"
+        ? `Presensi hari ini untuk ${response.data.outsource?.name ?? "personel"} sudah selesai.`
+        : response.data.status === "ACTIVE"
+          ? `Sesi clock-in dipulihkan untuk ${response.data.outsource?.name ?? "personel"}.`
+          : `Sesi siap presensi dipulihkan untuk ${response.data.outsource?.name ?? "personel"}.`;
   } catch {
     // No cookie / network — stay on wizard.
   }
@@ -1893,6 +2051,11 @@ async function submitAttendance(): Promise<void> {
   }
 
   if (isSubmitting.value) {
+    return;
+  }
+
+  if (isAttendanceOpen.value && isClockOutLocked.value) {
+    error.value = "Clock Out belum tersedia. Selamat bertugas!";
     return;
   }
 
@@ -1950,6 +2113,8 @@ async function submitAttendance(): Promise<void> {
       checkInAt.value = response.data.check_in_at;
       checkOutAt.value = response.data.check_out_at;
       durationMinutes.value = response.data.duration_minutes;
+      checkInLocation.value = response.data.check_in_location ?? checkInLocation.value;
+      checkOutLocation.value = response.data.check_out_location ?? null;
 
       if (isAttendanceOpen.value) {
         step.value = "completed";
@@ -1968,6 +2133,14 @@ async function submitAttendance(): Promise<void> {
     }
   } catch (e: unknown) {
     const err = e as Error;
+    if (
+      err instanceof ApiError &&
+      err.code === "ATTENDANCE_DAY_COMPLETED" &&
+      (await showCompletedFromServer())
+    ) {
+      message.value = "Presensi hari ini sudah selesai.";
+      return;
+    }
     if (err instanceof ApiError) {
       switch (err.status) {
         case 401:
@@ -2070,6 +2243,12 @@ watch(isSessionActive, (active) => {
 watch(canOpenPayroll, (allowed) => {
   if (!allowed) {
     closePayroll();
+  }
+});
+
+watch(canOpenHistory, (allowed) => {
+  if (!allowed) {
+    isHistoryOpen.value = false;
   }
 });
 
@@ -2199,6 +2378,16 @@ onUnmounted(() => {
         >
           <AppIcon name="FileText" :size="18" :stroke-width="2" aria-hidden="true" />
         </button>
+        <button
+          v-if="canOpenHistory"
+          type="button"
+          class="history-trigger"
+          aria-label="Riwayat absensi"
+          title="Riwayat absensi"
+          @click="openHistory"
+        >
+          <AppIcon name="History" :size="18" :stroke-width="2" aria-hidden="true" />
+        </button>
         <div
           v-if="(isSessionActive || step === 'completed' || step === 'greet') && selectedOutsource"
           class="user-badge"
@@ -2242,8 +2431,7 @@ onUnmounted(() => {
         </template>
       </p>
       <p v-else-if="step === 'completed'">
-        Presensi hari ini sudah selesai. Ringkasan di bawah hanya konfirmasi —
-        sesi perangkat sudah ditutup.
+        Presensi hari ini sudah selesai. Ringkasan di bawah hanya konfirmasi.
       </p>
       <p v-else-if="isSessionActive">
         Sesi individu aktif di
@@ -2322,6 +2510,14 @@ onUnmounted(() => {
           </button>
         </section>
       </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <HistoryOutsourcePage
+        v-if="isHistoryOpen"
+        :outsource-name="selectedOutsource?.name ?? ''"
+        @close="closeHistory"
+      />
     </Teleport>
 
     <template v-if="step === 'greet' && selectedOutsource">
@@ -2902,7 +3098,7 @@ onUnmounted(() => {
           class="hero-action-button"
           variant="primary"
           icon="ArrowRight"
-          :disabled="isSubmitting || selectedPinId === null"
+          :disabled="isSubmitting || selectedPinId === null || isClockOutLocked"
           @click="submitAttendance"
         >
           {{ actionButtonLabel }}
@@ -3092,10 +3288,17 @@ onUnmounted(() => {
           <AppIcon name="CircleCheckBig" :size="40" :stroke-width="2.3" />
         </div>
         <h2>Presensi Hari Ini Selesai</h2>
-        <p class="completed-sub">
-          Terima kasih atas kerja keras Anda hari ini. Sesi perangkat sudah
-          ditutup — ringkasan ini tetap tampil sampai Anda tekan Selesai atau
-          memuat ulang halaman.
+        <p v-if="hasServerSession" class="completed-sub">
+          Terima kasih atas kerja keras Anda hari ini. Clock in berikutnya bisa
+          dilakukan besok.
+        </p>
+        <p v-else class="completed-sub">
+          Terima kasih atas kerja keras Anda hari ini. Clock in berikutnya bisa
+          dilakukan besok. Tekan Selesai &amp; Tutup untuk kembali ke halaman login.
+        </p>
+        <p v-if="!checkOutAt" class="completed-sub">
+          Clock out tidak tercatat karena sesi melewati batas waktu. Hubungi
+          admin bila perlu koreksi.
         </p>
 
         <div class="summary-grid">
@@ -3115,6 +3318,17 @@ onUnmounted(() => {
             <span>Jam Keluar</span>
             <strong>{{ formatTime(checkOutAt) }}</strong>
           </div>
+          <div
+            v-for="item in completedLocations"
+            :key="item.key"
+            class="summary-item full-width summary-location"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ formatLocationPlace(item.location) }}</strong>
+            <small v-if="formatLocationDetail(item.location)">
+              {{ formatLocationDetail(item.location) }}
+            </small>
+          </div>
           <div v-if="durationMinutes !== null" class="summary-item full-width">
             <span>Total Durasi Bekerja</span>
             <strong class="highlight-duration">
@@ -3125,6 +3339,17 @@ onUnmounted(() => {
         </div>
 
         <AppButton
+          v-if="hasServerSession"
+          type="button"
+          class="btn-primary"
+          variant="primary"
+          icon="ArrowLeft"
+          @click="backToGreetFromCompleted"
+        >
+          Kembali
+        </AppButton>
+        <AppButton
+          v-else
           type="button"
           class="btn-primary"
           variant="primary"
@@ -5068,10 +5293,34 @@ onUnmounted(() => {
   color: var(--text-h);
 }
 
+.summary-location small {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text);
+}
 .highlight-duration {
   color: var(--accent);
   font-size: 1.1rem !important;
   font-weight: 700;
+}
+
+/* Monthly history */
+.history-trigger {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  /* border: 1px solid rgba(235, 28, 36, 0.14); */
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(24, 24, 28, 0.06);
+}
+
+.history-trigger:hover {
+  background: #fff5f5;
 }
 
 /* Responsive Container on Larger Displays (Desktop/Tablet) */

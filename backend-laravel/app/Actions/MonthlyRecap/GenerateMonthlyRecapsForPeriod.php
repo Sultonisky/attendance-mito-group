@@ -7,12 +7,16 @@ use App\Models\Employee;
 use App\Models\MonthlyRecap;
 use App\Models\Outsource;
 use App\Models\User;
+use App\Support\OutsourceAttendancePeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Bulk attendance-only monthly recap generation for a period + source.
+ *
+ * The period key is the selected month ("2026-09"). Employees use the calendar
+ * month; outsources use the cutoff period ending in that month (25 Aug .. 24 Sep).
  *
  * Skips finalized/exported rows (unless force). Continues on per-subject failures.
  */
@@ -49,6 +53,8 @@ class GenerateMonthlyRecapsForPeriod
         $failures = [];
 
         if ($source === 'outsource') {
+            GenerateMonthlyRecap::guardOutsourcePeriodAvailable(OutsourceAttendancePeriod::fromKey($period));
+
             $query = Outsource::query()->whereNull('deleted_at')->where('status', 'active');
             if ($onlyOutsourceId !== null) {
                 $query->whereKey($onlyOutsourceId);
@@ -203,7 +209,7 @@ class GenerateMonthlyRecapsForPeriod
                 ]);
             }
 
-            $this->generate->executeForOutsource($outsource, $periodStart, $periodEnd, $actor, $request);
+            $this->generate->executeForOutsource($outsource, OutsourceAttendancePeriod::fromKey($period), $actor, $request);
 
             return ['generated' => 1, 'skipped' => 0, 'failed' => 0, 'failure' => null];
         } catch (MonthlyRecapException $e) {

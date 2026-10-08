@@ -39,7 +39,9 @@ Route::get('/{any?}', function () {
         abort(503, 'Frontend build is missing. Run the production image build.');
     }
 
+    // no-cache: installed PWAs must revalidate the shell so a deploy is picked up on next open.
     return response()->file($spa, [
         'Content-Type' => 'text/html; charset=UTF-8',
+        'Cache-Control' => 'no-cache',
     ]);
 })->where('any', '.*');

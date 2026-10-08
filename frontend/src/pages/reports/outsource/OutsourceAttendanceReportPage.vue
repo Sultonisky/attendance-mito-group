@@ -27,6 +27,12 @@ import { formatAttendanceDateTime, toAttendanceDatetimeLocal } from '../../../ut
 import type { OutsourceAttendanceReportRow, OutsourceAttendanceReportFilters, OutsourceAttendanceEventLocation } from '../../../types/reports'
 import { defaultReportDates } from '../../../types/reportDates'
 
+/**
+ * "Di luar kuota" badge + CSV quota columns (26-day period quota).
+ * Disabled for now — set true together with backend OUTSOURCE_REPORT_QUOTA_FLAG=true.
+ */
+const ENABLE_OUTSOURCE_REPORT_QUOTA_FLAG = false
+
 const route = useRoute()
 const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
 const toast = useAppToast()
@@ -185,6 +191,18 @@ const csvColumns: ReportCsvColumn[] = [
       return statusLabel[s] ?? (s ? s.charAt(0).toUpperCase() + s.slice(1) : '')
     },
   },
+  ...(ENABLE_OUTSOURCE_REPORT_QUOTA_FLAG
+    ? [
+        { header: 'Quota Period', value: (row: unknown) => asOutsourceRow(row).quota_period ?? '' },
+        {
+          header: 'Counted In Quota',
+          value: (row: unknown) => {
+            const counted = asOutsourceRow(row).counted_in_quota
+            return counted == null ? '' : counted ? 'Yes' : 'No'
+          },
+        },
+      ]
+    : []),
 ]
 
 const csvFilename = computed(() =>
@@ -296,7 +314,25 @@ const columns = computed<TableColumn<OutsourceAttendanceReportRow>[]>(() => [
     header: ({ column }) => createSortableHeader(column, 'Status'),
     cell: ({ row }) => {
       const s = row.getValue<string>('status')
-      return createStatusBadge(s, statusColor[s] ?? 'neutral')
+      const badge = createStatusBadge(s, statusColor[s] ?? 'neutral')
+      if (
+        !ENABLE_OUTSOURCE_REPORT_QUOTA_FLAG
+        || row.original.counted_in_quota !== false
+        || !row.original.check_in_at
+      ) return badge
+      return h('div', { class: 'flex flex-wrap items-center gap-1' }, [
+        badge,
+        h(
+          resolveComponent('UBadge'),
+          {
+            color: 'error',
+            variant: 'subtle',
+            size: 'sm',
+            title: `Melebihi kuota hari absensi periode ${row.original.quota_period ?? ''}; tidak dihitung di History & Monthly Recap.`,
+          },
+          () => 'Di luar kuota',
+        ),
+      ])
     },
   },
   {

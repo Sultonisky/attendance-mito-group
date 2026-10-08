@@ -96,19 +96,18 @@ class LoginOutsourceAttendanceSession
             throw $e;
         }
 
-        $attendance = $this->resolveOpenAttendance->execute($outsource->id);
-        $status = $attendance !== null ? 'ACTIVE' : 'READY';
+        $state = $this->resolveOpenAttendance->resolveState($outsource->id);
 
         $payload = $this->resolveOpenAttendance->buildSessionPayload(
-            $status,
+            $state['status'],
             $result['session']->expiresAt->toIso8601String(),
             $outsource,
             $store,
-            $attendance,
+            $state['attendance'],
         );
 
-        $payload['can_clock_in'] = $attendance === null;
-        $payload['can_clock_out'] = $attendance !== null;
+        $payload['can_clock_in'] = $state['status'] === 'READY';
+        $payload['can_clock_out'] = $state['status'] === 'ACTIVE';
 
         return [
             'session' => $result['session'],

@@ -88,6 +88,8 @@ export type MonthlyRecapRow = {
   outsource_code?: string | null
   subject_name?: string | null
   period: string
+  period_start?: string | null
+  period_end?: string | null
   status: string
   summary: MonthlyRecapSummary | null
   details: unknown[]
@@ -140,6 +142,8 @@ export type OutsourceAttendanceReportRow = {
   check_out_at: string | null
   duration_minutes: number | null
   session_count: number | null
+  quota_period?: string | null
+  counted_in_quota?: boolean | null
 }
 
 export type OutsourceAttendanceReportFilters = {

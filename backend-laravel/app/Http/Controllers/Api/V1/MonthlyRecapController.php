@@ -19,6 +19,7 @@ use App\Http\Resources\MonthlyRecapResource;
 use App\Models\Employee;
 use App\Models\MonthlyRecap;
 use App\Models\Outsource;
+use App\Support\OutsourceAttendancePeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -138,8 +139,7 @@ class MonthlyRecapController extends Controller
 
             $recap = $this->generateAction->executeForOutsource(
                 $outsource,
-                $periodStart,
-                $periodEnd,
+                OutsourceAttendancePeriod::fromKey($periodStart->format('Y-m')),
                 $request->user(),
                 $request,
             );
