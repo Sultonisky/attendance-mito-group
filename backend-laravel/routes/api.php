@@ -72,6 +72,14 @@ Route::prefix('v1')->group(function () {
             ->middleware('throttle:60,1')
             ->name('outsource.attendance.history');
 
+        Route::get('/payroll/payslips', [OutsourceAttendanceController::class, 'payslips'])
+            ->middleware('throttle:30,1')
+            ->name('outsource.payroll.payslips');
+
+        Route::get('/payroll/incentives', [OutsourceAttendanceController::class, 'incentives'])
+            ->middleware('throttle:30,1')
+            ->name('outsource.payroll.incentives');
+
         Route::post('/attendance/check-in', [OutsourceAttendanceController::class, 'checkIn'])
             ->middleware('throttle:20,1')
             ->name('outsource.attendance.check-in');

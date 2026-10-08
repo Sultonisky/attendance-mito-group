@@ -13,6 +13,7 @@ use App\Actions\Outsource\ResolveOutsourceOpenAttendance;
 use App\Actions\Outsource\ResolveOutsourceSession;
 use App\Exceptions\Domain\InactiveSubjectException;
 use App\Exceptions\Domain\OutsourceDeviceBusyException;
+use App\Exceptions\Integration\HrisOutsourcePayrollApiException;
 use App\Http\Requests\Outsource\CheckInRequest;
 use App\Http\Requests\Outsource\CheckOutRequest;
 use App\Http\Requests\Outsource\OutsourceLoginRequest;
@@ -30,6 +31,7 @@ use App\Support\AttendanceDateTime;
 use App\Services\Outsource\Session\OutsourceSessionCookie;
 use App\Services\Outsource\Session\OutsourceSessionStoreUnavailableException;
 use App\Services\Outsource\ResolveOutsourceAllowedPins;
+use App\Services\Integration\HrisOutsourcePayrollApiService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -47,6 +49,7 @@ class OutsourceAttendanceController
         protected OutsourceCheckOut $checkOut,
         protected OutsourceSessionCookie $sessionCookie,
         protected ResolveOutsourceAllowedPins $resolveAllowedPins,
+        protected HrisOutsourcePayrollApiService $hrisPayroll,
     ) {}
 
     public function cities(Request $request): JsonResponse
@@ -379,6 +382,102 @@ class OutsourceAttendanceController
             'success' => true,
             'data' => $this->listAttendanceHistory->execute((int) $outsource->id, $limit),
         ]);
+    }
+
+    public function payslips(Request $request): JsonResponse
+    {
+        $outsource = $this->resolveActiveSessionOutsource($request);
+        if ($outsource instanceof JsonResponse) {
+            return $outsource;
+        }
+
+        $filters = $request->validate([
+            'period' => ['sometimes', 'nullable', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+        ]);
+
+        try {
+            $payslips = $this->hrisPayroll->payslips(
+                $outsource->outsource_code,
+                $filters['period'] ?? null,
+            );
+        } catch (HrisOutsourcePayrollApiException $exception) {
+            return $this->payrollIntegrationError($exception);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $payslips,
+        ]);
+    }
+
+    public function incentives(Request $request): JsonResponse
+    {
+        $outsource = $this->resolveActiveSessionOutsource($request);
+        if ($outsource instanceof JsonResponse) {
+            return $outsource;
+        }
+
+        $filters = $request->validate([
+            'period' => ['sometimes', 'nullable', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+        ]);
+
+        try {
+            $incentives = $this->hrisPayroll->incentives(
+                $outsource->outsource_code,
+                $filters['period'] ?? null,
+            );
+        } catch (HrisOutsourcePayrollApiException $exception) {
+            return $this->payrollIntegrationError($exception);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $incentives,
+        ]);
+    }
+
+    private function payrollIntegrationError(HrisOutsourcePayrollApiException $exception): JsonResponse
+    {
+        return response()->json([
+            'success' => false,
+            'message' => $exception->getMessage(),
+        ], $exception->httpStatus);
+    }
+
+    private function resolveActiveSessionOutsource(Request $request): Outsource|JsonResponse
+    {
+        $sessionId = $this->sessionCookie->read($request);
+        if ($sessionId === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid session.',
+                'code' => 'INVALID_SESSION',
+            ], 401);
+        }
+
+        $resolution = $this->resolveSession->execute($sessionId);
+        if (! $resolution['valid']) {
+            $status = $resolution['code'] === 'SESSION_STORE_UNAVAILABLE' ? 503 : 401;
+
+            return response()->json([
+                'success' => false,
+                'message' => $resolution['message'],
+                'code' => $resolution['code'],
+            ], $status);
+        }
+
+        $session = $resolution['session'];
+        $outsource = Outsource::query()->withoutGlobalScopes()->find($session->outsourceId);
+
+        if ($outsource === null || ! $outsource->isAttendanceActive()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Outsource is inactive.',
+                'code' => 'INACTIVE_OUTSOURCE',
+            ], 422);
+        }
+
+        return $outsource;
     }
 
     public function checkIn(CheckInRequest $request): JsonResponse
