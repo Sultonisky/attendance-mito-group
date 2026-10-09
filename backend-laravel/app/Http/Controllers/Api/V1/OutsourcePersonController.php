@@ -2,12 +2,10 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Actions\Outsource\CreateOutsourcePerson;
 use App\Actions\Outsource\DeleteOutsourcePerson;
 use App\Actions\Outsource\ToggleOutsourcePersonStatus;
 use App\Actions\Outsource\UpdateOutsourcePerson;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Outsource\StoreOutsourcePersonRequest;
 use App\Http\Requests\Outsource\UpdateOutsourcePersonRequest;
 use App\Http\Resources\Outsource\OutsourcePersonResource;
 use App\Models\Outsource;
@@ -144,7 +142,8 @@ class OutsourcePersonController extends Controller
             $row->has_password = (bool) ($row->has_password ?? false);
             $row->stores_payload = $storesPayload;
             $row->pin_ids = array_values(array_unique(array_merge(
-                ...array_map(static fn (array $s) => $s['pin_ids'], $storesPayload ?: [[]]),
+                [],
+                ...array_map(static fn (array $s) => $s['pin_ids'] ?? [], $storesPayload),
             )));
 
             return $row;
@@ -171,21 +170,6 @@ class OutsourcePersonController extends Controller
         return (new OutsourcePersonResource($outsourcePerson))
             ->additional(['success' => true])
             ->response();
-    }
-
-    // ── CREATE ────────────────────────────────────────────────────────────────
-
-    public function store(
-        StoreOutsourcePersonRequest $request,
-        CreateOutsourcePerson $action,
-    ): JsonResponse {
-        $person = $action->execute($request->validated(), $request->user(), $request);
-        $this->hydratePersonAssignment($person);
-
-        return (new OutsourcePersonResource($person))
-            ->additional(['success' => true])
-            ->response()
-            ->setStatusCode(201);
     }
 
     // ── UPDATE ────────────────────────────────────────────────────────────────
@@ -279,7 +263,8 @@ class OutsourcePersonController extends Controller
         $person->has_password = filled($person->password);
         $person->stores_payload = $storesPayload;
         $person->pin_ids = array_values(array_unique(array_merge(
-            ...array_map(static fn (array $s) => $s['pin_ids'], $storesPayload ?: [[]]),
+            [],
+            ...array_map(static fn (array $s) => $s['pin_ids'] ?? [], $storesPayload),
         )));
     }
 }

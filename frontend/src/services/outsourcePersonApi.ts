@@ -47,14 +47,6 @@ export type OutsourcePersonResponse = {
   meta: OutsourcePersonMeta
 }
 
-export type OutsourcePersonPayload = {
-  name: string
-  password?: string | null
-  store_id?: number | null
-  store_ids?: number[] | null
-  pin_ids?: number[] | null
-}
-
 export type UpdateOutsourcePersonPayload = {
   name?: string
   password?: string | null
@@ -94,17 +86,6 @@ export async function fetchOutsourcePersons(
 
 export async function fetchOutsourcePerson(id: number): Promise<{ success: boolean; data: OutsourcePersonRow }> {
   return apiFetch(`/outsource-persons/${id}`)
-}
-
-// ── CREATE ────────────────────────────────────────────────────────────────────
-
-export async function createOutsourcePerson(
-  payload: OutsourcePersonPayload,
-): Promise<{ success: boolean; data: OutsourcePersonRow }> {
-  return apiFetch(`/outsource-persons`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
 }
 
 // ── UPDATE ────────────────────────────────────────────────────────────────────

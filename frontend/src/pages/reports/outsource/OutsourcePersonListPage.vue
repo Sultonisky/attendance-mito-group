@@ -10,7 +10,6 @@ import { usePermission } from '../../../features/auth/composables/usePermission'
 import { useAppToast } from '../../../composables/useAppToast'
 import {
   fetchOutsourcePersons,
-  createOutsourcePerson,
   updateOutsourcePerson,
   toggleOutsourcePersonStatus,
   deleteOutsourcePerson,
@@ -77,9 +76,8 @@ const statusColor: Record<string, 'success' | 'error'> = {
   inactive: 'error',
 }
 
-// ── Modal — create/edit ───────────────────────────────────────────────────────
+// ── Modal — edit (persons are created in HRIS) ────────────────────────────────
 const showFormModal   = ref(false)
-const formMode        = ref<'create' | 'edit'>('create')
 const formBusy        = ref(false)
 const formError       = ref('')
 const editingId       = ref<number | null>(null)
@@ -538,26 +536,7 @@ function resetFilters(): void {
 }
 
 // ── CRUD actions ──────────────────────────────────────────────────────────────
-function openCreate(): void {
-  formMode.value  = 'create'
-  editingId.value = null
-  form.name       = ''
-  form.password   = '123456'
-  form.city_id    = ''
-  form.store_id   = ''
-  form.store_ids  = []
-  form.pin_ids    = []
-  formPins.value  = []
-  formModalStores.value = []
-  selectedStores.value = []
-  formError.value = ''
-  showPassword.value = false
-  formCities.value = cities.value
-  showFormModal.value = true
-}
-
 async function openEdit(person: OutsourcePersonRow): Promise<void> {
-  formMode.value  = 'edit'
   editingId.value = person.id
   form.name       = person.name
   form.password   = ''
@@ -592,10 +571,6 @@ async function submitForm(): Promise<void> {
     formError.value = 'Tambah minimal 1 kota/cabang ke daftar sebelum Save.'
     return
   }
-  const pin = form.password.trim()
-  if (formMode.value === 'create' && pin === '') {
-    form.password = '123456'
-  }
   const passwordToSend = form.password.trim()
   if (passwordToSend !== '' && !/^\d{4,8}$/.test(passwordToSend)) {
     formError.value = 'PIN must be 4–8 digits.'
@@ -619,19 +594,7 @@ async function submitForm(): Promise<void> {
       pin_ids: form.pin_ids,
       password: passwordToSend || null,
     }
-    if (formMode.value === 'create') {
-      const created = await createOutsourcePerson({
-        ...payload,
-        password: passwordToSend || '123456',
-      })
-      toast.success('Person created', 'Outsource person saved with login PIN.')
-      // Clear location filters so the new person is visible even if another city was filtered.
-      filters.city_id = ''
-      filters.store_id = ''
-      stores.value = []
-      searchInput.value = created.data.name
-      filters.search = created.data.name
-    } else if (editingId.value !== null) {
+    if (editingId.value !== null) {
       await updateOutsourcePerson(editingId.value, payload)
       toast.success('Person updated')
     }
@@ -693,15 +656,6 @@ onMounted(async () => {
           <UDashboardSidebarCollapse />
         </template>
         <template #right>
-          <UButton
-            v-if="can('outsource_person.create')"
-            color="primary"
-            size="sm"
-            icon="i-lucide-plus"
-            @click="openCreate"
-          >
-            Add person
-          </UButton>
           <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-filter-x" @click="resetFilters">
             Reset
           </UButton>
@@ -781,8 +735,8 @@ onMounted(async () => {
     </template>
   </UDashboardPanel>
 
-  <!-- ── Create / Edit modal ───────────────────────────────────────────────── -->
-  <UModal v-model:open="showFormModal" :title="formMode === 'create' ? 'Add outsource person' : 'Edit outsource person'">
+  <!-- ── Edit modal ────────────────────────────────────────────────────────── -->
+  <UModal v-model:open="showFormModal" title="Edit outsource person">
     <template #body>
       <div class="space-y-4">
         <UFormField label="Name" required>
@@ -889,11 +843,7 @@ onMounted(async () => {
           </UFormField>
         </div>
 
-        <UFormField
-          :label="formMode === 'create' ? 'PIN' : 'New PIN'"
-          :hint="formMode === 'edit' ? 'Leave blank to keep current PIN' : 'Numeric PIN for outsource login (default 123456)'"
-          :required="formMode === 'create'"
-        >
+        <UFormField label="New PIN" hint="Leave blank to keep current PIN">
           <UInput
             :model-value="form.password"
             :type="showPassword ? 'text' : 'password'"
@@ -1001,7 +951,7 @@ onMounted(async () => {
           :disabled="formBusy || pinSelectionIncomplete"
           @click="submitForm"
         >
-          {{ formMode === 'create' ? 'Add person' : 'Save changes' }}
+          Save changes
         </UButton>
       </div>
     </template>

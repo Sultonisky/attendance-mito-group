@@ -90,18 +90,4 @@ class OutsourceModelTest extends TestCase
 
         $this->assertSame('DM20260003', Outsource::generateNextCode());
     }
-
-    public function test_manual_create_uses_dm2026_sequence_and_default_pin(): void
-    {
-        Outsource::factory()->create(['outsource_code' => 'DM20260123']);
-
-        $person = app(\App\Actions\Outsource\CreateOutsourcePerson::class)->execute(
-            ['name' => 'Manual Worker'],
-            null,
-            null,
-        );
-
-        $this->assertSame('DM20260124', $person->outsource_code);
-        $this->assertTrue(\Illuminate\Support\Facades\Hash::check(Outsource::DEFAULT_LOGIN_PIN, $person->password));
-    }
 }
