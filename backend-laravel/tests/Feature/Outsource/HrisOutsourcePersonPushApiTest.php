@@ -4,6 +4,7 @@ namespace Tests\Feature\Outsource;
 
 use App\Models\AuditLog;
 use App\Models\Outsource;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -44,6 +45,38 @@ class HrisOutsourcePersonPushApiTest extends TestCase
         $this->assertSame($person->id, (int) $audit->auditable_id);
     }
 
+    public function test_new_hris_person_without_assignments_is_available_in_search_and_pagination(): void
+    {
+        $this->withToken(self::TOKEN)
+            ->postJson(self::URL, [
+                'people' => [['outsource_id' => 'DM20260135', 'full_name' => 'Nur Aisyah']],
+            ])
+            ->assertOk();
+
+        $this->seed(\Database\Seeders\RolesAndPermissionsSeeder::class);
+        $user = User::factory()->create();
+        $user->assignRole('USER');
+        $user->givePermissionTo('outsource_person.view');
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/outsource-persons?search=Nur&status=inactive&per_page=10&page=1')
+            ->assertOk()
+            ->assertJsonPath('data.0.outsource_code', 'DM20260135')
+            ->assertJsonPath('data.0.name', 'Nur Aisyah')
+            ->assertJsonPath('data.0.stores', [])
+            ->assertJsonPath('data.0.store_ids', [])
+            ->assertJsonPath('data.0.pin_ids', [])
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.total', 1);
+
+        $person = Outsource::query()->where('outsource_code', 'DM20260135')->firstOrFail();
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/outsource-persons/'.$person->id)
+            ->assertOk()
+            ->assertJsonPath('data.stores', [])
+            ->assertJsonPath('data.pin_ids', []);
+    }
+
     public function test_existing_persons_are_never_modified(): void
     {
         $active = Outsource::factory()->create(['outsource_code' => 'DM20260001', 'name' => 'Ainun Jariyah', 'status' => 'active']);
@@ -70,7 +103,9 @@ class HrisOutsourcePersonPushApiTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('data.0.status', 'conflict')
+            ->assertJsonPath('data.0.conflict_reason', 'name_mismatch')
             ->assertJsonPath('data.1.status', 'conflict')
+            ->assertJsonPath('data.1.conflict_reason', 'deleted_record')
             ->assertJsonPath('meta.conflict', 2);
 
         $this->assertSame('Ainun Jariyah', $active->fresh()->name);

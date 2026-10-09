@@ -142,7 +142,8 @@ class OutsourcePersonController extends Controller
             $row->has_password = (bool) ($row->has_password ?? false);
             $row->stores_payload = $storesPayload;
             $row->pin_ids = array_values(array_unique(array_merge(
-                ...array_map(static fn (array $s) => $s['pin_ids'], $storesPayload ?: [[]]),
+                [],
+                ...array_map(static fn (array $s) => $s['pin_ids'] ?? [], $storesPayload),
             )));
 
             return $row;
@@ -262,7 +263,8 @@ class OutsourcePersonController extends Controller
         $person->has_password = filled($person->password);
         $person->stores_payload = $storesPayload;
         $person->pin_ids = array_values(array_unique(array_merge(
-            ...array_map(static fn (array $s) => $s['pin_ids'], $storesPayload ?: [[]]),
+            [],
+            ...array_map(static fn (array $s) => $s['pin_ids'] ?? [], $storesPayload),
         )));
     }
 }

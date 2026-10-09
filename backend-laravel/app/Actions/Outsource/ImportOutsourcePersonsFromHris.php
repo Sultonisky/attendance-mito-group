@@ -27,7 +27,7 @@ class ImportOutsourcePersonsFromHris implements Action
     /**
      * @param  list<array{outsource_id: string, full_name: string}>  $people
      * @return array{
-     *   data: list<array{outsource_id: string, status: 'created'|'skipped'|'conflict'|'would_create'}>,
+     *   data: list<array{outsource_id: string, status: 'created'|'skipped'|'conflict'|'would_create', conflict_reason?: 'name_mismatch'|'deleted_record'}>,
      *   meta: array{processed: int, created: int, skipped: int, conflict: int, would_create: int}
      * }
      */
@@ -39,25 +39,41 @@ class ImportOutsourcePersonsFromHris implements Action
         foreach ($people as $person) {
             $code = strtoupper(trim($person['outsource_id']));
             $name = trim($person['full_name']);
-            $status = $this->resolveStatus($code, $name, $dryRun, $request);
+            $resolution = $this->resolveStatus($code, $name, $dryRun, $request);
+            $status = $resolution['status'];
 
             $meta[$status]++;
             $meta['processed']++;
-            $results[] = ['outsource_id' => $code, 'status' => $status];
+            $results[] = [
+                'outsource_id' => $code,
+                'status' => $status,
+                ...(isset($resolution['conflict_reason'])
+                    ? ['conflict_reason' => $resolution['conflict_reason']]
+                    : []),
+            ];
         }
 
         return ['data' => $results, 'meta' => $meta];
     }
 
-    private function resolveStatus(string $code, string $name, bool $dryRun, ?Request $request): string
+    /**
+     * @return array{status: string, conflict_reason?: 'name_mismatch'|'deleted_record'}
+     */
+    private function resolveStatus(string $code, string $name, bool $dryRun, ?Request $request): array
     {
         $existing = Outsource::withTrashed()->where('outsource_code', $code)->first();
         if ($existing !== null) {
-            return ! $existing->trashed() && $this->sameName($existing->name, $name) ? 'skipped' : 'conflict';
+            if ($existing->trashed()) {
+                return ['status' => 'conflict', 'conflict_reason' => 'deleted_record'];
+            }
+
+            return $this->sameName($existing->name, $name)
+                ? ['status' => 'skipped']
+                : ['status' => 'conflict', 'conflict_reason' => 'name_mismatch'];
         }
 
         if ($dryRun) {
-            return 'would_create';
+            return ['status' => 'would_create'];
         }
 
         try {
@@ -80,10 +96,10 @@ class ImportOutsourcePersonsFromHris implements Action
                 );
             });
         } catch (UniqueConstraintViolationException) {
-            return 'skipped';
+            return ['status' => 'skipped'];
         }
 
-        return 'created';
+        return ['status' => 'created'];
     }
 
     private function sameName(string $left, string $right): bool
