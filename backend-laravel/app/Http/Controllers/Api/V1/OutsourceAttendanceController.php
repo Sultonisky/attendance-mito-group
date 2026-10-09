@@ -14,6 +14,7 @@ use App\Actions\Outsource\ResolveOutsourceOpenAttendance;
 use App\Actions\Outsource\ResolveOutsourceSession;
 use App\Exceptions\Domain\InactiveSubjectException;
 use App\Exceptions\Domain\OutsourceDeviceBusyException;
+use App\Exceptions\Integration\HrisOutsourcePayrollApiException;
 use App\Http\Requests\Outsource\CheckInRequest;
 use App\Http\Requests\Outsource\CheckOutRequest;
 use App\Http\Requests\Outsource\OutsourceLoginRequest;
@@ -32,6 +33,7 @@ use App\Support\OutsourceAttendancePeriod;
 use App\Services\Outsource\Session\OutsourceSessionCookie;
 use App\Services\Outsource\Session\OutsourceSessionStoreUnavailableException;
 use App\Services\Outsource\ResolveOutsourceAllowedPins;
+use App\Services\Integration\HrisOutsourcePayrollApiService;
 use App\Services\Outsource\OutsourceAttendanceLocationSummary;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -51,6 +53,7 @@ class OutsourceAttendanceController
         protected OutsourceCheckOut $checkOut,
         protected OutsourceSessionCookie $sessionCookie,
         protected ResolveOutsourceAllowedPins $resolveAllowedPins,
+        protected HrisOutsourcePayrollApiService $hrisPayroll,
         protected OutsourceAttendanceLocationSummary $locationSummary,
     ) {}
 
@@ -442,6 +445,66 @@ class OutsourceAttendanceController
         }
 
         return $outsource;
+    }
+
+    public function payslips(Request $request): JsonResponse
+    {
+        $outsource = $this->resolveActiveSessionOutsource($request);
+        if ($outsource instanceof JsonResponse) {
+            return $outsource;
+        }
+
+        $filters = $request->validate([
+            'period' => ['sometimes', 'nullable', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+        ]);
+
+        try {
+            $payslips = $this->hrisPayroll->payslips(
+                $outsource->outsource_code,
+                $filters['period'] ?? null,
+            );
+        } catch (HrisOutsourcePayrollApiException $exception) {
+            return $this->payrollIntegrationError($exception);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $payslips,
+        ]);
+    }
+
+    public function incentives(Request $request): JsonResponse
+    {
+        $outsource = $this->resolveActiveSessionOutsource($request);
+        if ($outsource instanceof JsonResponse) {
+            return $outsource;
+        }
+
+        $filters = $request->validate([
+            'period' => ['sometimes', 'nullable', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+        ]);
+
+        try {
+            $incentives = $this->hrisPayroll->incentives(
+                $outsource->outsource_code,
+                $filters['period'] ?? null,
+            );
+        } catch (HrisOutsourcePayrollApiException $exception) {
+            return $this->payrollIntegrationError($exception);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $incentives,
+        ]);
+    }
+
+    private function payrollIntegrationError(HrisOutsourcePayrollApiException $exception): JsonResponse
+    {
+        return response()->json([
+            'success' => false,
+            'message' => $exception->getMessage(),
+        ], $exception->httpStatus);
     }
 
     public function checkIn(CheckInRequest $request): JsonResponse
