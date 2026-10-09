@@ -58,6 +58,30 @@ class OutsourceWorkLocationSearchTest extends TestCase
             ->assertJsonCount(1, 'data');
     }
 
+    public function test_sort_by_pin_name_orders_rows_by_pin_name(): void
+    {
+        $user = $this->actingViewer();
+        $store = WorkLocation::factory()->create(['status' => 'active']);
+
+        foreach (['Charlie', 'Alpha', 'Bravo'] as $name) {
+            WorkLocationPin::factory()->forLocation($store)->create([
+                'name' => $name,
+                'status' => 'active',
+            ]);
+        }
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/outsource-work-locations?'.http_build_query([
+                'status' => 'active',
+                'sort' => 'pin_name',
+                'direction' => 'desc',
+            ]))
+            ->assertOk()
+            ->assertJsonPath('data.0.pin_name', 'Charlie')
+            ->assertJsonPath('data.1.pin_name', 'Bravo')
+            ->assertJsonPath('data.2.pin_name', 'Alpha');
+    }
+
     public function test_search_over_255_characters_returns_friendly_validation_error(): void
     {
         $user = $this->actingViewer();

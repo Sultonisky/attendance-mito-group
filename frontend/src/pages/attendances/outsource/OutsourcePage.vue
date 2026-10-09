@@ -4,6 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import AppButton from "../../../components/AppButton.vue";
 import AppIcon from "../../../components/AppIcon.vue";
+import OutsourcePayrollPage from "./OutsourcePayrollPage.vue";
 import HistoryOutsourcePage from "./HistoryOutsourcePage.vue";
 import { ApiError } from "../../../services/apiClient";
 import {
@@ -172,6 +173,7 @@ const selectedStore = ref<number | null>(null);
 const selectedStoreName = ref<string>("");
 const selectedCityName = ref<string>("");
 const selectedOutsource = ref<Outsource | null>(null);
+const isPayrollOpen = ref(false);
 
 /**
  * Riwayat presensi di greeting page — DISABLED (kept for later).
@@ -431,7 +433,18 @@ const attendanceDurationLabel = computed(() => {
 const isSessionActive = computed(
   () => step.value === "session" || step.value === "attendance_open",
 );
+const canOpenPayroll = computed(
+  () => hasServerSession.value && selectedOutsource.value !== null,
+);
 const isAttendanceOpen = computed(() => step.value === "attendance_open");
+
+function openPayroll(): void {
+  isPayrollOpen.value = true;
+}
+
+function closePayroll(): void {
+  isPayrollOpen.value = false;
+}
 
 /** UX lock only — counted from server check_in_at against the device clock. */
 const OUTSOURCE_MIN_CLOCK_OUT_MINUTES = (() => {
@@ -454,7 +467,6 @@ const clockOutRemainingSeconds = computed(() => {
   const unlockAt = checkInTime + OUTSOURCE_MIN_CLOCK_OUT_MINUTES * 60_000;
   return Math.max(0, Math.ceil((unlockAt - now.value.getTime()) / 1000));
 });
-
 const isClockOutLocked = computed(() => clockOutRemainingSeconds.value > 0);
 
 const STORE_GEOFENCE_RADIUS_METERS = 150;
@@ -2228,6 +2240,12 @@ watch(isSessionActive, (active) => {
   }
 });
 
+watch(canOpenPayroll, (allowed) => {
+  if (!allowed) {
+    closePayroll();
+  }
+});
+
 watch(canOpenHistory, (allowed) => {
   if (!allowed) {
     isHistoryOpen.value = false;
@@ -2350,6 +2368,16 @@ onUnmounted(() => {
       </div>
 
       <div class="header-meta">
+        <button
+          v-if="canOpenPayroll"
+          type="button"
+          class="payroll-trigger"
+          aria-label="Payslip dan insentif"
+          title="Payslip dan insentif"
+          @click="openPayroll"
+        >
+          <AppIcon name="FileText" :size="18" :stroke-width="2" aria-hidden="true" />
+        </button>
         <button
           v-if="canOpenHistory"
           type="button"
@@ -3332,6 +3360,13 @@ onUnmounted(() => {
         </AppButton>
       </section>
     </template>
+    <Teleport to="body">
+      <OutsourcePayrollPage
+        v-if="isPayrollOpen"
+        :outsource-name="selectedOutsource?.name ?? ''"
+        @close="closePayroll"
+      />
+    </Teleport>
     </template><!-- /v-else non-login -->
   </main>
 </template>
@@ -3672,6 +3707,24 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+}
+
+.payroll-trigger {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(235, 28, 36, 0.1);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.payroll-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .user-badge {
