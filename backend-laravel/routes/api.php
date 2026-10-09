@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\FaceVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\HrisOutsourcePersonSyncController;
 use App\Http\Controllers\Api\V1\LeaveController;
 use App\Http\Controllers\Api\V1\MonthlyRecapController;
 use App\Http\Controllers\Api\V1\OvertimeController;
@@ -36,6 +37,11 @@ Route::prefix('v1')->group(function () {
 
     // Authentication (first-party Sanctum SPA, session/cookie based)
     Route::post('/login', [AuthController::class, 'login']);
+
+    // Server-to-server: HRIS pushes newly created outsource persons (HRIS is the master).
+    Route::post('/integrations/hris/outsource-persons', [HrisOutsourcePersonSyncController::class, 'store'])
+        ->middleware(['hris.outsource.push', 'throttle:60,1'])
+        ->name('integrations.hris.outsource-persons.sync');
 
     // Outsource public attendance (OUTSOURCE-2C)
     Route::prefix('outsource')->group(function () {
@@ -274,7 +280,6 @@ Route::prefix('v1')->group(function () {
         // ── Outsource persons (admin CRUD) ─────────────────────────────────────
         Route::prefix('outsource-persons')->group(function () {
             Route::get('/',                         [OutsourcePersonController::class, 'index'])        ->middleware('can:outsource_person.view');
-            Route::post('/',                        [OutsourcePersonController::class, 'store'])        ->middleware('can:outsource_person.create');
             Route::get('/{outsourcePerson}',        [OutsourcePersonController::class, 'show'])         ->middleware('can:outsource_person.view');
             Route::put('/{outsourcePerson}',        [OutsourcePersonController::class, 'update'])       ->middleware('can:outsource_person.update');
             Route::patch('/{outsourcePerson}',      [OutsourcePersonController::class, 'update'])       ->middleware('can:outsource_person.update');

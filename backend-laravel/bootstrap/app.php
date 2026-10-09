@@ -50,6 +50,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => RoleMiddleware::class,
             'permission' => PermissionMiddleware::class,
             'role_or_permission' => RoleOrPermissionMiddleware::class,
+            'hris.outsource.push' => \App\Http\Middleware\AuthenticateHrisOutsourcePush::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
