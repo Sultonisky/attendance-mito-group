@@ -268,6 +268,10 @@ Route::prefix('v1')->group(function () {
                 ->middleware(['can:employees.view', 'throttle:30,1']);
             Route::get('/hris/by-nik/{nik}', [HrisEmployeeLookupController::class, 'show'])
                 ->middleware(['can:employees.view', 'throttle:30,1']);
+            Route::post('/hris/{employeeId}/photo', [HrisEmployeeLookupController::class, 'storePhoto'])
+                ->middleware(['can:employees.update', 'throttle:10,1']);
+            Route::get('/hris/{employeeId}/photo', [HrisEmployeeLookupController::class, 'showPhoto'])
+                ->middleware(['can:employees.view', 'throttle:60,1']);
             Route::get('/hris/{nik}/work-locations', [HrisEmployeeLookupController::class, 'workLocations'])
                 ->middleware(['can:employee_work_location.view', 'throttle:30,1']);
             Route::put('/hris/{nik}/work-locations', [HrisEmployeeLookupController::class, 'syncWorkLocations'])
@@ -310,8 +314,8 @@ Route::prefix('v1')->group(function () {
 
         // ── Role default permissions ────────────────────────────────────────────
         Route::prefix('roles')->group(function () {
-            Route::get('/',                     [RoleController::class, 'index'])             ->middleware('can:permission.view');
-            Route::put('/{role}/permissions',   [RoleController::class, 'updatePermissions']) ->middleware('can:permission.update');
+            Route::get('/',                         [RoleController::class, 'index'])             ->middleware('can:permission.view');
+            Route::put('/{role}/permissions',       [RoleController::class, 'updatePermissions']) ->middleware('can:permission.update');
         });
 
         // ── Outsource persons (admin CRUD) ─────────────────────────────────────
@@ -321,7 +325,7 @@ Route::prefix('v1')->group(function () {
             Route::put('/{outsourcePerson}',        [OutsourcePersonController::class, 'update'])       ->middleware('can:outsource_person.update');
             Route::patch('/{outsourcePerson}',      [OutsourcePersonController::class, 'update'])       ->middleware('can:outsource_person.update');
             Route::post('/{outsourcePerson}/toggle-status', [OutsourcePersonController::class, 'toggleStatus'])->middleware('can:outsource_person.update');
-            Route::delete('/{outsourcePerson}',     [OutsourcePersonController::class, 'destroy'])      ->middleware('can:outsource_person.delete');
+            Route::delete('/{outsourcePerson}', [OutsourcePersonController::class, 'destroy'])->middleware('can:outsource_person.delete');
         });
 
         // ── Outsource work locations (admin CRUD) ───────────────────────────────
