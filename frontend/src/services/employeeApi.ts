@@ -1,4 +1,4 @@
-import { apiFetch } from './apiClient'
+import { apiFetch, apiFetchBlob, apiFetchFormData } from './apiClient'
 import type { WorkAreaType } from './employeeWorkLocationApi'
 
 export type EmployeeAssignedWorkLocation = {
@@ -83,6 +83,7 @@ export type HrisEmployeeRow = {
   job_position_location: string | null
   area_kerja: string | null
   lokasi_kerja: string | null
+  photo_available: boolean
 }
 
 export type HrisEmployeeMeta = {
@@ -169,6 +170,32 @@ export async function fetchHrisEmployees(filters?: {
 
   const query = params.toString()
   return apiFetch<HrisEmployeeListResponse>(`/employees/hris${query ? `?${query}` : ''}`)
+}
+
+export async function uploadHrisEmployeePhoto(
+  employee: Pick<HrisEmployeeRow, 'employee_id' | 'nik'>,
+  photo: File,
+): Promise<{ success: boolean; data: { photo_available: boolean } }> {
+  const formData = new FormData()
+  formData.set('employee_id', employee.employee_id)
+  if (employee.nik) formData.set('nik', employee.nik)
+  formData.set('photo', photo)
+
+  return apiFetchFormData(`/employees/hris/${encodeURIComponent(employee.employee_id)}/photo`, formData, {
+    method: 'POST',
+  })
+}
+
+export async function fetchHrisEmployeePhoto(
+  employee: Pick<HrisEmployeeRow, 'employee_id' | 'nik'>,
+): Promise<Blob> {
+  const params = new URLSearchParams()
+  if (employee.nik) params.set('nik', employee.nik)
+  const query = params.toString()
+
+  return apiFetchBlob(
+    `/employees/hris/${encodeURIComponent(employee.employee_id)}/photo${query ? `?${query}` : ''}`,
+  )
 }
 
 export async function fetchHrisWorkLocationOptions(): Promise<HrisWorkLocationOptions> {
