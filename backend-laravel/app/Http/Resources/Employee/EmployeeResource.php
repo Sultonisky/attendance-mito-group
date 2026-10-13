@@ -2,7 +2,7 @@
 
 namespace App\Http\Resources\Employee;
 
-use App\Models\Employee;
+use App\Enums\WorkAreaType;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -17,6 +17,7 @@ class EmployeeResource extends JsonResource
         return [
             'id' => $this->resource->id,
             'employee_code' => $this->resource->employee_code,
+            'nik' => $this->resource->nik,
             'full_name' => $this->resource->full_name,
             'email' => $this->resource->email,
             'phone' => $this->resource->phone,
@@ -32,6 +33,16 @@ class EmployeeResource extends JsonResource
             'direct_superior_id' => $this->resource->direct_superior_id,
             'indirect_superior_id' => $this->resource->indirect_superior_id,
             'user_id' => $this->resource->user_id,
+            'work_locations' => $this->whenLoaded('activeWorkLocations', fn () => $this->resource->activeWorkLocations
+                ->map(fn ($location) => [
+                    'id' => $location->id,
+                    'name' => $location->name,
+                    'city' => $location->city,
+                    'area_type' => $location->area_type,
+                    'area_type_label' => WorkAreaType::labelFor($location->area_type),
+                ])
+                ->values()
+                ->all()),
             'created_at' => $this->resource->created_at?->toDateString(),
             'updated_at' => $this->resource->updated_at?->toDateString(),
         ];

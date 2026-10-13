@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Actions\Employee\SyncEmployeeWorkLocations;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Employee\StoreEmployeeRequest;
 use App\Http\Requests\Employee\UpdateEmployeeRequest;
 use App\Http\Resources\Employee\EmployeeResource;
+use App\Models\Employee;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Models\Employee;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class EmployeeController extends Controller
 {
@@ -16,24 +20,30 @@ class EmployeeController extends Controller
     {
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:255'],
+            'work_location_id' => ['nullable', 'integer'],
             'sort' => ['nullable', 'string', 'in:id,employee_code,full_name,email,employment_status,join_date,created_at'],
             'direction' => ['nullable', 'string', 'in:asc,desc'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $query = Employee::query();
+        $query = Employee::query()->with('activeWorkLocations');
 
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
                 $q->where('employee_code', 'like', "%{$search}%")
-                  ->orWhere('full_name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%");
+                    ->orWhere('full_name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
             });
         }
 
-        if (!empty($filters['sort'])) {
+        if (! empty($filters['work_location_id'])) {
+            $locationId = (int) $filters['work_location_id'];
+            $query->whereHas('activeWorkLocations', fn ($q) => $q->where('employee_work_locations.id', $locationId));
+        }
+
+        if (! empty($filters['sort'])) {
             $direction = $filters['direction'] ?? 'asc';
             $query->orderBy($filters['sort'], $direction);
         } else {
@@ -49,20 +59,30 @@ class EmployeeController extends Controller
             'data' => EmployeeResource::collection($employees),
             'meta' => [
                 'current_page' => $employees->currentPage(),
-                'last_page'    => $employees->lastPage(),
-                'per_page'     => $employees->perPage(),
-                'total'        => $employees->total(),
-                'from'         => $employees->firstItem(),
-                'to'           => $employees->lastItem(),
+                'last_page' => $employees->lastPage(),
+                'per_page' => $employees->perPage(),
+                'total' => $employees->total(),
+                'from' => $employees->firstItem(),
+                'to' => $employees->lastItem(),
             ],
         ]);
     }
 
-    public function store(StoreEmployeeRequest $request): JsonResponse
+    public function store(StoreEmployeeRequest $request, SyncEmployeeWorkLocations $syncWorkLocations): JsonResponse
     {
-        $employee = Employee::create($request->validated());
+        $validated = $request->validated();
 
-        return (new EmployeeResource($employee))
+        $employee = DB::transaction(function () use ($validated, $request, $syncWorkLocations): Employee {
+            $employee = Employee::create(Arr::except($validated, ['work_location_ids']));
+
+            if (! empty($validated['work_location_ids'])) {
+                $syncWorkLocations->execute($employee, $validated['work_location_ids'], $request->user(), $request);
+            }
+
+            return $employee;
+        });
+
+        return (new EmployeeResource($employee->load('activeWorkLocations')))
             ->additional(['success' => true])
             ->response()
             ->setStatusCode(201);
@@ -70,16 +90,50 @@ class EmployeeController extends Controller
 
     public function show(Employee $employee): JsonResponse
     {
-        return (new EmployeeResource($employee))
+        return (new EmployeeResource($employee->load('activeWorkLocations')))
             ->additional(['success' => true])
             ->response();
     }
 
-    public function update(UpdateEmployeeRequest $request, Employee $employee): JsonResponse
-    {
-        $employee->update($request->validated());
+    public function update(
+        UpdateEmployeeRequest $request,
+        Employee $employee,
+        SyncEmployeeWorkLocations $syncWorkLocations,
+    ): JsonResponse {
+        $validated = $request->validated();
+        $effectiveNik = array_key_exists('nik', $validated) ? $validated['nik'] : $employee->nik;
 
-        return (new EmployeeResource($employee))
+        if (
+            $effectiveNik !== $employee->nik
+            && $employee->workLocations()->exists()
+        ) {
+            throw ValidationException::withMessages([
+                'nik' => 'NIK mapping cannot be changed while the employee has work-location assignment history.',
+            ]);
+        }
+
+        if (
+            array_key_exists('work_location_ids', $validated)
+            && ($validated['work_location_ids'] ?? []) !== []
+            && empty($effectiveNik)
+        ) {
+            throw ValidationException::withMessages([
+                'nik' => 'A valid NIK is required to assign employee work locations.',
+            ]);
+        }
+
+        DB::transaction(function () use ($validated, $employee, $request, $syncWorkLocations): void {
+            $employee->update(Arr::except($validated, ['work_location_ids']));
+
+            if (
+                array_key_exists('work_location_ids', $validated)
+                && (($validated['work_location_ids'] ?? []) !== [] || $employee->nik !== null)
+            ) {
+                $syncWorkLocations->execute($employee, $validated['work_location_ids'] ?? [], $request->user(), $request);
+            }
+        });
+
+        return (new EmployeeResource($employee->load('activeWorkLocations')))
             ->additional(['success' => true])
             ->response();
     }

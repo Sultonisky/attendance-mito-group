@@ -28,7 +28,10 @@ class CreateEmployeeAttendance
 
     /**
      * @param  array{
-     *   employee_id: int,
+     *   employee_id?: int|null,
+     *   hris_employee_id?: string|null,
+     *   nik?: string|null,
+     *   work_location_id?: int|null,
      *   attendance_date: string,
      *   check_in_at: string,
      *   check_out_at?: string|null
@@ -37,7 +40,13 @@ class CreateEmployeeAttendance
     public function execute(array $input, ?User $actor, ?Request $request = null): AttendanceRecord
     {
         return DB::transaction(function () use ($input, $actor, $request): AttendanceRecord {
-            $employee = Employee::query()->findOrFail((int) $input['employee_id']);
+            $employee = $this->resolveEmployee($input);
+            $workLocationId = isset($input['work_location_id']) ? (int) $input['work_location_id'] : null;
+
+            if ($workLocationId !== null && ! $employee->activeWorkLocations()->whereKey($workLocationId)->exists()) {
+                throw new InvalidArgumentException('Selected work location is not assigned to this employee.');
+            }
+
             $attendanceDate = (string) $input['attendance_date'];
 
             $exists = AttendanceRecord::query()
@@ -72,7 +81,7 @@ class CreateEmployeeAttendance
                     : AttendanceStatus::Present->value,
             ]);
 
-            $this->writeSessionAndEvents($record, $checkInAt, $checkOutAt, $duration, $incomplete);
+            $this->writeSessionAndEvents($record, $checkInAt, $checkOutAt, $duration, $incomplete, $workLocationId);
 
             $this->audit->execute(
                 $actor?->getKey(),
@@ -86,6 +95,7 @@ class CreateEmployeeAttendance
                     'check_out_at' => AttendanceDateTime::toApi($checkOutAt),
                     'status' => $record->status,
                     'duration_minutes' => $duration,
+                    'employee_work_location_id' => $workLocationId,
                 ],
                 $request,
                 ['employee_id' => $employee->id],
@@ -101,6 +111,7 @@ class CreateEmployeeAttendance
         ?CarbonImmutable $checkOutAt,
         ?int $durationMinutes,
         bool $incomplete,
+        ?int $workLocationId,
     ): void {
         $session = AttendanceSession::query()->create([
             'attendance_record_id' => $record->id,
@@ -116,6 +127,7 @@ class CreateEmployeeAttendance
             'employee_id' => $record->employee_id,
             'outsource_id' => null,
             'work_location_pin_id' => null,
+            'employee_work_location_id' => $workLocationId,
             'attendance_id' => $record->id,
             'attendance_session_id' => $session->id,
             'event_type' => AttendanceEventType::CheckIn->value,
@@ -131,6 +143,7 @@ class CreateEmployeeAttendance
                 'employee_id' => $record->employee_id,
                 'outsource_id' => null,
                 'work_location_pin_id' => null,
+                'employee_work_location_id' => $workLocationId,
                 'attendance_id' => $record->id,
                 'attendance_session_id' => $session->id,
                 'event_type' => AttendanceEventType::CheckOut->value,
@@ -141,6 +154,40 @@ class CreateEmployeeAttendance
                 'device_metadata' => [],
             ]);
         }
+    }
+
+    /**
+     * Resolve an HRIS identity to an already-linked Attendance employee.
+     *
+     * @param  array{employee_id?: int|null, hris_employee_id?: string|null, nik?: string|null}  $input
+     */
+    private function resolveEmployee(array $input): Employee
+    {
+        if (isset($input['hris_employee_id'])) {
+            $employeeByNik = isset($input['nik'])
+                ? Employee::query()->where('nik', $input['nik'])->first()
+                : null;
+            $employeeByCode = Employee::query()
+                ->where('employee_code', $input['hris_employee_id'])
+                ->first();
+
+            if ($employeeByNik !== null && $employeeByCode !== null && $employeeByNik->isNot($employeeByCode)) {
+                throw new InvalidArgumentException('The HRIS NIK and employee ID point to different Attendance employee records.');
+            }
+
+            $employee = $employeeByNik ?? $employeeByCode;
+            if ($employee === null) {
+                throw new InvalidArgumentException('No existing Attendance employee matches this HRIS person. Link the Attendance employee record first.');
+            }
+
+            if ($employee->nik !== null && $employee->nik !== $input['nik']) {
+                throw new InvalidArgumentException('This Attendance employee record is already linked to a different NIK.');
+            }
+
+            return $employee;
+        }
+
+        return Employee::query()->findOrFail((int) $input['employee_id']);
     }
 
     private function parseJakartaInstant(string $raw): CarbonImmutable
