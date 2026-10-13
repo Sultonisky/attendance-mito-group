@@ -3,6 +3,7 @@
 namespace App\Domain\Attendance\Rules;
 
 use App\Domain\Attendance\Exceptions\OutsideGeofenceException;
+use App\Models\EmployeeWorkLocation;
 use App\Models\WorkLocation;
 use App\Models\WorkLocationPin;
 use Illuminate\Support\Facades\DB;
@@ -46,6 +47,24 @@ class GeofenceRule
                 $longitude,
                 $radiusMeters ?? $pin->radius_meters,
                 'Pin coordinates are not configured.',
+            );
+        }
+    }
+
+    public function validateEmployeeWorkLocation(EmployeeWorkLocation $location, float $latitude, float $longitude, ?float $radiusMeters = null): void
+    {
+        $driver = DB::connection()->getDriverName();
+
+        if ($driver === 'pgsql' && ! empty($location->location_point)) {
+            $this->validatePostgisTable('employee_work_locations', $location->id, $latitude, $longitude, $radiusMeters ?? $location->radius_meters);
+        } else {
+            $this->validateScalar(
+                $location->latitude,
+                $location->longitude,
+                $latitude,
+                $longitude,
+                $radiusMeters ?? $location->radius_meters,
+                'Work location coordinates are not configured.',
             );
         }
     }

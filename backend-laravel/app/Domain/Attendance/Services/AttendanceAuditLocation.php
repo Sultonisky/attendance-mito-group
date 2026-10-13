@@ -7,6 +7,7 @@ use App\Domain\Attendance\DTOs\AttendanceResultData;
 use App\Enums\AttendanceEventType;
 use App\Models\AttendanceEvent;
 use App\Models\AttendanceSession;
+use App\Models\EmployeeWorkLocation;
 use App\Models\WorkLocation;
 use App\Models\WorkLocationPin;
 use Carbon\CarbonInterface;
@@ -28,7 +29,7 @@ class AttendanceAuditLocation
     {
         return $this->snapshot(
             occurredAt: $data->occurredAt,
-            workLocation: $result->workLocation,
+            workLocation: $result->employeeWorkLocation ?? $result->workLocation,
             pin: $result->pin,
             gps: $data->toAuditGps($result->geofence),
         );
@@ -42,7 +43,7 @@ class AttendanceAuditLocation
     public function clockInForSession(AttendanceSession $session): ?array
     {
         $event = AttendanceEvent::query()
-            ->with('workLocationPin.workLocation')
+            ->with(['workLocationPin.workLocation', 'employeeWorkLocation'])
             ->where('attendance_session_id', $session->id)
             ->where('event_type', AttendanceEventType::CheckIn->value)
             ->orderBy('occurred_at')
@@ -56,7 +57,7 @@ class AttendanceAuditLocation
 
         return $this->snapshot(
             occurredAt: $event->occurred_at,
-            workLocation: $pin?->workLocation,
+            workLocation: $event->employeeWorkLocation ?? $pin?->workLocation,
             pin: $pin,
             gps: $event->latitude !== null && $event->longitude !== null ? [
                 'latitude' => (float) $event->latitude,
@@ -75,16 +76,26 @@ class AttendanceAuditLocation
      */
     private function snapshot(
         ?CarbonInterface $occurredAt,
-        ?WorkLocation $workLocation,
+        WorkLocation|EmployeeWorkLocation|null $workLocation,
         ?WorkLocationPin $pin,
         ?array $gps,
     ): array {
         return [
             'occurred_at' => $occurredAt?->toIso8601String(),
-            'work_location' => $workLocation !== null ? [
-                'id' => $workLocation->id,
-                'name' => $workLocation->name,
-            ] : null,
+            'work_location' => match (true) {
+                $workLocation instanceof EmployeeWorkLocation => [
+                    'id' => $workLocation->id,
+                    'name' => $workLocation->name,
+                    'type' => 'employee',
+                    'city' => $workLocation->city,
+                    'area_type' => $workLocation->area_type?->value,
+                ],
+                $workLocation !== null => [
+                    'id' => $workLocation->id,
+                    'name' => $workLocation->name,
+                ],
+                default => null,
+            },
             'pin' => $pin !== null ? [
                 'id' => $pin->id,
                 'name' => $pin->name,
