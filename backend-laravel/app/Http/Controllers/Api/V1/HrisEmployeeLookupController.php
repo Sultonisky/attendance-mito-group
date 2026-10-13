@@ -5,14 +5,21 @@ namespace App\Http\Controllers\Api\V1;
 use App\Actions\Employee\SyncEmployeeWorkLocations;
 use App\Exceptions\Integration\HrisEmployeeApiException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Employee\StoreEmployeePhotoRequest;
 use App\Http\Resources\Employee\EmployeeWorkLocationResource;
 use App\Models\Employee;
+use App\Models\EmployeePhotoReference;
 use App\Models\EmployeeWorkLocation;
 use App\Services\Integration\HrisEmployeeApiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class HrisEmployeeLookupController extends Controller
 {
@@ -38,6 +45,37 @@ class HrisEmployeeLookupController extends Controller
                 'message' => $exception->getMessage(),
             ], $exception->httpStatus);
         }
+
+        $employeeCodes = array_column($employees['data'], 'employee_id');
+        $niks = array_values(array_filter(
+            array_column($employees['data'], 'nik'),
+            static fn ($nik): bool => is_string($nik) && $nik !== '',
+        ));
+        $photoReferences = EmployeePhotoReference::query()
+            ->where(function ($query) use ($employeeCodes, $niks): void {
+                $query->whereIn('hris_employee_id', $employeeCodes);
+                if ($niks !== []) {
+                    $query->orWhereIn('hris_nik', $niks);
+                }
+            })
+            ->get(['id', 'hris_employee_id', 'hris_nik', 'photo_path']);
+        $photosByCode = $photoReferences->keyBy('hris_employee_id');
+        $photosByNik = $photoReferences->filter(fn (EmployeePhotoReference $photo): bool => $photo->hris_nik !== null)
+            ->keyBy('hris_nik');
+
+        $employees['data'] = array_map(function (array $employee) use ($photosByCode, $photosByNik): array {
+            $byCode = $photosByCode->get($employee['employee_id']);
+            $byNik = is_string($employee['nik'] ?? null)
+                ? $photosByNik->get($employee['nik'])
+                : null;
+            $identityConflict = $byCode !== null && $byNik !== null && $byCode->isNot($byNik);
+            $photoPath = $identityConflict ? null : ($byCode ?? $byNik)?->photo_path;
+
+            return [
+                ...$employee,
+                'photo_available' => is_string($photoPath) && trim($photoPath) !== '',
+            ];
+        }, $employees['data']);
 
         return response()->json($employees);
     }
@@ -68,6 +106,138 @@ class HrisEmployeeLookupController extends Controller
             'success' => true,
             'data' => $employee,
         ]);
+    }
+
+    public function storePhoto(StoreEmployeePhotoRequest $request, string $employeeId): JsonResponse
+    {
+        $validated = $request->validated();
+        if ($validated['employee_id'] !== $employeeId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The submitted employee ID does not match the requested employee.',
+            ], 422);
+        }
+
+        try {
+            $hrisEmployee = isset($validated['nik'])
+                ? $this->hrisEmployees->findByNik($validated['nik'])
+                : $this->findHrisEmployeeById($employeeId);
+        } catch (HrisEmployeeApiException $exception) {
+            return $this->integrationError($exception);
+        }
+
+        if ($hrisEmployee === null || $hrisEmployee['employee_id'] !== $employeeId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The employee could not be verified against HRIS.',
+            ], 409);
+        }
+        $verifiedNik = $hrisEmployee['nik'] ?? null;
+
+        $photoByCode = EmployeePhotoReference::query()
+            ->where('hris_employee_id', $employeeId)
+            ->first();
+        $photoByNik = is_string($verifiedNik)
+            ? EmployeePhotoReference::query()->where('hris_nik', $verifiedNik)->first()
+            : null;
+
+        if ($photoByCode !== null && $photoByNik !== null && $photoByCode->isNot($photoByNik)) {
+            return $this->employeePhotoIdentityConflict();
+        }
+
+        $photoReference = $photoByCode ?? $photoByNik;
+        $photoNik = $verifiedNik ?? $photoReference?->hris_nik;
+
+        if (
+            $photoByCode !== null
+            && is_string($verifiedNik)
+            && $photoReference->hris_nik !== null
+            && $photoReference->hris_nik !== $verifiedNik
+        ) {
+            return $this->employeePhotoIdentityConflict();
+        }
+
+        $photo = $request->file('photo');
+        $extension = strtolower($photo->extension());
+        $newPath = $photo->storeAs('employee-photos', Str::uuid().'.'.$extension, 'local');
+
+        if (! is_string($newPath) || $newPath === '') {
+            Log::error('Failed to store employee photo.', ['hris_employee_id' => $employeeId]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to store the employee photo.',
+            ], 500);
+        }
+
+        $oldPath = $photoReference?->photo_path;
+        try {
+            DB::transaction(function () use ($photoReference, $employeeId, $photoNik, $newPath): void {
+                $photoReference ??= new EmployeePhotoReference;
+                $photoReference->forceFill([
+                    'hris_employee_id' => $employeeId,
+                    'hris_nik' => $photoNik,
+                    'photo_path' => $newPath,
+                ])->save();
+            });
+        } catch (Throwable $exception) {
+            Storage::disk('local')->delete($newPath);
+            throw $exception;
+        }
+
+        if (is_string($oldPath) && str_starts_with($oldPath, 'employee-photos/')) {
+            if (! Storage::disk('local')->delete($oldPath)) {
+                Log::warning('Replaced employee photo could not be removed from private storage.', [
+                    'hris_employee_id' => $employeeId,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'photo_available' => true,
+            ],
+        ]);
+    }
+
+    public function showPhoto(Request $request, string $employeeId): JsonResponse|StreamedResponse
+    {
+        $validated = $request->validate([
+            'nik' => ['sometimes', 'nullable', 'digits:16'],
+        ]);
+
+        $photoByCode = EmployeePhotoReference::query()
+            ->where('hris_employee_id', $employeeId)
+            ->first();
+        $photoByNik = isset($validated['nik'])
+            ? EmployeePhotoReference::query()->where('hris_nik', $validated['nik'])->first()
+            : null;
+
+        if ($photoByCode !== null && $photoByNik !== null && $photoByCode->isNot($photoByNik)) {
+            return $this->employeePhotoIdentityConflict();
+        }
+
+        $photoReference = $photoByCode ?? $photoByNik;
+        $photoPath = $photoReference?->photo_path;
+        $disk = Storage::disk('local');
+
+        if (
+            ! is_string($photoPath)
+            || ! str_starts_with($photoPath, 'employee-photos/')
+            || ! $disk->exists($photoPath)
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Employee photo not found.',
+            ], 404);
+        }
+
+        return $disk->response($photoPath, null, [
+            'Cache-Control' => 'private, no-store, max-age=0',
+            'Content-Security-Policy' => "default-src 'none'; sandbox",
+            'X-Content-Type-Options' => 'nosniff',
+        ], 'inline');
     }
 
     public function workLocations(string $nik): JsonResponse
@@ -203,5 +373,33 @@ class HrisEmployeeLookupController extends Controller
             'success' => false,
             'message' => $exception->getMessage(),
         ], $exception->httpStatus);
+    }
+
+    private function employeePhotoIdentityConflict(): JsonResponse
+    {
+        return response()->json([
+            'success' => false,
+            'message' => 'The HRIS employee ID and NIK point to different Attendance employee records.',
+        ], 409);
+    }
+
+    /**
+     * @return array<string, string|null>|null
+     */
+    private function findHrisEmployeeById(string $employeeId): ?array
+    {
+        $response = $this->hrisEmployees->listEmployees([
+            'search' => $employeeId,
+            'page' => 1,
+            'per_page' => 100,
+        ]);
+
+        foreach ($response['data'] as $employee) {
+            if (($employee['employee_id'] ?? null) === $employeeId) {
+                return $employee;
+            }
+        }
+
+        return null;
     }
 }
