@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -65,6 +66,27 @@ class Employee extends Model implements AttendanceSubject
     public function indirectSubordinates(): HasMany
     {
         return $this->hasMany(Employee::class, 'indirect_superior_id');
+    }
+
+    /**
+     * All work location assignments, including inactive ones (history).
+     */
+    public function workLocations(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            EmployeeWorkLocation::class,
+            'employee_work_location_assignments',
+            'employee_id',
+            'employee_work_location_id',
+        )->withPivot('status')->withTimestamps();
+    }
+
+    /**
+     * Currently assigned work locations.
+     */
+    public function activeWorkLocations(): BelongsToMany
+    {
+        return $this->workLocations()->wherePivot('status', 'active');
     }
 
     /**

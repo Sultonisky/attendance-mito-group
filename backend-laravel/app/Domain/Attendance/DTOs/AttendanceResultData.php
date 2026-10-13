@@ -6,6 +6,7 @@ use App\Models\AttendanceEvent;
 use App\Models\AttendanceRecord;
 use App\Models\AttendanceSession;
 use App\Models\AttendanceVerification;
+use App\Models\EmployeeWorkLocation;
 use App\Models\WorkLocation;
 use App\Models\WorkLocationPin;
 
@@ -24,5 +25,6 @@ final readonly class AttendanceResultData
         public ?AttendanceEvent $event = null,
         public ?WorkLocation $workLocation = null,
         public ?WorkLocationPin $pin = null,
+        public ?EmployeeWorkLocation $employeeWorkLocation = null,
     ) {}
 }
