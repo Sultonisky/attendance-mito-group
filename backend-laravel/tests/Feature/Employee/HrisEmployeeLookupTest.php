@@ -3,12 +3,16 @@
 namespace Tests\Feature\Employee;
 
 use App\Models\Employee;
+use App\Models\EmployeePhotoReference;
 use App\Models\EmployeeWorkLocation;
 use App\Models\EmployeeWorkLocationOption;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -80,6 +84,8 @@ class HrisEmployeeLookupTest extends TestCase
     {
         $this->getJson('/api/v1/employees/hris/by-nik/'.self::NIK)
             ->assertUnauthorized();
+        $this->get('/api/v1/employees/hris/2020041501/photo')
+            ->assertUnauthorized();
 
         $user = User::factory()->create();
         $role = Role::findByName('USER');
@@ -88,6 +94,8 @@ class HrisEmployeeLookupTest extends TestCase
 
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/v1/employees/hris/by-nik/'.self::NIK)
+            ->assertForbidden();
+        $this->get('/api/v1/employees/hris/2020041501/photo')
             ->assertForbidden();
     }
 
@@ -221,6 +229,235 @@ class HrisEmployeeLookupTest extends TestCase
         });
 
         $this->assertDatabaseCount('employees', 0);
+    }
+
+    public function test_hris_person_list_reports_photo_reference_from_hris_identity(): void
+    {
+        EmployeePhotoReference::create([
+            'hris_employee_id' => '2020041501',
+            'hris_nik' => self::NIK,
+            'photo_path' => 'employee-photos/2020041501.jpg',
+        ]);
+        EmployeePhotoReference::create([
+            'hris_employee_id' => 'LOCAL-ONLY',
+            'hris_nik' => null,
+            'photo_path' => 'employee-photos/local-only.jpg',
+        ]);
+        EmployeePhotoReference::create([
+            'hris_employee_id' => '2020041503',
+            'hris_nik' => '1234567890123457',
+            'photo_path' => 'employee-photos/nik-match.jpg',
+        ]);
+        EmployeePhotoReference::create([
+            'hris_employee_id' => 'CONFLICTING-HRIS-ID',
+            'hris_nik' => null,
+            'photo_path' => 'employee-photos/conflict-by-code.jpg',
+        ]);
+        EmployeePhotoReference::create([
+            'hris_employee_id' => 'CONFLICTING-NIK',
+            'hris_nik' => '1234567890123458',
+            'photo_path' => 'employee-photos/conflict-by-nik.jpg',
+        ]);
+
+        Http::fake([
+            'https://hris.example.test/api/v1/employees*' => Http::response([
+                'success' => true,
+                'data' => [
+                    [
+                        'employee_id' => '2020041501',
+                        'nik' => self::NIK,
+                        'full_name' => 'Employee One',
+                    ],
+                    [
+                        'employee_id' => '2020041502',
+                        'nik' => null,
+                        'full_name' => 'Employee Two',
+                    ],
+                    [
+                        'employee_id' => '2020041503',
+                        'nik' => '1234567890123457',
+                        'full_name' => 'Employee Three',
+                    ],
+                    [
+                        'employee_id' => 'CONFLICTING-HRIS-ID',
+                        'nik' => '1234567890123458',
+                        'full_name' => 'Conflicting Identity',
+                    ],
+                ],
+                'links' => [],
+                'filters' => [
+                    'work_locations' => [],
+                    'work_areas' => [],
+                ],
+                'meta' => [
+                    'current_page' => 1,
+                    'per_page' => 25,
+                    'total' => 4,
+                    'last_page' => 1,
+                ],
+            ]),
+        ]);
+
+        $this->actingAs($this->admin(), 'sanctum')
+            ->getJson('/api/v1/employees/hris')
+            ->assertOk()
+            ->assertJsonPath('data.0.photo_available', true)
+            ->assertJsonPath('data.1.photo_available', false)
+            ->assertJsonPath('data.2.photo_available', true)
+            ->assertJsonPath('data.3.photo_available', false)
+            ->assertJsonMissingPath('data.0.photo_path');
+    }
+
+    public function test_authorized_user_can_upload_and_replace_a_private_employee_photo(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'https://hris.example.test/api/v1/employees/by-nik/*' => Http::response([
+                'success' => true,
+                'data' => [
+                    'employee_id' => '2020041501',
+                    'nik' => self::NIK,
+                ],
+            ]),
+        ]);
+        $this->actingAs($this->admin(), 'sanctum')
+            ->post('/api/v1/employees/hris/2020041501/photo', [
+                'employee_id' => '2020041501',
+                'nik' => self::NIK,
+                'photo' => UploadedFile::fake()->image('employee.jpg', 64, 64),
+            ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.photo_available', true)
+            ->assertJsonMissingPath('data.photo_path');
+
+        $this->assertDatabaseCount('employees', 0);
+        $this->assertTrue(Schema::hasTable('employee_photo_references'));
+        $this->assertFalse(Schema::hasColumn('employees', 'photo_path'));
+        $photoReference = EmployeePhotoReference::query()->where('hris_employee_id', '2020041501')->firstOrFail();
+        $firstPhotoPath = $photoReference->photo_path;
+        $this->assertSame(self::NIK, $photoReference->hris_nik);
+        $this->assertNotNull($firstPhotoPath);
+        Storage::disk('local')->assertExists($firstPhotoPath);
+
+        $photoResponse = $this->get('/api/v1/employees/hris/2020041501/photo?nik='.self::NIK);
+        $photoResponse
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/jpeg')
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertStreamedContent(Storage::disk('local')->get($firstPhotoPath));
+        $this->assertStringContainsString('no-store', $photoResponse->headers->get('Cache-Control'));
+        $this->assertStringContainsString('private', $photoResponse->headers->get('Cache-Control'));
+
+        $this->actingAs($this->admin(), 'sanctum')
+            ->post('/api/v1/employees/hris/2020041501/photo', [
+                'employee_id' => '2020041501',
+                'nik' => self::NIK,
+                'photo' => UploadedFile::fake()->image('replacement.png', 64, 64),
+            ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('data.photo_available', true);
+
+        $photoReference->refresh();
+        $this->assertNotSame($firstPhotoPath, $photoReference->photo_path);
+        Storage::disk('local')->assertMissing($firstPhotoPath);
+        Storage::disk('local')->assertExists($photoReference->photo_path);
+
+        Http::assertSentCount(2);
+        Http::assertSent(fn ($request): bool => $request->method() === 'GET'
+            && $request->url() === 'https://hris.example.test/api/v1/employees/by-nik/'.self::NIK
+            && $request->body() === ''
+            && $request->hasHeader('Authorization', 'Bearer '.self::API_TOKEN));
+    }
+
+    public function test_employee_photo_view_returns_not_found_without_a_local_photo_reference(): void
+    {
+        $this->actingAs($this->admin(), 'sanctum')
+            ->get('/api/v1/employees/hris/2020041501/photo')
+            ->assertNotFound()
+            ->assertJsonPath('message', 'Employee photo not found.');
+    }
+
+    public function test_employee_photo_upload_rejects_invalid_images_and_unmatched_identity(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'https://hris.example.test/api/v1/employees*' => Http::response([
+                'success' => true,
+                'data' => [],
+                'links' => [],
+                'filters' => [
+                    'work_locations' => [],
+                    'work_areas' => [],
+                ],
+                'meta' => [
+                    'current_page' => 1,
+                    'per_page' => 100,
+                    'total' => 0,
+                    'last_page' => 1,
+                ],
+            ]),
+        ]);
+        $admin = $this->admin();
+
+        $this->actingAs($admin, 'sanctum')
+            ->post('/api/v1/employees/hris/2020041501/photo', [
+                'employee_id' => '2020041501',
+                'nik' => self::NIK,
+                'photo' => UploadedFile::fake()->create('not-an-image.jpg', 10, 'text/plain'),
+            ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('photo');
+
+        Http::fake([
+            'https://hris.example.test/api/v1/employees*' => Http::response([
+                'success' => true,
+                'data' => [[
+                    'employee_id' => 'UNKNOWN',
+                    'nik' => null,
+                ]],
+                'links' => [],
+                'filters' => [
+                    'work_locations' => [],
+                    'work_areas' => [],
+                ],
+                'meta' => [
+                    'current_page' => 1,
+                    'per_page' => 100,
+                    'total' => 1,
+                    'last_page' => 1,
+                ],
+            ]),
+        ]);
+        $this->actingAs($admin, 'sanctum')
+            ->post('/api/v1/employees/hris/UNKNOWN/photo', [
+                'employee_id' => 'UNKNOWN',
+                'photo' => UploadedFile::fake()->image('employee.png', 64, 64),
+            ], ['Accept' => 'application/json'])
+            ->assertStatus(409)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseCount('employees', 0);
+        $this->assertDatabaseCount('employee_photo_references', 0);
+    }
+
+    public function test_employee_photo_upload_requires_employee_update_permission(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create();
+        $role = Role::findByName('USER');
+        $role->syncPermissions(['employees.view']);
+        $user->assignRole('USER');
+
+        $this->actingAs($user, 'sanctum')
+            ->post('/api/v1/employees/hris/2020041501/photo', [
+                'employee_id' => '2020041501',
+                'photo' => UploadedFile::fake()->image('employee.jpg', 64, 64),
+            ], ['Accept' => 'application/json'])
+            ->assertForbidden();
+
+        Storage::disk('local')->assertMissing('employee-photos');
+        $this->assertDatabaseCount('employee_photo_references', 0);
     }
 
     public function test_hris_and_custom_work_location_options_are_available_to_work_location_viewers(): void
