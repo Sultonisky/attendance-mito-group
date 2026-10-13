@@ -174,6 +174,40 @@ export async function apiFetch<T>(
   return response.json();
 }
 
+export async function apiFetchBlob(endpoint: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: "GET",
+    headers: { Accept: "image/*" },
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    let message = `API request failed: ${response.status}`;
+    let errors: Record<string, string[]> = {};
+    let code: string | null = null;
+
+    try {
+      const body = await response.json();
+      if (typeof body?.message === "string") {
+        message = body.message;
+      }
+      if (body?.errors && typeof body.errors === "object") {
+        errors = body.errors;
+      }
+      if (typeof body?.code === "string" && body.code) {
+        code = body.code;
+      }
+    } catch {
+      // Non-JSON error body; keep the generic message.
+    }
+
+    await notifyGlobalHttpError(response);
+    throw new ApiError(response.status, message, errors, code);
+  }
+
+  return response.blob();
+}
+
 /**
  * Submit a multipart/form-data request (e.g. file uploads) reusing the same
  * CSRF, credential, and error-handling behavior as apiFetch.
