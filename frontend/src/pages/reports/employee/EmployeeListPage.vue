@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref, resolveComponent, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, resolveComponent, watch } from 'vue'
 import { watchDebounced } from '@vueuse/core'
 import type { TableColumn } from '@nuxt/ui'
 import type { SortingState, VisibilityState } from '@tanstack/vue-table'
@@ -8,7 +8,9 @@ import { useDataTableDisplay } from '../../../composables/useDataTableDisplay'
 import { usePermission } from '../../../features/auth/composables/usePermission'
 import { useAppToast } from '../../../composables/useAppToast'
 import {
+  fetchHrisEmployeePhoto,
   fetchHrisEmployees,
+  uploadHrisEmployeePhoto,
   type HrisEmployeeFilterOptions,
   type HrisEmployeeRow,
 } from '../../../services/employeeApi'
@@ -43,11 +45,13 @@ let activeRequest = 0
 const canManageAssignments = computed(() =>
   can('employee_work_location.view') && can('employee_work_location.update'),
 )
+const canManageEmployeePhotos = computed(() => can('employees.update'))
 
 const hideableColumns = [
   { id: 'employee_id', label: 'Employee ID' },
   { id: 'nik', label: 'NIK' },
   { id: 'full_name', label: 'Name' },
+  { id: 'photo_available', label: 'Photo' },
   { id: 'job_position', label: 'Job position' },
   { id: 'lokasi_kerja', label: 'Work location' },
   { id: 'area_kerja', label: 'Work area' },
@@ -72,6 +76,19 @@ const locationPick = ref(ALL_FILTERS)
 const locationsLoading = ref(false)
 const locationsSaving = ref(false)
 const locationsError = ref('')
+const showPhotoModal = ref(false)
+const photoTarget = ref<HrisEmployeeRow | null>(null)
+const photoFile = ref<File | null>(null)
+const photoPreviewUrl = ref('')
+const photoSaving = ref(false)
+const photoError = ref('')
+const photoInputKey = ref(0)
+const showPhotoViewModal = ref(false)
+const photoViewTarget = ref<HrisEmployeeRow | null>(null)
+const photoViewUrl = ref('')
+const photoViewLoading = ref(false)
+const photoViewError = ref('')
+let photoViewRequest = 0
 
 const hrisWorkLocation = computed(() => locationTarget.value?.lokasi_kerja?.trim() ?? '')
 const hrisWorkArea = computed(() => locationTarget.value?.area_kerja?.trim() ?? '')
@@ -102,6 +119,37 @@ const columns = computed<TableColumn<HrisEmployeeRow>[]>(() => [
     accessorKey: 'full_name',
     header: ({ column }) => createSortableHeader(column, 'Name'),
     cell: ({ row }) => createTruncatedText(row.original.full_name, 'text-sm font-medium'),
+  },
+  {
+    accessorKey: 'photo_available',
+    header: 'Photo',
+    cell: ({ row }) => h('div', { class: 'flex min-w-52 flex-wrap items-center gap-2' }, [
+      h(resolveComponent('UBadge'), {
+        color: row.original.photo_available ? 'success' : 'neutral',
+        variant: 'subtle',
+        icon: row.original.photo_available ? 'i-lucide-image' : 'i-lucide-image-off',
+      }, () => row.original.photo_available ? 'Photo set' : 'Not set'),
+      row.original.photo_available
+        ? h(resolveComponent('UButton'), {
+          size: 'xs',
+          color: 'info',
+          variant: 'outline',
+          icon: 'i-lucide-eye',
+          'aria-label': `View photo for ${row.original.full_name || row.original.employee_id}`,
+          onClick: () => { void openPhotoView(row.original) },
+        }, () => 'View')
+        : null,
+      canManageEmployeePhotos.value && !row.original.photo_available
+        ? h(resolveComponent('UButton'), {
+          size: 'xs',
+          color: 'primary',
+          variant: 'outline',
+          icon: 'i-lucide-upload',
+          'aria-label': `Set photo for ${row.original.full_name || row.original.employee_id}`,
+          onClick: () => openPhotoModal(row.original),
+        }, () => 'Set photo')
+        : null,
+    ]),
   },
   {
     accessorKey: 'job_position',
@@ -186,6 +234,121 @@ function removeAssignedLocation(id: number): void {
   assignedLocations.value = assignedLocations.value.filter((location) => location.id !== id)
 }
 
+function openPhotoModal(employee: HrisEmployeeRow): void {
+  photoInputKey.value++
+  photoTarget.value = employee
+  photoFile.value = null
+  photoError.value = ''
+  clearPhotoPreview()
+  showPhotoModal.value = true
+}
+
+async function openPhotoView(employee: HrisEmployeeRow): Promise<void> {
+  const requestId = ++photoViewRequest
+  photoViewTarget.value = employee
+  photoViewLoading.value = true
+  photoViewError.value = ''
+  clearPhotoViewUrl()
+  showPhotoViewModal.value = true
+
+  try {
+    const image = await fetchHrisEmployeePhoto(employee)
+    if (requestId !== photoViewRequest) return
+    photoViewUrl.value = URL.createObjectURL(image)
+  } catch (err) {
+    if (requestId !== photoViewRequest) return
+    photoViewError.value = err instanceof Error ? err.message : 'Unable to load employee photo.'
+  } finally {
+    if (requestId === photoViewRequest) photoViewLoading.value = false
+  }
+}
+
+function clearPhotoViewUrl(): void {
+  if (photoViewUrl.value) URL.revokeObjectURL(photoViewUrl.value)
+  photoViewUrl.value = ''
+}
+
+function replacePhotoFromView(): void {
+  if (!photoViewTarget.value) return
+
+  const employee = photoViewTarget.value
+  showPhotoViewModal.value = false
+  openPhotoModal(employee)
+}
+
+watch(showPhotoViewModal, (isOpen) => {
+  if (isOpen) return
+  photoViewRequest++
+  photoViewTarget.value = null
+  photoViewLoading.value = false
+  photoViewError.value = ''
+  clearPhotoViewUrl()
+})
+
+watch(showPhotoModal, (isOpen) => {
+  if (isOpen) return
+  photoFile.value = null
+  photoTarget.value = null
+  photoError.value = ''
+  clearPhotoPreview()
+})
+
+function clearPhotoPreview(): void {
+  if (photoPreviewUrl.value) URL.revokeObjectURL(photoPreviewUrl.value)
+  photoPreviewUrl.value = ''
+}
+
+function selectPhoto(event: Event): void {
+  const input = event.target
+  if (!(input instanceof HTMLInputElement)) return
+
+  const file = input.files?.[0] ?? null
+  photoFile.value = null
+  clearPhotoPreview()
+  photoError.value = ''
+
+  if (!file) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    photoError.value = 'Choose a JPG, PNG, or WEBP image.'
+    input.value = ''
+    return
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    photoError.value = 'The image must be 5 MB or smaller.'
+    input.value = ''
+    return
+  }
+
+  photoFile.value = file
+  photoPreviewUrl.value = URL.createObjectURL(file)
+}
+
+async function savePhoto(): Promise<void> {
+  if (!photoTarget.value || !photoFile.value) {
+    photoError.value = 'Choose an employee photo first.'
+    return
+  }
+
+  photoSaving.value = true
+  photoError.value = ''
+  try {
+    const response = await uploadHrisEmployeePhoto(photoTarget.value, photoFile.value)
+    const employeeId = photoTarget.value.employee_id
+    data.value = data.value.map((employee) => employee.employee_id === employeeId
+      ? { ...employee, photo_available: response.data.photo_available }
+      : employee)
+    toast.success('Employee photo saved.')
+    showPhotoModal.value = false
+    photoTarget.value = null
+    photoFile.value = null
+    clearPhotoPreview()
+  } catch (err) {
+    photoError.value = err instanceof Error ? err.message : 'Unable to save employee photo.'
+  } finally {
+    photoSaving.value = false
+  }
+}
+
 async function openLocationsModal(employee: HrisEmployeeRow): Promise<void> {
   locationTarget.value = employee
   assignedLocations.value = []
@@ -263,6 +426,12 @@ watch([workLocation, workArea], () => {
 onMounted(async () => {
   await load()
   ready.value = true
+})
+
+onUnmounted(() => {
+  photoViewRequest++
+  clearPhotoPreview()
+  clearPhotoViewUrl()
 })
 </script>
 
@@ -472,6 +641,117 @@ onMounted(async () => {
           @click="saveLocations"
         >
           Save locations
+        </UButton>
+      </div>
+    </template>
+  </UModal>
+
+  <UModal v-model:open="showPhotoModal" title="Set employee photo">
+    <template #body>
+      <div class="space-y-4">
+        <div v-if="photoTarget" class="rounded-md border border-default p-3">
+          <p class="font-medium">{{ photoTarget.full_name ?? 'Name unavailable' }}</p>
+          <p class="text-xs text-muted">
+            Employee ID {{ photoTarget.employee_id }} · NIK {{ photoTarget.nik || '—' }}
+          </p>
+        </div>
+
+        <UAlert
+          v-if="photoError"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :description="photoError"
+        />
+
+        <UFormField label="Photo file" hint="JPG, PNG, or WEBP; maximum 5 MB." required>
+          <input
+            :key="photoInputKey"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            class="block w-full rounded-md border border-default p-2 text-sm"
+            @change="selectPhoto"
+          >
+        </UFormField>
+
+        <div v-if="photoPreviewUrl" class="flex justify-center">
+          <img
+            :src="photoPreviewUrl"
+            alt="Selected employee photo preview"
+            class="max-h-64 max-w-full rounded-md object-contain"
+          >
+        </div>
+        <p class="text-xs text-muted">
+          The image is stored privately in Attendance. HRIS employee profile data is not changed.
+        </p>
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <UButton color="neutral" variant="outline" :disabled="photoSaving" @click="showPhotoModal = false">
+          Cancel
+        </UButton>
+        <UButton color="primary" icon="i-lucide-upload" :loading="photoSaving" :disabled="!photoFile" @click="savePhoto">
+          Save photo
+        </UButton>
+      </div>
+    </template>
+  </UModal>
+
+  <UModal v-model:open="showPhotoViewModal" title="Employee photo" :ui="{ content: 'sm:max-w-xl' }">
+    <template #body>
+      <div class="space-y-4">
+        <div v-if="photoViewTarget" class="rounded-md border border-default p-3">
+          <p class="font-medium">{{ photoViewTarget.full_name ?? 'Name unavailable' }}</p>
+          <p class="text-xs text-muted">
+            Employee ID {{ photoViewTarget.employee_id }} · NIK {{ photoViewTarget.nik || '—' }}
+          </p>
+        </div>
+
+        <div
+          v-if="photoViewLoading"
+          class="flex min-h-72 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-default bg-elevated/30"
+          role="status"
+        >
+          <UIcon name="i-lucide-loader-circle" class="size-7 animate-spin text-primary" />
+          <p class="text-sm text-muted">Loading photo securely…</p>
+        </div>
+
+        <UAlert
+          v-else-if="photoViewError"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="Photo unavailable"
+          :description="photoViewError"
+        />
+
+        <div
+          v-else-if="photoViewUrl"
+          class="flex min-h-72 items-center justify-center overflow-hidden rounded-lg border border-default bg-elevated/30 p-3"
+        >
+          <img
+            :src="photoViewUrl"
+            :alt="`Employee photo for ${photoViewTarget?.full_name || photoViewTarget?.employee_id || 'employee'}`"
+            class="max-h-[65vh] max-w-full rounded-md object-contain"
+          >
+        </div>
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex w-full justify-between gap-2">
+        <UButton
+          v-if="canManageEmployeePhotos && photoViewTarget"
+          color="primary"
+          variant="outline"
+          icon="i-lucide-refresh-cw"
+          @click="replacePhotoFromView"
+        >
+          Replace photo
+        </UButton>
+        <span v-else />
+        <UButton color="neutral" variant="outline" @click="showPhotoViewModal = false">
+          Close
         </UButton>
       </div>
     </template>
