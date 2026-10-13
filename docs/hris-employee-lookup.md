@@ -9,6 +9,8 @@ does not copy or persist the returned employee data.
 ```http
 GET /api/v1/employees/hris?page=1&per_page=25&search=treasury&work_location=Jakarta&work_area=Head%20Office
 GET /api/v1/employees/hris/by-nik/{16-digit-NIK}
+POST /api/v1/employees/hris/{employee-id}/photo (multipart: employee_id, nik?, photo)
+GET /api/v1/employees/hris/{employee-id}/photo?nik={16-digit-NIK}
 GET /api/v1/employees/hris/{16-digit-NIK}/work-locations
 PUT /api/v1/employees/hris/{16-digit-NIK}/work-locations
 GET /api/v1/employee-work-locations/options
@@ -53,6 +55,23 @@ assignment are stored locally; HRIS profile fields are not copied and no
 Attendance employee record is created. If no matching local Attendance
 employee exists, the API returns `409` and does not create one.
 
+The Person List's Photo column is backed by `employee_photo_references`, a
+local Attendance table keyed by HRIS employee ID and optional verified NIK.
+This photo mapping is independent of the Attendance `employees` table, so a
+Person List employee does not need a local attendance profile. The list API
+returns only `photo_available`, matched by HRIS employee ID or NIK; if those
+identifiers resolve to different photo mappings, it reports no photo rather
+than selecting one ambiguously. HRIS remains unchanged. A user with
+`employees.update` can upload or replace a JPG, PNG, or WEBP image (maximum
+5 MB) using the photo endpoint; Attendance verifies the HRIS identity and
+stores the image on its private filesystem disk. The endpoint returns only
+`photo_available`, never the private path. Users with `employees.view` can
+view an existing photo through the protected photo GET endpoint; it streams
+the image from Attendance's private disk with private/no-store cache headers.
+The optional NIK allows a stored photo mapping to remain viewable if the HRIS
+employee ID changes, and conflicting ID/NIK mappings are rejected. Photo
+retrieval does not call HRIS. OCR and Face ID are not part of this integration.
+
 The Employee Attendance report's Add Record form searches this HRIS person list,
 then loads only the selected person's active Attendance work-location
 assignments by NIK. The create request resolves the HRIS employee ID/NIK to an
@@ -85,7 +104,9 @@ unexpected upstream response returns `502`. The endpoints are rate limited
 to 30 requests per minute.
 
 Employee lookup and listing do not write to Attendance's `employees` table or
-modify attendance records. Saving a geofence assignment may set the verified
-NIK on an already-existing local Attendance employee as its identity mapping.
+modify attendance records. Saving an employee photo writes only its local
+`employee_photo_references` identity mapping and private file. Saving a
+geofence assignment may set the verified NIK on an already-existing local
+Attendance employee as its identity mapping.
 HRIS response availability is required for each lookup; there is intentionally
 no stale cache or fallback to local employee records.
