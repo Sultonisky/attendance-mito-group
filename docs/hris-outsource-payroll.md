@@ -38,3 +38,7 @@ local payroll fallback is used.
 Configure the same dedicated token in HRIS as `HRIS_OUTSOURCE_PAYROLL_API_TOKEN`
 and make sure the HRIS payroll API has been deployed before enabling the
 Attendance UI.
+
+Incentive records include `incentive_pokok_amount`, `incentive_amount`, and
+`total_amount`. Attendance requires these numeric fields from HRIS and displays
+the base incentive, additional incentive, and total respectively.
