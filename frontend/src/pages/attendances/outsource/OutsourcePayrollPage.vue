@@ -235,12 +235,16 @@ onUnmounted(() => {
             </div>
             <dl class="os-payroll__lines">
               <div>
-                <dt>UMK</dt>
-                <dd>{{ formatCurrency(item.umk_amount) }}</dd>
+                <dt>Insentif Pokok</dt>
+                <dd>{{ formatCurrency(item.incentive_pokok_amount) }}</dd>
               </div>
-              <div class="os-payroll__total">
+              <div>
                 <dt>Insentif</dt>
                 <dd>{{ formatCurrency(item.incentive_amount) }}</dd>
+              </div>
+              <div class="os-payroll__total">
+                <dt>Total Insentif</dt>
+                <dd>{{ formatCurrency(item.total_amount) }}</dd>
               </div>
             </dl>
           </article>

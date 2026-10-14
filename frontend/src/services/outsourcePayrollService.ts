@@ -17,8 +17,9 @@ export interface OutsourceIncentive {
   outsource_id: string
   full_name: string | null
   vendor: string | null
-  umk_amount: number
+  incentive_pokok_amount: number
   incentive_amount: number
+  total_amount: number
 }
 
 interface OutsourcePayrollResponse<T> {
