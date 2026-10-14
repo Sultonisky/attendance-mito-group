@@ -123,16 +123,18 @@ class OutsourcePayrollApiTest extends TestCase
                     'outsource_id' => 'DM20260001',
                     'full_name' => 'Worker One',
                     'vendor' => 'Damarindo',
-                    'umk_amount' => 0,
+                    'incentive_pokok_amount' => 1000000,
                     'incentive_amount' => 1250000,
+                    'total_amount' => 2250000,
                 ]],
             ], 200),
         ]);
 
         $this->getAsOutsource($cookie, '/api/v1/outsource/payroll/incentives')
             ->assertOk()
-            ->assertJsonPath('data.0.umk_amount', 0)
-            ->assertJsonPath('data.0.incentive_amount', 1250000);
+            ->assertJsonPath('data.0.incentive_pokok_amount', 1000000)
+            ->assertJsonPath('data.0.incentive_amount', 1250000)
+            ->assertJsonPath('data.0.total_amount', 2250000);
 
         Http::assertSent(fn (Request $request): bool =>
             str_contains($request->url(), '/api/v1/outsource/DM20260001/incentives')
