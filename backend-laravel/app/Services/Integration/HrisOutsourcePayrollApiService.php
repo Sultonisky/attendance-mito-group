@@ -24,13 +24,14 @@ class HrisOutsourcePayrollApiService
     }
 
     /**
-     * @return list<array{period: string, outsource_id: string, full_name: string|null, vendor: string|null, umk_amount: int|float, incentive_amount: int|float}>
+     * @return list<array{period: string, outsource_id: string, full_name: string|null, vendor: string|null, incentive_pokok_amount: int|float, incentive_amount: int|float, total_amount: int|float}>
      */
     public function incentives(string $outsourceId, ?string $period = null): array
     {
         return $this->fetch($outsourceId, 'incentives', $period, [
-            'umk_amount',
+            'incentive_pokok_amount',
             'incentive_amount',
+            'total_amount',
         ]);
     }
 
