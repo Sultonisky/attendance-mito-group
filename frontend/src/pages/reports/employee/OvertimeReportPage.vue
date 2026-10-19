@@ -3,19 +3,20 @@ import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { TableColumn } from '@nuxt/ui'
 import type { ColumnFiltersState, VisibilityState } from '@tanstack/vue-table'
-import { useReportPage } from '../../composables/useReportPage'
-import { useDataTableSort } from '../../composables/useDataTableSort'
-import { useDataTableDisplay } from '../../composables/useDataTableDisplay'
-import { useAppToast } from '../../composables/useAppToast'
-import { fetchOvertimeReport } from '../../services/reports/overtimeReportApi'
-import { approveOvertimeRequest, cancelOvertimeRequest, rejectOvertimeRequest } from '../../services/adminCrudApi'
-import ReportDataToolbar from '../../components/ReportDataToolbar.vue'
-import DataTableToolbar from '../../components/DataTableToolbar.vue'
-import DataTable from '../../components/DataTable.vue'
-import AdminRowActions, { type AdminRowAction } from '../../components/AdminRowActions.vue'
-import { createSortableHeader, createStatusBadge } from '../../utils/dataTable'
-import type { OvertimeReportRow } from '../../types/reports'
-import { defaultReportDates } from '../../types/reportDates'
+import { useReportPage } from '../../../composables/useReportPage'
+import { useDataTableSort } from '../../../composables/useDataTableSort'
+import { useDataTableDisplay } from '../../../composables/useDataTableDisplay'
+import { useAppToast } from '../../../composables/useAppToast'
+import { fetchOvertimeReport } from '../../../services/reports/overtimeReportApi'
+import { approveOvertimeRequest, cancelOvertimeRequest, rejectOvertimeRequest } from '../../../services/adminCrudApi'
+import ReportDataToolbar from '../../../components/ReportDataToolbar.vue'
+import DataTableToolbar from '../../../components/DataTableToolbar.vue'
+import DataTable from '../../../components/DataTable.vue'
+import DashboardNavbarTitle from '../../../components/DashboardNavbarTitle.vue'
+import AdminRowActions, { type AdminRowAction } from '../../../components/AdminRowActions.vue'
+import { createSortableHeader, createStatusBadge } from '../../../utils/dataTable'
+import type { OvertimeReportRow } from '../../../types/reports'
+import { defaultReportDates } from '../../../types/reportDates'
 
 const route = useRoute()
 const { loading, error, filterError, meta, clearErrors, handleApiError, applyMeta, goToPage } = useReportPage()
@@ -240,7 +241,10 @@ onMounted(async () => {
 <template>
   <UDashboardPanel id="overtime-report">
     <template #header>
-      <UDashboardNavbar title="Overtime">
+      <UDashboardNavbar>
+        <template #title>
+          <DashboardNavbarTitle />
+        </template>
         <template #leading><UDashboardSidebarCollapse /></template>
         <template #right>
           <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-refresh-cw" :loading="loading" @click="load">

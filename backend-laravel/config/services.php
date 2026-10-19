@@ -59,6 +59,7 @@ return [
         'outsource_payroll_api_token' => env('HRIS_OUTSOURCE_PAYROLL_API_TOKEN'),
         'outsource_sync_api_token' => env('HRIS_OUTSOURCE_SYNC_API_TOKEN'),
         'outsource_push_api_token' => env('ATTENDANCE_OUTSOURCE_PUSH_API_TOKEN'),
+        'employee_api_token' => env('HRIS_API_TOKEN'),
         'timeout' => (int) env('HRIS_API_TIMEOUT', 8),
     ],
 
