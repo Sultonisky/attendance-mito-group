@@ -1,4 +1,7 @@
-FROM node:24-bookworm AS frontend
+FROM node:24.22.1-bookworm AS frontend
+
+# Node2Shell (CVE-2026-111497). Same patch as MITO HRIS.
+RUN node -p "process.versions.node" | grep -qx "24.22.1"
 
 WORKDIR /build/frontend
 
@@ -16,7 +19,10 @@ ENV VITE_GPS_MAX_ACCURACY_METERS=${VITE_GPS_MAX_ACCURACY_METERS}
 RUN npm run build
 
 
-FROM php:8.3-cli-bookworm AS composer
+FROM php:8.4.27-cli-bookworm AS composer
+
+# PHP2Shell (CVE-2026-109618, CVE-2026-109619). Same patch as MITO HRIS.
+RUN php -r "exit(PHP_VERSION === '8.4.27' ? 0 : 1);"
 
 RUN apt-get update && apt-get install -y \
     unzip \
@@ -54,7 +60,10 @@ RUN composer install \
     --no-scripts
 
 
-FROM php:8.3-fpm-bookworm
+FROM php:8.4.27-fpm-bookworm
+
+# PHP2Shell (CVE-2026-109618, CVE-2026-109619). Same patch as MITO HRIS.
+RUN php -r "exit(PHP_VERSION === '8.4.27' ? 0 : 1);"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
