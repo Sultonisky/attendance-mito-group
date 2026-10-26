@@ -482,7 +482,8 @@ Every protected operation must be authorized on the backend.
 | Component              | Technology           |
 | ---------------------- | -------------------- |
 | Backend                | Laravel 13           |
-| PHP                    | 8.3+                 |
+| PHP                    | 8.4.27               |
+| Node.js                | 24.22.1              |
 | Frontend               | Vue 3                |
 | Build Tool             | Vite                 |
 | API                    | REST / JSON          |
