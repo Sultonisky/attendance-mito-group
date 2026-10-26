@@ -426,7 +426,7 @@ This checklist is project-wide and is not organized as implementation phases.
 - [ ] No unnecessary packages.
 - [ ] No `--ignore-platform-reqs`.
 - [ ] PHPUnit baseline remains compatible.
-- [ ] Pest is not forced into PHP 8.3/Pest 5 incompatibility.
+- [ ] PHPUnit remains the baseline on PHP 8.4.27. Pest is not adopted unless explicitly requested.
 
 ---
 

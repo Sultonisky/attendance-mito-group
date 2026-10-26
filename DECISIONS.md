@@ -186,18 +186,15 @@ must be determined by Laravel.
 
 ### Decision
 
-PHPUnit is the baseline test framework while the environment remains:
+PHPUnit remains the baseline test framework.
 
-PHP 8.3
-Laravel 13
+The runtime is PHP 8.4.27 and Node.js 24.22.1, the same patches as MITO HRIS.
 
 ### Reason
 
-Pest 5 requires PHP 8.4+.
+The runtime bump is for the PHP2Shell and Node2Shell patches. It does not change the test runner.
 
-The project must not force an incompatible dependency merely to use Pest.
-
-If PHP is upgraded later, Pest compatibility may be reconsidered.
+Pest stays out of the suite unless that change is explicitly requested.
 
 ## ADR-012 — PostGIS Must Be Installed Server-Side
 

@@ -27,9 +27,9 @@ Ports may be changed if required, but documentation and environment configuratio
 
 Required:
 
-PHP 8.3+
+PHP 8.4.27
 Composer
-Node.js
+Node.js 24.22.1
 npm
 PostgreSQL 17
 PostGIS
@@ -473,16 +473,13 @@ Both require `auth:sanctum` and return JSON per `API-CONTRACT.md`.
 
 Current baseline:
 
-PHP 8.3
+PHP 8.4.27
+Node.js 24.22.1
 Laravel 13
 
-Important:
+These patch versions match MITO HRIS.
 
-Pest 5 requires PHP 8.4+.
-
-Therefore do not force Pest 5 into the current PHP 8.3 environment.
-
-Use PHPUnit as the baseline unless the PHP runtime is upgraded and dependency compatibility is verified.
+PHPUnit remains the baseline test runner. Do not switch the suite to Pest unless that change is explicitly requested.
 
 Never use:
 
