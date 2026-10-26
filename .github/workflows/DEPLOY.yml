@@ -186,6 +186,14 @@ jobs:
             sleep 5
           done
 
+          echo "==> Verifying PHP 8.4.27"
+          PHP_RUNTIME="$(docker compose exec -T attendance php -r 'echo PHP_VERSION;' </dev/null | tr -d '\r')"
+          echo "attendance PHP CLI ${PHP_RUNTIME}"
+          test "${PHP_RUNTIME}" = "8.4.27"
+          FPM_RUNTIME="$(docker compose exec -T attendance php-fpm -v </dev/null 2>&1 | awk 'NR==1 { print $2 }' | tr -d '\r')"
+          echo "attendance PHP FPM ${FPM_RUNTIME}"
+          test "${FPM_RUNTIME}" = "8.4.27"
+
           echo "==> Verifying mito:maintenance shipped in this image"
           if docker compose exec -T attendance \
             test -f /var/www/html/app/Console/Commands/MitoMaintenanceCommand.php </dev/null \
