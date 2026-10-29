@@ -24,22 +24,26 @@ class HrisOutsourcePayrollApiService
     }
 
     /**
-     * @return list<array{period: string, outsource_id: string, full_name: string|null, vendor: string|null, incentive_pokok_amount: int|float, incentive_amount: int|float, total_amount: int|float}>
+     * @return list<array{period: string, outsource_id: string, full_name: string|null, vendor: string|null, incentive_pokok_amount: int|float, incentive_amount: int|float, promotor_product_race_amount: int|float, total_amount: int|float}>
      */
     public function incentives(string $outsourceId, ?string $period = null): array
     {
         return $this->fetch($outsourceId, 'incentives', $period, [
             'incentive_pokok_amount',
             'incentive_amount',
+            'promotor_product_race_amount',
             'total_amount',
+        ], [
+            'promotor_product_race_amount' => 0,
         ]);
     }
 
     /**
      * @param  list<string>  $amountFields
+     * @param  array<string, int|float>  $missingAmountDefaults
      * @return list<array<string, string|int|float|null>>
      */
-    private function fetch(string $outsourceId, string $resource, ?string $period, array $amountFields): array
+    private function fetch(string $outsourceId, string $resource, ?string $period, array $amountFields, array $missingAmountDefaults = []): array
     {
         $baseUrl = rtrim((string) config('services.hris.base_url', ''), '/');
         $token = (string) config('services.hris.outsource_payroll_api_token', '');
@@ -98,6 +102,13 @@ class HrisOutsourcePayrollApiService
 
         $records = [];
         foreach ($payload['data'] as $record) {
+            if (is_array($record)) {
+                foreach ($missingAmountDefaults as $field => $default) {
+                    if (! array_key_exists($field, $record) || $record[$field] === null) {
+                        $record[$field] = $default;
+                    }
+                }
+            }
             if (! is_array($record) || ! $this->hasValidRecord($record, $outsourceId, $amountFields)) {
                 Log::warning('HRIS outsource payroll API returned an invalid record.', ['path' => $path]);
 
