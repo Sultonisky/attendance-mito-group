@@ -19,6 +19,7 @@ export interface OutsourceIncentive {
   vendor: string | null
   incentive_pokok_amount: number
   incentive_amount: number
+  promotor_product_race_amount: number
   total_amount: number
 }
 

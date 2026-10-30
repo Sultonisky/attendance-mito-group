@@ -125,6 +125,7 @@ class OutsourcePayrollApiTest extends TestCase
                     'vendor' => 'Damarindo',
                     'incentive_pokok_amount' => 1000000,
                     'incentive_amount' => 1250000,
+                    'promotor_product_race_amount' => 400000,
                     'total_amount' => 2250000,
                 ]],
             ], 200),
@@ -134,12 +135,53 @@ class OutsourcePayrollApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.incentive_pokok_amount', 1000000)
             ->assertJsonPath('data.0.incentive_amount', 1250000)
+            ->assertJsonPath('data.0.promotor_product_race_amount', 400000)
             ->assertJsonPath('data.0.total_amount', 2250000);
 
         Http::assertSent(fn (Request $request): bool =>
             str_contains($request->url(), '/api/v1/outsource/DM20260001/incentives')
             && $request->hasHeader('Authorization', 'Bearer '.self::HRIS_TOKEN)
         );
+    }
+
+    public function test_incentive_endpoint_defaults_a_missing_promotor_product_race_amount(): void
+    {
+        $outsource = $this->createAssignedOutsource();
+        $cookie = $this->loginCookie($outsource);
+
+        Http::fake([
+            'https://hris.example.test/api/v1/outsource/DM20260001/incentives*' => Http::response([
+                'success' => true,
+                'outsource_id' => 'DM20260001',
+                'data' => [[
+                    'period' => '2026-08',
+                    'outsource_id' => 'DM20260001',
+                    'full_name' => 'Worker One',
+                    'vendor' => 'Damarindo',
+                    'incentive_pokok_amount' => 900000,
+                    'incentive_amount' => 1000000,
+                    'total_amount' => 1900000,
+                ], [
+                    'period' => '2026-07',
+                    'outsource_id' => 'DM20260001',
+                    'full_name' => 'Worker One',
+                    'vendor' => 'Damarindo',
+                    'incentive_pokok_amount' => 800000,
+                    'incentive_amount' => 700000,
+                    'promotor_product_race_amount' => null,
+                    'total_amount' => 1500000,
+                ]],
+            ], 200),
+        ]);
+
+        $this->getAsOutsource($cookie, '/api/v1/outsource/payroll/incentives')
+            ->assertOk()
+            ->assertJsonPath('data.0.promotor_product_race_amount', 0)
+            ->assertJsonPath('data.0.incentive_pokok_amount', 900000)
+            ->assertJsonPath('data.0.total_amount', 1900000)
+            ->assertJsonPath('data.1.promotor_product_race_amount', 0)
+            ->assertJsonPath('data.1.incentive_amount', 700000)
+            ->assertJsonPath('data.1.total_amount', 1500000);
     }
 
     public function test_payroll_endpoints_require_the_active_outsource_session(): void

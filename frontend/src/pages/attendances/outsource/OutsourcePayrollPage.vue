@@ -242,6 +242,10 @@ onUnmounted(() => {
                 <dt>Insentif</dt>
                 <dd>{{ formatCurrency(item.incentive_amount) }}</dd>
               </div>
+              <div>
+                <dt>Promotor &amp; Product Race</dt>
+                <dd>{{ formatCurrency(item.promotor_product_race_amount) }}</dd>
+              </div>
               <div class="os-payroll__total">
                 <dt>Total Insentif</dt>
                 <dd>{{ formatCurrency(item.total_amount) }}</dd>
