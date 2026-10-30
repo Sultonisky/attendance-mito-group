@@ -634,12 +634,13 @@ Critical database behavior tests
 
 Current environment:
 
-PHP 8.3
+PHP 8.4.27
+Node.js 24.22.1
 Laravel 13
 
-Do not force Pest 5 into this environment because Pest 5 requires PHP 8.4+.
+These patch versions match MITO HRIS and include the PHP2Shell and Node2Shell fixes.
 
-PHPUnit is the baseline test runner unless the PHP environment is upgraded and compatibility is explicitly verified.
+PHPUnit remains the baseline test runner. Do not switch the suite to Pest unless that change is explicitly requested.
 
 ## 20. DEPENDENCY RULE
 

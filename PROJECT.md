@@ -70,7 +70,8 @@ Frontend communicates with Laravel through REST/JSON APIs.
 
 Backend
 Laravel 13
-PHP 8.3+
+PHP 8.4.27
+Node.js 24.22.1
 Laravel Sanctum
 Spatie Laravel Permission
 
